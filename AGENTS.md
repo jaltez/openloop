@@ -1,4 +1,4 @@
-# Openloop App Rules
+# OpenLoop App Rules
 
 ## Purpose
 
@@ -6,7 +6,7 @@ This repository builds `openloop`, a global CLI and daemon for unattended Pi-dri
 
 ## Product Boundaries
 
-Openloop itself is not a target project.
+OpenLoop itself is not a target project.
 
 Its responsibility is to:
 

@@ -1,8 +1,8 @@
-# Openloop
+# OpenLoop
 
-**Ship while you sleep.** Openloop turns [Pi](https://pi.dev) into a tireless developer that works across all your repositories — planning tasks, writing code, running validations, and promoting changes — on a loop, without manual intervention.
+**Ship while you sleep.** OpenLoop turns [Pi](https://pi.dev) into a tireless developer that works across all your repositories — planning tasks, writing code, running validations, and promoting changes — on a loop, without manual intervention.
 
-One CLI. One daemon. Every linked repo gets its own control plane, task ledger, and safety policy. You define the work; Openloop handles the rest.
+One CLI. One daemon. Every linked repo gets its own control plane, task ledger, and safety policy. You define the work; OpenLoop handles the rest.
 
 ## Quick Start
 
@@ -27,7 +27,7 @@ You can also split the two steps (`project add` then `project init`) if you want
 
 ### 3. Configure validation (recommended)
 
-Openloop auto-detects lint, test, and typecheck commands from `package.json` during `init`. Verify they look right:
+OpenLoop auto-detects lint, test, and typecheck commands from `package.json` during `init`. Verify they look right:
 
 ```bash
 openloop config project-show myapp
@@ -102,7 +102,7 @@ npm run build     # build CLI
 
 ## How It Works
 
-Openloop cycles through three modes automatically:
+OpenLoop cycles through three modes automatically:
 
 1. **Active development** — picks the next eligible task, runs Pi with a role-specific prompt, validates the output, and decides whether to auto-merge or create a review branch.
 2. **Self-healing** — detects and fixes lint errors, type errors, and localized test failures without being asked.

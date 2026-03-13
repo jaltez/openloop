@@ -2,6 +2,20 @@
   "name": "openloop",
   "version": "0.1.0",
   "description": "Global CLI and service for unattended Pi-driven development across linked repositories.",
+  "author": "Javier Altez",
+  "license": "MIT",
+  "keywords": [
+    "ai",
+    "agent",
+    "cli",
+    "daemon",
+    "pi",
+    "codegen",
+    "automation",
+    "autonomous",
+    "development",
+    "agent"
+  ],
   "type": "module",
   "bin": {
     "openloop": "dist/index.js"
