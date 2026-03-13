@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openloop.local/tasks.schema.json",
+  "title": "Openloop Task Ledger",
+  "type": "object",
+  "required": ["version", "updatedAt", "tasks"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": ["object", "null"],
+            "properties": {
+              "paths": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "promotedAt": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          },
+          "lastRun": {
+            "type": "object",
+            "required": [
+              "completedAt",
+              "mode",
+              "piExitCode",
+              "outcome",
+              "validation",
+              "promotionDecision",
+              "effectivePromotionMode"
+            ],
+            "properties": {
+              "completedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "baseBranch": {
+                "type": ["string", "null"]
+              },
+              "mode": {
+                "type": "string",
+                "enum": ["implement", "plan"]
+              },
+              "piExitCode": {
+                "type": ["integer", "null"]
+              },
+              "outcome": {
+                "type": "string",
+                "enum": ["planned", "completed", "validation-failed", "pi-failed", "error"]
+              },
+              "validation": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["name", "command", "exitCode"],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "enum": ["lint", "test", "typecheck"]
+                    },
+                    "command": {
+                      "type": "string"
+                    },
+                    "exitCode": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              },
+              "promotionDecision": {
+                "type": "string",
+                "enum": ["none", "auto-merge-eligible", "manual-review", "blocked"]
+              },
+              "promotionAction": {
+                "type": "string",
+                "enum": ["none", "queue-auto-merge", "queue-review", "block"]
+              },
+              "effectivePromotionMode": {
+                "type": "string",
+                "enum": ["auto-merge", "pull-request", "manual-only"]
+              },
+              "promotionArtifactPath": {
+                "type": ["string", "null"]
+              },
+              "promotionArtifactState": {
+                "type": "string",
+                "enum": ["pending", "applied", "rejected"]
+              },
+              "promotionResultArtifactPath": {
+                "type": ["string", "null"]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

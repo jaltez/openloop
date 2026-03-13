@@ -1,0 +1,39 @@
+{
+  "name": "openloop",
+  "version": "0.1.0",
+  "description": "Global CLI and service for unattended Pi-driven development across linked repositories.",
+  "type": "module",
+  "bin": {
+    "openloop": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "templates/project",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "tsc --noEmit",
+    "prepack": "npm run build",
+    "release:verify": "node scripts/release-verify.mjs",
+    "release:pack": "npm run release:verify && npm pack"
+  },
+  "dependencies": {
+    "yaml": "^2.8.1",
+    "yargs": "^17.7.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.14",
+    "@types/yargs": "^17.0.33",
+    "tsup": "^8.4.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.9"
+  }
+}

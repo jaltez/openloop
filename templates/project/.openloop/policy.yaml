@@ -1,0 +1,30 @@
+version: 1
+
+scope:
+  allowGlobs: []
+  denyGlobs: []
+  highRiskAreas: []
+
+riskClasses:
+  low-risk:
+    autoMergeAllowed: true
+    requiresHumanReview: false
+  medium-risk:
+    autoMergeAllowed: false
+    requiresHumanReview: true
+  high-risk:
+    autoMergeAllowed: false
+    requiresHumanReview: true
+
+selfHealing:
+  enabled: true
+  allowedTaskKinds:
+    - lint-fix
+    - type-fix
+    - localized-test-fix
+
+
+promotion:
+  lowRiskMode: auto-merge
+  mediumRiskMode: pull-request
+  highRiskMode: pull-request

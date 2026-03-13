@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "project": {
+    "alias": null,
+    "repoRoot": null,
+    "initializedAt": null
+  },
+  "pi": {
+    "model": null,
+    "promptFiles": [
+      ".agents/skills/openloop/SKILL.md",
+      ".pi/SYSTEM.md",
+      ".pi/APPEND_SYSTEM.md"
+    ]
+  },
+  "runtime": {
+    "autoCommit": true,
+    "useWorktree": false,
+    "branchPrefix": "openloop/"
+  },
+  "validation": {
+    "lintCommand": null,
+    "testCommand": null,
+    "typecheckCommand": null
+  },
+  "risk": {
+    "defaultUnknownAreaClassification": "medium-risk",
+    "requirePolicyForAutoMerge": true
+  }
+}
