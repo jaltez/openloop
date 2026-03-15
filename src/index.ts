@@ -2,6 +2,7 @@ import { hideBin } from "yargs/helpers";
 import yargs from "yargs/yargs";
 import { registerDaemonCommands } from "./cli/commands/service.js";
 import { registerConfigCommands } from "./cli/commands/config.js";
+import { registerLogsCommands } from "./cli/commands/logs.js";
 import { registerProjectCommands } from "./cli/commands/project.js";
 import { registerPromotionCommands } from "./cli/commands/promotion.js";
 import { registerRunCommands } from "./cli/commands/run.js";
@@ -19,6 +20,7 @@ async function main(): Promise<void> {
   registerPromotionCommands(cli);
   registerConfigCommands(cli);
   registerDaemonCommands(cli);
+  registerLogsCommands(cli);
   registerRunCommands(cli);
   registerRuntimeCommands(cli);
   registerTaskCommands(cli);

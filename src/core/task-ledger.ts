@@ -30,6 +30,9 @@ export async function saveTaskLedger(projectPath: string, ledger: TaskLedger): P
 
 export async function addTask(projectPath: string, task: ProjectTask): Promise<void> {
   const ledger = await loadTaskLedger(projectPath);
+  if (ledger.tasks.some((existing) => existing.id === task.id)) {
+    task.id = `${task.id}-${Date.now()}`;
+  }
   ledger.tasks.push(task);
   await saveTaskLedger(projectPath, ledger);
 }
@@ -92,4 +95,34 @@ export function summarizeQueue(ledger: TaskLedger): { queueSize: number; blocked
     queueSize: ledger.tasks.filter((task) => ["proposed", "planned", "ready", "in_progress"].includes(task.status)).length,
     blockedTasks: ledger.tasks.filter((task) => task.status === "blocked").length,
   };
+}
+
+export async function updateTask(
+  projectPath: string,
+  taskId: string,
+  patch: Partial<Pick<ProjectTask, "title" | "status" | "risk" | "kind" | "scope">>,
+): Promise<ProjectTask> {
+  const ledger = await loadTaskLedger(projectPath);
+  const task = ledger.tasks.find((candidate) => candidate.id === taskId);
+  if (!task) {
+    throw new Error(`Unknown task id: ${taskId}`);
+  }
+  if (patch.title !== undefined) task.title = patch.title;
+  if (patch.status !== undefined) task.status = patch.status;
+  if (patch.risk !== undefined) task.risk = patch.risk;
+  if (patch.kind !== undefined) task.kind = patch.kind;
+  if (patch.scope !== undefined) task.scope = patch.scope;
+  task.updatedAt = new Date().toISOString();
+  await saveTaskLedger(projectPath, ledger);
+  return task;
+}
+
+export async function removeTask(projectPath: string, taskId: string): Promise<void> {
+  const ledger = await loadTaskLedger(projectPath);
+  const index = ledger.tasks.findIndex((candidate) => candidate.id === taskId);
+  if (index === -1) {
+    throw new Error(`Unknown task id: ${taskId}`);
+  }
+  ledger.tasks.splice(index, 1);
+  await saveTaskLedger(projectPath, ledger);
 }

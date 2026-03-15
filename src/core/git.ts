@@ -13,8 +13,8 @@ export async function ensureCleanGitRepo(projectPath: string): Promise<void> {
 }
 
 export async function checkoutHandoffBranch(projectPath: string, branchName: string): Promise<void> {
+  await ensureCleanGitRepo(projectPath);
   if (await branchExists(projectPath, branchName)) {
-    await ensureCleanGitRepo(projectPath);
     await runGit(projectPath, ["checkout", branchName]);
     return;
   }

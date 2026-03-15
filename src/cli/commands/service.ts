@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import { spawn } from "node:child_process";
 import type { Argv } from "yargs";
 import { createDefaultDaemonState, pauseDaemon, resumeDaemon } from "../../core/daemon-state.js";
@@ -82,6 +83,17 @@ export function registerDaemonCommands(cli: Argv): void {
           const state = await resumeDaemon();
           console.log(JSON.stringify({ paused: state.paused, pausedAt: state.pausedAt }, null, 2));
         })
+        .command("run", "Run the daemon in the foreground (for debugging or process managers)", () => {}, async () => {
+          const inspection = await inspectDaemonProcess();
+          if (inspection.state === "running") {
+            throw new Error("Daemon appears to be running already. Stop it first with 'service stop'.");
+          }
+          if (inspection.state === "stale") {
+            await clearStaleDaemonPidFile();
+          }
+          console.log("Starting daemon in foreground mode. Press Ctrl+C to stop.");
+          await startWorkerLoop();
+        })
         .demandCommand(),
   );
 
@@ -151,13 +163,19 @@ function isProcessAlive(pid: number): boolean {
 }
 
 async function isLikelyOpenloopDaemon(pid: number): Promise<boolean> {
-  if (process.platform !== "linux") {
-    return true;
-  }
-
   try {
-    const cmdline = (await fs.readFile(`/proc/${pid}/cmdline`, "utf8")).replace(/\0/g, " ").trim();
-    return cmdline.includes("daemon worker");
+    if (process.platform === "linux") {
+      const cmdline = (await fs.readFile(`/proc/${pid}/cmdline`, "utf8")).replace(/\0/g, " ").trim();
+      return cmdline.includes("daemon worker");
+    }
+
+    if (process.platform === "darwin") {
+      const output = execFileSync("ps", ["-p", String(pid), "-o", "command="], { encoding: "utf8" }).trim();
+      return output.includes("daemon worker");
+    }
+
+    // Windows and other platforms: assume it's ours if the PID is alive
+    return true;
   } catch {
     return false;
   }

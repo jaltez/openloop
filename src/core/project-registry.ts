@@ -67,3 +67,13 @@ export async function projectExists(alias: string, appHomeOverride?: string): Pr
   const registry = await loadProjectsRegistry(appHomeOverride);
   return registry.projects.some((project) => project.alias === alias);
 }
+
+export async function removeProject(alias: string, appHomeOverride?: string): Promise<void> {
+  const registry = await loadProjectsRegistry(appHomeOverride);
+  const index = registry.projects.findIndex((project) => project.alias === alias);
+  if (index === -1) {
+    throw new Error(`Unknown project alias: ${alias}`);
+  }
+  registry.projects.splice(index, 1);
+  await saveProjectsRegistry(registry, appHomeOverride);
+}

@@ -1,6 +1,6 @@
 import type { Argv, ArgumentsCamelCase } from "yargs";
 import { getTaskInspection } from "../../core/task-inspection.js";
-import { addTask, listTasks, summarizeTasks } from "../../core/task-ledger.js";
+import { addTask, listTasks, summarizeTasks, updateTask, removeTask } from "../../core/task-ledger.js";
 import { getProject } from "../../core/project-registry.js";
 import type { ProjectTask } from "../../core/types.js";
 
@@ -36,8 +36,16 @@ export function registerTaskCommands(cli: Argv): void {
             command
               .option("project", { type: "string", demandOption: true })
               .option("title", { type: "string", demandOption: true })
-              .option("kind", { type: "string", default: "feature" })
-              .option("risk", { type: "string", default: "medium-risk" })
+              .option("kind", {
+                type: "string",
+                default: "feature",
+                choices: ["feature", "bugfix", "test", "refactor", "docs", "lint-fix", "type-fix", "localized-test-fix", "ci-heal", "discovery", "scope-proposal"] as const,
+              })
+              .option("risk", {
+                type: "string",
+                default: "medium-risk",
+                choices: ["low-risk", "medium-risk", "high-risk"] as const,
+              })
               .option("scope", { type: "array", string: true, describe: "Relative scope paths for policy enforcement" }),
           async (args: AddTaskArgs) => {
             const project = await getProject(String(args.project));
@@ -124,6 +132,45 @@ export function registerTaskCommands(cli: Argv): void {
             const project = await getProject(String(args.project));
             const task = await getTaskInspection(project.path, String(args.task));
             console.log(JSON.stringify(task, null, 2));
+          },
+        )
+        .command(
+          "update",
+          "Update a task in a linked project",
+          (command: Argv) =>
+            command
+              .option("project", { type: "string", demandOption: true })
+              .option("task", { type: "string", demandOption: true })
+              .option("title", { type: "string" })
+              .option("status", {
+                choices: ["proposed", "planned", "ready", "in_progress", "blocked", "done", "failed", "cancelled", "promoted"] as const,
+              })
+              .option("risk", { choices: ["low-risk", "medium-risk", "high-risk"] as const })
+              .option("kind", {
+                choices: ["feature", "bugfix", "test", "refactor", "docs", "lint-fix", "type-fix", "localized-test-fix", "ci-heal", "discovery", "scope-proposal"] as const,
+              }),
+          async (args) => {
+            const project = await getProject(String(args.project));
+            const patch: Record<string, unknown> = {};
+            if (args.title) patch.title = String(args.title);
+            if (args.status) patch.status = args.status;
+            if (args.risk) patch.risk = args.risk;
+            if (args.kind) patch.kind = args.kind;
+            const updated = await updateTask(project.path, String(args.task), patch);
+            console.log(`Updated task ${updated.id}`);
+          },
+        )
+        .command(
+          "remove",
+          "Remove a task from a linked project",
+          (command: Argv) =>
+            command
+              .option("project", { type: "string", demandOption: true })
+              .option("task", { type: "string", demandOption: true }),
+          async (args) => {
+            const project = await getProject(String(args.project));
+            await removeTask(project.path, String(args.task));
+            console.log(`Removed task ${String(args.task)} from ${project.alias}`);
           },
         )
         .demandCommand(),

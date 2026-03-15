@@ -10,6 +10,7 @@ import { writePromotionArtifact } from "./promotion-artifacts.js";
 import { writeRunSummary } from "./run-summaries.js";
 import { runConfiguredValidations, type ValidationRunner } from "./validation.js";
 import { SUPPORTED_SELF_HEALING_TASK_KINDS, type LinkedProject, type ProjectConfig, type ProjectPolicy, type ProjectTask, type PromotionArtifact, type SchedulerResult, type SchedulerSelection, type TaskLedger, type TaskRunSummary, type ValidationSummary, type WorkerRole } from "./types.js";
+import { getConfiguredValidationNames, hasAllRequiredAutoMergeValidations } from "./validation-utils.js";
 
 type PiRunner = (options: PiRunOptions) => Promise<number>;
 
@@ -305,7 +306,7 @@ export async function runProjectIteration(
       effectivePromotionMode,
       promotionAction,
       promotionArtifactPath,
-      promotionArtifactState: promotionArtifactPath ? "pending" : "pending",
+      promotionArtifactState: "pending",
       promotionResultArtifactPath: null,
     };
 
@@ -329,7 +330,7 @@ export async function runProjectIteration(
       promotedAt: task.promotedAt ?? null,
       stoppedBy,
       attemptNumber,
-      dirtyTreeDetected: beforeFingerprint === afterFingerprint,
+      dirtyTreeDetected: beforeFingerprint !== afterFingerprint,
       budgetSnapshotUsd: null,
     };
     await writeRunSummary(project.path, result);
@@ -378,7 +379,7 @@ export async function runProjectIteration(
       effectivePromotionMode,
       promotionAction,
       promotionArtifactPath,
-      promotionArtifactState: promotionArtifactPath ? "pending" : "pending",
+      promotionArtifactState: "pending",
       promotionResultArtifactPath: null,
     };
     task.updatedAt = new Date().toISOString();
@@ -400,7 +401,7 @@ export async function runProjectIteration(
       promotedAt: task.promotedAt ?? null,
       stoppedBy,
       attemptNumber,
-      dirtyTreeDetected: beforeFingerprint === afterFingerprint,
+      dirtyTreeDetected: beforeFingerprint !== afterFingerprint,
       budgetSnapshotUsd: null,
     });
     throw error;
@@ -558,29 +559,6 @@ function getPolicyPromotionMode(risk: ProjectTask["risk"], projectPolicy: Projec
     return projectPolicy.promotion.mediumRiskMode;
   }
   return projectPolicy.promotion.highRiskMode;
-}
-
-function hasAllRequiredAutoMergeValidations(validation: ValidationSummary[], projectConfig: ProjectConfig): boolean {
-  const requiredValidationNames = getConfiguredValidationNames(projectConfig);
-  if (requiredValidationNames.length === 0) {
-    return false;
-  }
-
-  return requiredValidationNames.every((name) => validation.some((item) => item.name === name && item.exitCode === 0));
-}
-
-function getConfiguredValidationNames(projectConfig: ProjectConfig): ValidationSummary["name"][] {
-  const configured: ValidationSummary["name"][] = [];
-  if (projectConfig.validation.lintCommand) {
-    configured.push("lint");
-  }
-  if (projectConfig.validation.testCommand) {
-    configured.push("test");
-  }
-  if (projectConfig.validation.typecheckCommand) {
-    configured.push("typecheck");
-  }
-  return configured;
 }
 
 function getSelfHealingBlock(task: ProjectTask, projectPolicy: ProjectPolicy): {

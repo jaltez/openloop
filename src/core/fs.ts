@@ -24,7 +24,12 @@ export async function readJsonFile<T>(filePath: string, fallback: T): Promise<T>
   }
 
   const raw = await fs.readFile(filePath, "utf8");
-  return JSON.parse(raw) as T;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    console.warn(`Warning: corrupt JSON in ${filePath}, using fallback.`);
+    return structuredClone(fallback);
+  }
 }
 
 export async function writeJsonFile(filePath: string, value: unknown): Promise<void> {

@@ -46,17 +46,17 @@ test("enqueue creates a proposed feature task from a ref", async () => {
   expect(ledger.tasks[0]?.owner).toBeNull();
 });
 
-test("pause and resume persist global daemon state via top-level commands", async () => {
+test("pause and resume persist global daemon state via service commands", async () => {
   const appHome = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-home-"));
   tempDirs.push(appHome);
   process.env.OPENLOOP_HOME = appHome;
 
-  await runCli(["pause"]);
+  await runCli(["service", "pause"]);
   let state = await loadDaemonState(appHome);
   expect(state.paused).toBe(true);
   expect(state.pausedAt).toBeTruthy();
 
-  await runCli(["resume"]);
+  await runCli(["service", "resume"]);
   state = await loadDaemonState(appHome);
   expect(state.paused).toBe(false);
   expect(state.pausedAt).toBeNull();
@@ -112,11 +112,11 @@ test("pause preserves pauseRequestedAt on current run and resume clears it", asy
     "utf8",
   );
 
-  await runCli(["pause"]);
+  await runCli(["service", "pause"]);
   let state = await loadDaemonState(appHome);
   expect(state.currentRun?.pauseRequestedAt).toBeTruthy();
 
-  await runCli(["resume"]);
+  await runCli(["service", "resume"]);
   state = await loadDaemonState(appHome);
   expect(state.currentRun?.pauseRequestedAt).toBeNull();
 });

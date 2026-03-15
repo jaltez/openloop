@@ -11,6 +11,7 @@ type RunArgs = ArgumentsCamelCase<{
 
 type RunOnceArgs = ArgumentsCamelCase<{
   project: string;
+  model?: string;
 }>;
 
 export function registerRunCommands(cli: Argv): void {
@@ -36,10 +37,15 @@ export function registerRunCommands(cli: Argv): void {
   cli.command(
     "run-once",
     "Run one scheduler iteration for a linked project",
-    (command: Argv) => command.option("project", { type: "string", demandOption: true }),
+    (command: Argv) =>
+      command
+        .option("project", { type: "string", demandOption: true })
+        .option("model", { type: "string", describe: "Override the Pi model for this run" }),
     async (args: RunOnceArgs) => {
       const project = await getProject(String(args.project));
-      const result = await runProjectIteration(project);
+      const result = await runProjectIteration(project, {
+        modelOverride: args.model ? String(args.model) : undefined,
+      });
       console.log(JSON.stringify(result, null, 2));
     },
   );

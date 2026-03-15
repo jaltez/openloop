@@ -6,7 +6,7 @@ import { pauseDaemon, saveDaemonState } from "../../src/core/daemon-state.js";
 import { saveGlobalConfig } from "../../src/core/global-config.js";
 import { addProject, markProjectInitialized } from "../../src/core/project-registry.js";
 import { runWorkerTick } from "../../src/daemon/worker.js";
-import type { DaemonState } from "../../src/core/types.js";
+
 
 const tempDirs: string[] = [];
 const originalOpenloopHome = process.env.OPENLOOP_HOME;

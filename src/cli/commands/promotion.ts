@@ -1,6 +1,6 @@
 import type { Argv, ArgumentsCamelCase } from "yargs";
 import { getProject } from "../../core/project-registry.js";
-import { applyPromotionArtifact, getPromotionDetail, getPromotionHistory, listPromotionArtifacts, listPromotionArtifactsForTask, updatePromotionArtifact } from "../../core/promotion-queue.js";
+import { applyPromotionArtifact, dryRunPromotionApply, getPromotionDetail, getPromotionHistory, listPromotionArtifacts, listPromotionArtifactsForTask, updatePromotionArtifact } from "../../core/promotion-queue.js";
 
 type PromotionListArgs = ArgumentsCamelCase<{
   project: string;
@@ -12,6 +12,7 @@ type PromotionUpdateArgs = ArgumentsCamelCase<{
   project: string;
   task: string;
   note?: string;
+  dryRun?: boolean;
 }>;
 
 type PromotionShowArgs = ArgumentsCamelCase<{
@@ -82,9 +83,19 @@ export function registerPromotionCommands(cli: Argv): void {
         .command(
           "apply",
           "Apply a pending promotion locally when supported",
-          (command: Argv) => command.option("project", { type: "string", demandOption: true }).option("task", { type: "string", demandOption: true }).option("note", { type: "string" }),
+          (command: Argv) =>
+            command
+              .option("project", { type: "string", demandOption: true })
+              .option("task", { type: "string", demandOption: true })
+              .option("note", { type: "string" })
+              .option("dry-run", { type: "boolean", default: false, describe: "Preview what would happen without executing" }),
           async (args: PromotionUpdateArgs) => {
             const project = await getProject(String(args.project));
+            if (args.dryRun) {
+              const preview = await dryRunPromotionApply(project.path, String(args.task));
+              console.log(JSON.stringify(preview, null, 2));
+              return;
+            }
             const item = await applyPromotionArtifact(project.path, String(args.task), args.note ? String(args.note) : undefined);
             console.log(JSON.stringify({ taskId: item.artifact.taskId, status: item.artifact.status, path: item.artifactPath, note: item.artifact.note }, null, 2));
           },

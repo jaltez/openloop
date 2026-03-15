@@ -34,6 +34,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check": "tsc --noEmit",
+    "lint": "eslint src/ tests/",
+    "format": "prettier --check .",
+    "format:fix": "prettier --write .",
     "prepack": "npm run build",
     "release:verify": "node scripts/release-verify.mjs",
     "release:pack": "npm run release:verify && npm pack"
@@ -43,11 +46,16 @@
     "yargs": "^17.7.2"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.4",
     "@types/node": "^22.13.14",
     "@types/yargs": "^17.0.33",
+    "eslint": "^9.39.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.1",
     "tsup": "^8.4.0",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2",
+    "typescript-eslint": "^8.57.0",
     "vitest": "^3.0.9"
   }
 }

@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { expect, test, vi } from "vitest";
+import { expect, test } from "vitest";
 import { runProjectIteration } from "../../src/core/scheduler.js";
 import type { LinkedProject, ProjectConfig, TaskLedger } from "../../src/core/types.js";
 

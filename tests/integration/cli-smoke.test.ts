@@ -33,8 +33,7 @@ test("openloop --help shows available commands", async () => {
   expect(result.stdout).toContain("task");
   expect(result.stdout).toContain("promotion");
   expect(result.stdout).toContain("enqueue");
-  expect(result.stdout).toContain("pause");
-  expect(result.stdout).toContain("resume");
+  expect(result.stdout).toContain("logs");
 });
 
 test("openloop project --help shows project subcommands", async () => {

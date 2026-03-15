@@ -5,7 +5,8 @@ import { checkoutBranch, checkoutHandoffBranch, ensureCleanGitRepo, getBranchHea
 import { loadProjectConfig } from "./project-config.js";
 import { listPromotionResultArtifacts, readPromotionResultArtifact, writePromotionResultArtifact } from "./promotion-artifacts.js";
 import { loadTaskLedger, saveTaskLedger } from "./task-ledger.js";
-import type { PromotionArtifact, PromotionArtifactStatus, ProjectTask, PromotionResultArtifact, TaskLedger } from "./types.js";
+import type { PromotionArtifact, PromotionArtifactStatus, ProjectTask, PromotionResultArtifact } from "./types.js";
+import { getConfiguredValidationNames } from "./validation-utils.js";
 
 export interface PromotionQueueItem {
   artifactPath: string;
@@ -133,6 +134,44 @@ export async function applyPromotionArtifact(projectPath: string, taskId: string
   return match;
 }
 
+export async function dryRunPromotionApply(projectPath: string, taskId: string): Promise<{
+  wouldApply: boolean;
+  action: string;
+  reason: string;
+}> {
+  const gitState = await getGitWorkingTreeState(projectPath);
+  if (gitState.dirty) {
+    return { wouldApply: false, action: "none", reason: "Git working tree is dirty." };
+  }
+  const items = await listPromotionArtifacts(projectPath);
+  const match = items.find((item) => item.artifact.taskId === taskId && item.artifact.status === "pending");
+  if (!match) {
+    return { wouldApply: false, action: "none", reason: `No pending promotion artifact found for task: ${taskId}` };
+  }
+  const ledger = await loadTaskLedger(projectPath);
+  const task = ledger.tasks.find((candidate) => candidate.id === taskId);
+  if (!task) {
+    return { wouldApply: false, action: "none", reason: `No task found for promotion artifact: ${taskId}` };
+  }
+
+  if (match.artifact.action === "queue-review") {
+    const config = await loadProjectConfig(projectPath);
+    const branchName = `${config.runtime.branchPrefix}${taskId}`;
+    return { wouldApply: true, action: "queue-review", reason: `Would prepare review branch ${branchName}` };
+  }
+
+  if (match.artifact.action === "queue-auto-merge") {
+    try {
+      await assertAutoMergeReady(projectPath, task);
+      return { wouldApply: true, action: "queue-auto-merge", reason: `Would auto-merge task branch into ${match.artifact.baseBranch ?? "current branch"}` };
+    } catch (error) {
+      return { wouldApply: false, action: "queue-auto-merge", reason: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  return { wouldApply: false, action: match.artifact.action, reason: `Promotion action not yet supported: ${match.artifact.action}` };
+}
+
 export async function getPromotionDetail(projectPath: string, taskId: string): Promise<PromotionDetail> {
   const items = await listPromotionArtifactsForTask(projectPath, taskId);
   const match = items[0];
@@ -246,20 +285,6 @@ async function ensurePromotionWorkspaceClean(projectPath: string): Promise<void>
   if (state.dirty) {
     throw new Error("Cannot apply promotion on a dirty git tree.");
   }
-}
-
-function getConfiguredValidationNames(projectConfig: Awaited<ReturnType<typeof loadProjectConfig>>): Array<"lint" | "test" | "typecheck"> {
-  const names: Array<"lint" | "test" | "typecheck"> = [];
-  if (projectConfig.validation.lintCommand) {
-    names.push("lint");
-  }
-  if (projectConfig.validation.testCommand) {
-    names.push("test");
-  }
-  if (projectConfig.validation.typecheckCommand) {
-    names.push("typecheck");
-  }
-  return names;
 }
 
 async function syncTaskPromotionState(

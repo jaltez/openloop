@@ -14,7 +14,20 @@ export async function startWorkerLoop(): Promise<void> {
   const startedAt = new Date().toISOString();
   await fs.writeFile(daemonPidPath(), `${process.pid}\n`, "utf8");
 
-  while (true) {
+  let shuttingDown = false;
+
+  const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    await fs.rm(daemonPidPath(), { force: true });
+    await fs.appendFile(daemonLogPath(), `[${new Date().toISOString()}] shutdown\n`, "utf8");
+    process.exit(0);
+  };
+
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+
+  while (!shuttingDown) {
     await runWorkerTick({ startedAt });
     await fs.appendFile(daemonLogPath(), `[${new Date().toISOString()}] tick\n`, "utf8");
     await sleep(5000);

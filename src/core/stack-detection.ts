@@ -52,14 +52,13 @@ async function detectNodeRunner(projectPath: string): Promise<"bun" | "pnpm" | "
 }
 
 async function detectPythonValidationCommands(projectPath: string): Promise<DetectedValidationCommands> {
-  const pyproject = path.join(projectPath, "pyproject.toml");
-  const requirements = path.join(projectPath, "requirements.txt");
-  if (!(await fileExists(pyproject)) && !(await fileExists(requirements))) {
-    return {
-      lintCommand: null,
-      testCommand: null,
-      typecheckCommand: null,
-    };
+  const pyprojectPath = path.join(projectPath, "pyproject.toml");
+  const requirementsPath = path.join(projectPath, "requirements.txt");
+  const hasPyproject = await fileExists(pyprojectPath);
+  const hasRequirements = await fileExists(requirementsPath);
+
+  if (!hasPyproject && !hasRequirements) {
+    return { lintCommand: null, testCommand: null, typecheckCommand: null };
   }
 
   return {

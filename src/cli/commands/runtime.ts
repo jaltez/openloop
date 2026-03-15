@@ -1,5 +1,4 @@
 import type { Argv, ArgumentsCamelCase } from "yargs";
-import { pauseDaemon, resumeDaemon } from "../../core/daemon-state.js";
 import { addTask } from "../../core/task-ledger.js";
 import { getProject } from "../../core/project-registry.js";
 import type { ProjectTask } from "../../core/types.js";
@@ -22,16 +21,6 @@ export function registerRuntimeCommands(cli: Argv): void {
       console.log(JSON.stringify({ project: project.alias, taskId: task.id, ref: task.source.ref, status: task.status }, null, 2));
     },
   );
-
-  cli.command("pause", "Pause new daemon runs", () => {}, async () => {
-    const state = await pauseDaemon();
-    console.log(JSON.stringify({ paused: state.paused, pausedAt: state.pausedAt }, null, 2));
-  });
-
-  cli.command("resume", "Resume daemon scheduling", () => {}, async () => {
-    const state = await resumeDaemon();
-    console.log(JSON.stringify({ paused: state.paused, pausedAt: state.pausedAt }, null, 2));
-  });
 }
 
 function createEnqueuedTask(ref: string): ProjectTask {

@@ -1,6 +1,6 @@
 import path from "node:path";
 import type { Argv, ArgumentsCamelCase } from "yargs";
-import { addProject, getProject, listProjects, markProjectInitialized, projectExists } from "../../core/project-registry.js";
+import { addProject, getProject, listProjects, markProjectInitialized, projectExists, removeProject } from "../../core/project-registry.js";
 import { loadGlobalConfig, saveGlobalConfig } from "../../core/global-config.js";
 import { initializeProjectFromTemplates } from "../../core/templates.js";
 import { loadProjectConfig } from "../../core/project-config.js";
@@ -94,6 +94,18 @@ export function registerProjectCommands(cli: Argv): void {
             await markProjectInitialized(project.alias);
             console.log(`Initialized ${project.alias}`);
             console.log(JSON.stringify((await loadProjectConfig(project.path)).validation, null, 2));
+          },
+        )
+        .command(
+          "remove <alias>",
+          "Unlink a project from the registry",
+          {
+            alias: { type: "string", demandOption: true },
+          },
+          async (args: AliasArgs) => {
+            const project = await getProject(String(args.alias));
+            await removeProject(project.alias);
+            console.log(`Removed project ${project.alias}. Control-plane files in ${project.path} are preserved.`);
           },
         )
         .demandCommand(),
