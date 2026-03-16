@@ -11,10 +11,11 @@ type EnqueueArgs = ArgumentsCamelCase<{
 export function registerRuntimeCommands(cli: Argv): void {
   cli.command(
     "enqueue",
-    "Create a proposed task from a project reference",
+    "[Deprecated] Create a proposed task from a project reference. Use 'task add --from-ref' instead.",
     (command: Argv) =>
-      command.option("project", { type: "string", demandOption: true }).option("ref", { type: "string", demandOption: true }),
+      command.option("project", { type: "string", alias: "p", demandOption: true }).option("ref", { type: "string", demandOption: true }),
     async (args: EnqueueArgs) => {
+      console.warn("Warning: 'enqueue' is deprecated. Use 'task add --from-ref <ref> --project <alias>' instead.");
       const project = await getProject(String(args.project));
       const task = createEnqueuedTask(String(args.ref));
       await addTask(project.path, task);

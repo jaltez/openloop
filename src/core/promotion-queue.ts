@@ -1,5 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { fileExists, readJsonFile, writeJsonFile } from "./fs.js";
 import { checkoutBranch, checkoutHandoffBranch, ensureCleanGitRepo, getBranchHead, getGitWorkingTreeState, getMergeBase, mergeFastForward } from "./git.js";
 import { loadProjectConfig } from "./project-config.js";
@@ -110,11 +112,12 @@ export async function applyPromotionArtifact(projectPath: string, taskId: string
 
   if (match.artifact.action === "queue-review") {
     const branchName = await prepareReviewBranch(projectPath, taskId);
+    const prUrl = await attemptPrCreation(projectPath, task, branchName, match.artifact.baseBranch);
     match.artifact.status = "applied";
     match.artifact.processedAt = new Date().toISOString();
-    match.artifact.note = note ?? `Prepared review branch ${branchName}`;
+    match.artifact.note = note ?? (prUrl ? `Created PR: ${prUrl}` : `Prepared review branch ${branchName}`);
     await writeJsonFile(match.artifactPath, match.artifact);
-    const resultArtifactPath = await writePromotionResult(projectPath, match, "applied", branchName, match.artifact.note);
+    const resultArtifactPath = await writePromotionResult(projectPath, match, "applied", branchName, match.artifact.note, prUrl);
     await syncTaskPromotionState(projectPath, taskId, match.artifactPath, "applied", match.artifact.note, branchName, resultArtifactPath);
     return match;
   }
@@ -322,6 +325,7 @@ async function writePromotionResult(
   result: "applied" | "rejected",
   branch: string | null,
   note: string | null,
+  prUrl?: string | null,
 ): Promise<string> {
   return writePromotionResultArtifact(projectPath, {
     version: 1,
@@ -335,5 +339,37 @@ async function writePromotionResult(
     branch,
     baseBranch: item.artifact.baseBranch,
     note,
+    prUrl: prUrl ?? null,
   });
+}
+
+// W6: Attempt to create a PR using the configured or default command.
+const execFileAsync = promisify(execFile);
+
+async function attemptPrCreation(
+  projectPath: string,
+  task: ProjectTask,
+  branchName: string,
+  baseBranch: string | null,
+): Promise<string | null> {
+  try {
+    const config = await loadProjectConfig(projectPath);
+    const prCmd = config.runtime.prCommand ?? "gh pr create";
+    const baseArg = baseBranch ? ["--base", baseBranch] : [];
+    const titleArg = ["--title", task.title];
+    const bodyArg = ["--body", `Automated PR for OpenLoop task ${task.id}`];
+    const headArg = ["--head", branchName];
+    // Use shell to support custom prCommand strings
+    const { stdout } = await execFileAsync("sh", [
+      "-c",
+      `${prCmd} ${[...headArg, ...baseArg, ...titleArg, ...bodyArg]
+        .map((arg) => JSON.stringify(arg))
+        .join(" ")}`,
+    ], { cwd: projectPath });
+    const url = stdout.trim().split("\n").pop()?.trim() ?? null;
+    return url || null;
+  } catch {
+    // PR creation is best-effort; failure should not block promotion.
+    return null;
+  }
 }

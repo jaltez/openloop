@@ -1,15 +1,17 @@
 import path from "node:path";
 import type { Argv, ArgumentsCamelCase } from "yargs";
-import { addProject, getProject, listProjects, markProjectInitialized, projectExists, removeProject } from "../../core/project-registry.js";
+import { addProject, getProject, listProjects, markProjectInitialized, projectExists, removeProject, updateProjectPath } from "../../core/project-registry.js";
 import { loadGlobalConfig, saveGlobalConfig } from "../../core/global-config.js";
 import { initializeProjectFromTemplates } from "../../core/templates.js";
 import { loadProjectConfig } from "../../core/project-config.js";
 import { resolvePackageRoot } from "../../core/paths.js";
+import { resolveOutputFormat, printTable } from "../../core/table.js";
 
 type AddProjectArgs = ArgumentsCamelCase<{
   alias: string;
   projectPath: string;
   init: boolean;
+  force: boolean;
 }>;
 
 type AliasArgs = ArgumentsCamelCase<{
@@ -31,13 +33,20 @@ export function registerProjectCommands(cli: Argv): void {
             alias: { type: "string", demandOption: true },
             projectPath: { type: "string", demandOption: true },
             init: { type: "boolean", default: false, describe: "Initialize templates immediately" },
+            force: { type: "boolean", default: false, describe: "Update path if alias already exists" },
           },
           async (args: AddProjectArgs) => {
             const alias = String(args.alias);
             const projectPath = path.resolve(String(args.projectPath));
             if (await projectExists(alias)) {
-              const existing = await getProject(alias);
-              console.log(`Project alias "${alias}" is already registered -> ${existing.path}`);
+              if (!args.force) {
+                const existing = await getProject(alias);
+                console.error(`Error: Project alias '${alias}' already exists (path: ${existing.path}). Use '--force' to update.`);
+                process.exitCode = 1;
+                return;
+              }
+              const project = await updateProjectPath(alias, projectPath);
+              console.log(`Updated project ${project.alias} -> ${project.path}`);
               return;
             }
             const project = await addProject(alias, projectPath);
@@ -51,10 +60,17 @@ export function registerProjectCommands(cli: Argv): void {
             }
           },
         )
-        .command("list", "List linked projects", () => {}, async () => {
+        .command("list", "List linked projects", (command: Argv) =>
+            command.option("format", { type: "string", choices: ["table", "json"] as const, describe: "Output format" }),
+          async (args: ArgumentsCamelCase<{ format?: string }>) => {
           const projects = await listProjects();
-          for (const project of projects) {
-            console.log(`${project.alias}\t${project.path}\tinitialized=${project.initialized}`);
+          const fmt = resolveOutputFormat(args.format);
+          if (fmt === "table") {
+            printTable(projects.map((p) => ({ alias: p.alias, initialized: String(p.initialized), path: p.path })));
+          } else {
+            for (const project of projects) {
+              console.log(`${project.alias}\t${project.path}\tinitialized=${project.initialized}`);
+            }
           }
         })
         .command(
@@ -87,12 +103,17 @@ export function registerProjectCommands(cli: Argv): void {
           "Initialize a linked project with control-plane templates",
           {
             alias: { type: "string", demandOption: true },
+            force: { type: "boolean", default: false, describe: "Overwrite existing template files (backs up .openloop/ first)" },
           },
-          async (args: AliasArgs) => {
+          async (args: ArgumentsCamelCase<{ alias: string; force: boolean }>) => {
             const project = await getProject(String(args.alias));
-            await initializeProjectFromTemplates(packageRoot, project);
+            await initializeProjectFromTemplates(packageRoot, project, { force: args.force });
             await markProjectInitialized(project.alias);
-            console.log(`Initialized ${project.alias}`);
+            if (args.force) {
+              console.log(`Re-initialized ${project.alias} (existing files backed up to .openloop/backup/)`);
+            } else {
+              console.log(`Initialized ${project.alias}`);
+            }
             console.log(JSON.stringify((await loadProjectConfig(project.path)).validation, null, 2));
           },
         )

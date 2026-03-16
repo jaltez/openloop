@@ -1,12 +1,28 @@
+import fs from "node:fs/promises";
 import path from "node:path";
-import { copyTree, fileExists, readJsonFile, writeJsonFile } from "./fs.js";
+import { copyTree, ensureDir, fileExists, readJsonFile, writeJsonFile } from "./fs.js";
 import { detectValidationCommands } from "./stack-detection.js";
 import { templateRoot } from "./paths.js";
 import type { LinkedProject } from "./types.js";
 
-export async function initializeProjectFromTemplates(repoRoot: string, project: LinkedProject): Promise<void> {
+export async function initializeProjectFromTemplates(repoRoot: string, project: LinkedProject, options?: { force?: boolean }): Promise<void> {
   const templatesRoot = templateRoot(repoRoot);
-  await copyTree(templatesRoot, project.path, { overwrite: false });
+  const openloopDir = path.join(project.path, ".openloop");
+
+  // W8: Back up existing control-plane files before re-materializing with --force.
+  if (options?.force && (await fileExists(openloopDir))) {
+    const backupDir = path.join(openloopDir, "backup", new Date().toISOString().replace(/[:.]/g, "-"));
+    await ensureDir(backupDir);
+    const entries = await fs.readdir(openloopDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name === "backup") continue;
+      const src = path.join(openloopDir, entry.name);
+      const dest = path.join(backupDir, entry.name);
+      await fs.cp(src, dest, { recursive: true }).catch(() => {});
+    }
+  }
+
+  await copyTree(templatesRoot, project.path, { overwrite: options?.force ?? false });
 
   const templateProjectConfigPath = path.join(templatesRoot, ".openloop", "project.json");
   const projectConfigPath = path.join(project.path, ".openloop", "project.json");

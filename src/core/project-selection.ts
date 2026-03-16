@@ -33,6 +33,7 @@ export async function selectNextProject(appHomeOverride?: string): Promise<Linke
     return null;
   }
 
+  // Explicit activeProjectAlias always wins regardless of strategy.
   if (config.activeProjectAlias) {
     const active = eligible.find((state) => state.project.alias === config.activeProjectAlias);
     if (active) {
@@ -40,12 +41,28 @@ export async function selectNextProject(appHomeOverride?: string): Promise<Linke
     }
   }
 
-  eligible.sort((left, right) => {
-    if (right.queueSize !== left.queueSize) {
-      return right.queueSize - left.queueSize;
-    }
-    return left.project.alias.localeCompare(right.project.alias);
-  });
+  const strategy = config.runtime.projectSelectionStrategy ?? "round-robin";
 
+  if (strategy === "priority") {
+    // Project with the most ready tasks first.
+    const sorted = [...eligible].sort((left, right) => {
+      if (right.queueSize !== left.queueSize) {
+        return right.queueSize - left.queueSize;
+      }
+      return left.project.alias.localeCompare(right.project.alias);
+    });
+    return sorted[0]?.project ?? null;
+  }
+
+  if (strategy === "focus") {
+    // Stay with the first project that has work until its queue is empty.
+    const sorted = [...eligible].sort((left, right) =>
+      left.project.alias.localeCompare(right.project.alias),
+    );
+    return sorted[0]?.project ?? null;
+  }
+
+  // Default: "round-robin" — rotate alphabetically by alias.
+  eligible.sort((left, right) => left.project.alias.localeCompare(right.project.alias));
   return eligible[0]?.project ?? null;
 }

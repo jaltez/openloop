@@ -13,10 +13,15 @@ export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
     model: null,
     promptFiles: [".agents/skills/openloop/SKILL.md", ".pi/SYSTEM.md", ".pi/APPEND_SYSTEM.md"],
   },
+  agent: {
+    type: "pi" as const,
+    command: null,
+  },
   runtime: {
     autoCommit: true,
     useWorktree: false,
     branchPrefix: "openloop/",
+    prCommand: null,
   },
   validation: {
     lintCommand: null,

@@ -16,7 +16,7 @@ export function registerLogsCommands(cli: Argv): void {
     "View daemon or project run logs",
     (command: Argv) =>
       command
-        .option("project", { type: "string", describe: "Show run summaries for a specific project" })
+        .option("project", { type: "string", alias: "p", describe: "Show run summaries for a specific project" })
         .option("lines", { type: "number", default: 50, describe: "Number of lines to show" }),
     async (args: LogsArgs) => {
       if (args.project) {

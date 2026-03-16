@@ -23,11 +23,10 @@ describe("readJsonFile", () => {
     expect(result).toEqual({ hello: "world" });
   });
 
-  it("returns fallback for corrupt JSON", async () => {
+  it("throws on corrupt JSON", async () => {
     const filePath = path.join(tmpDir, "corrupt.json");
     await fs.writeFile(filePath, "not valid json {{{", "utf8");
-    const result = await readJsonFile(filePath, { fallback: true });
-    expect(result).toEqual({ fallback: true });
+    await expect(readJsonFile(filePath, { fallback: true })).rejects.toThrow(/Corrupt JSON/);
   });
 });
 

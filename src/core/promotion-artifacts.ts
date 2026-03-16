@@ -38,6 +38,7 @@ export async function readPromotionResultArtifact(filePath: string): Promise<Pro
     branch: null,
     baseBranch: null,
     note: null,
+    prUrl: null,
   });
 }
 

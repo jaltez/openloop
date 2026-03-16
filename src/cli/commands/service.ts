@@ -6,6 +6,7 @@ import { createDefaultDaemonState, pauseDaemon, resumeDaemon } from "../../core/
 import { startWorkerLoop } from "../../daemon/worker.js";
 import { fileExists, readJsonFile } from "../../core/fs.js";
 import { daemonLogPath, daemonPidPath, daemonStatePath } from "../../core/paths.js";
+import { assertPiOnPath } from "../../core/pi.js";
 import type { DaemonState } from "../../core/types.js";
 
 export interface DaemonProcessInspection {
@@ -20,6 +21,7 @@ export function registerDaemonCommands(cli: Argv): void {
     (serviceCli: Argv) =>
       serviceCli
         .command("start", "Start the daemon", () => {}, async () => {
+          assertPiOnPath();
           const inspection = await inspectDaemonProcess();
           if (inspection.state === "running") {
             console.log("Daemon appears to be running already.");
@@ -37,7 +39,16 @@ export function registerDaemonCommands(cli: Argv): void {
             stdio: "ignore",
           });
           child.unref();
-          console.log("Daemon started.");
+
+          // U2: Poll for PID file to confirm daemon started successfully.
+          const started = await pollForDaemonReady(5000);
+          if (started) {
+            const pidInspection = await inspectDaemonProcess();
+            const pidStr = pidInspection.pid !== null ? ` (PID ${pidInspection.pid})` : "";
+            console.log(`Daemon started${pidStr}. Log: ${daemonLogPath()}`);
+          } else {
+            console.warn("Warning: daemon may not have started. Check logs: " + daemonLogPath());
+          }
         })
         .command("stop", "Stop the daemon", () => {}, async () => {
           const inspection = await inspectDaemonProcess();
@@ -67,13 +78,21 @@ export function registerDaemonCommands(cli: Argv): void {
           console.log(JSON.stringify(state, null, 2));
         })
         .command("restart", "Restart the daemon", () => {}, async () => {
+          assertPiOnPath();
           await stopIfRunning();
           const child = spawn(process.execPath, [process.argv[1], "daemon", "worker"], {
             detached: true,
             stdio: "ignore",
           });
           child.unref();
-          console.log("Daemon restarted.");
+          const started = await pollForDaemonReady(5000);
+          if (started) {
+            const pidInspection = await inspectDaemonProcess();
+            const pidStr = pidInspection.pid !== null ? ` (PID ${pidInspection.pid})` : "";
+            console.log(`Daemon restarted${pidStr}.`);
+          } else {
+            console.warn("Warning: daemon may not have started. Check logs: " + daemonLogPath());
+          }
         })
         .command("pause", "Pause new daemon runs", () => {}, async () => {
           const state = await pauseDaemon();
@@ -84,6 +103,7 @@ export function registerDaemonCommands(cli: Argv): void {
           console.log(JSON.stringify({ paused: state.paused, pausedAt: state.pausedAt }, null, 2));
         })
         .command("run", "Run the daemon in the foreground (for debugging or process managers)", () => {}, async () => {
+          assertPiOnPath();
           const inspection = await inspectDaemonProcess();
           if (inspection.state === "running") {
             throw new Error("Daemon appears to be running already. Stop it first with 'service stop'.");
@@ -92,7 +112,7 @@ export function registerDaemonCommands(cli: Argv): void {
             await clearStaleDaemonPidFile();
           }
           console.log("Starting daemon in foreground mode. Press Ctrl+C to stop.");
-          await startWorkerLoop();
+          await startWorkerLoop({ foreground: true });
         })
         .demandCommand(),
   );
@@ -115,7 +135,17 @@ async function stopIfRunning(): Promise<void> {
     throw new Error(`Refusing to restart: pid file points to live non-openloop process ${inspection.pid}.`);
   }
 
-  process.kill(inspection.pid as number, "SIGTERM");
+  const pid = inspection.pid as number;
+  process.kill(pid, "SIGTERM");
+  // W2: Wait for the process to actually exit before returning (up to 10 seconds).
+  const deadline = Date.now() + 10_000;
+  const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+  while (Date.now() < deadline) {
+    await sleep(200);
+    if (!isProcessAlive(pid)) {
+      break;
+    }
+  }
   await fs.rm(daemonPidPath(), { force: true });
   await fs.rm(daemonLogPath(), { force: true });
 }
@@ -183,4 +213,14 @@ async function isLikelyOpenloopDaemon(pid: number): Promise<boolean> {
 
 async function clearStaleDaemonPidFile(): Promise<void> {
   await fs.rm(daemonPidPath(), { force: true });
+}
+
+async function pollForDaemonReady(timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const inspection = await inspectDaemonProcess();
+    if (inspection.state === "running") return true;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  return false;
 }

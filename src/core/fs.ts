@@ -27,8 +27,10 @@ export async function readJsonFile<T>(filePath: string, fallback: T): Promise<T>
   try {
     return JSON.parse(raw) as T;
   } catch {
-    console.warn(`Warning: corrupt JSON in ${filePath}, using fallback.`);
-    return structuredClone(fallback);
+    throw new Error(
+      `Corrupt JSON in ${filePath}. Back up or delete the file and re-run. ` +
+      `Original content preserved at the same path.`,
+    );
   }
 }
 

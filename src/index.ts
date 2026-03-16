@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import { hideBin } from "yargs/helpers";
 import yargs from "yargs/yargs";
 import { registerDaemonCommands } from "./cli/commands/service.js";
@@ -8,10 +9,18 @@ import { registerPromotionCommands } from "./cli/commands/promotion.js";
 import { registerRunCommands } from "./cli/commands/run.js";
 import { registerRuntimeCommands } from "./cli/commands/runtime.js";
 import { registerTaskCommands } from "./cli/commands/task.js";
+import { registerStatusCommand } from "./cli/commands/status.js";
+import { registerEventsCommand } from "./cli/commands/events.js";
+import { registerWatchCommand } from "./cli/commands/watch.js";
+
+const require = createRequire(import.meta.url);
+const { version } = require("../package.json") as { version: string };
 
 async function main(): Promise<void> {
   const cli = yargs(hideBin(process.argv))
     .scriptName("openloop")
+    .version(version)
+    .alias("version", "V")
     .strict()
     .demandCommand()
     .help();
@@ -24,6 +33,9 @@ async function main(): Promise<void> {
   registerRunCommands(cli);
   registerRuntimeCommands(cli);
   registerTaskCommands(cli);
+  registerStatusCommand(cli);
+  registerEventsCommand(cli);
+  registerWatchCommand(cli);
 
   await cli.parseAsync();
 }

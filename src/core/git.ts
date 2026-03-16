@@ -75,6 +75,38 @@ async function branchExists(projectPath: string, branchName: string): Promise<bo
   }
 }
 
+// D5: Git worktree helpers.
+
+export async function worktreeExists(projectPath: string, worktreePath: string): Promise<boolean> {
+  try {
+    const result = await runGit(projectPath, ["worktree", "list", "--porcelain"]);
+    return result.stdout.includes(worktreePath);
+  } catch {
+    return false;
+  }
+}
+
+export async function addWorktree(
+  projectPath: string,
+  worktreePath: string,
+  branchName: string,
+): Promise<void> {
+  const exists = await branchExists(projectPath, branchName);
+  if (exists) {
+    await runGit(projectPath, ["worktree", "add", worktreePath, branchName]);
+  } else {
+    await runGit(projectPath, ["worktree", "add", "-b", branchName, worktreePath]);
+  }
+}
+
+export async function removeWorktree(projectPath: string, worktreePath: string, force?: boolean): Promise<void> {
+  const args = ["worktree", "remove", worktreePath];
+  if (force) args.push("--force");
+  await runGit(projectPath, args).catch(() => {});
+  // Prune stale worktree metadata.
+  await runGit(projectPath, ["worktree", "prune"]).catch(() => {});
+}
+
 async function runGit(projectPath: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn("git", args, {

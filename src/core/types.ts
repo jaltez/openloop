@@ -4,11 +4,20 @@ export interface GlobalConfig {
   activeProjectAlias?: string | null;
   budgets: {
     dailyCostUsd: number;
+    estimatedCostPerRunUsd?: number;
   };
   runtime: {
     runTimeoutSeconds: number;
     maxAttemptsPerTask: number;
     noProgressRepeatLimit: number;
+    tickIntervalSeconds?: number;
+    projectSelectionStrategy?: "round-robin" | "priority" | "focus";
+  };
+  notifications?: {
+    onTaskComplete: string | null;
+    onTaskFailed: string | null;
+    onBudgetBlocked: string | null;
+    onAllTasksDone: string | null;
   };
 }
 
@@ -23,10 +32,15 @@ export interface ProjectConfig {
     model: string | null;
     promptFiles: string[];
   };
+  agent?: {
+    type: "pi" | "claude" | "aider" | "custom";
+    command: string | null;
+  };
   runtime: {
     autoCommit: boolean;
     useWorktree: boolean;
     branchPrefix: string;
+    prCommand?: string | null;
   };
   validation: {
     lintCommand: string | null;
@@ -158,6 +172,7 @@ export interface SchedulerResult {
   reason: string;
   model: string | null;
   exitCode: number | null;
+  prompt?: string | null;
   validation: ValidationSummary[];
   promotionDecision: "none" | "auto-merge-eligible" | "manual-review" | "blocked";
   promotionAction: "none" | "queue-auto-merge" | "queue-review" | "block";
@@ -224,6 +239,7 @@ export interface PromotionResultArtifact {
   branch: string | null;
   baseBranch: string | null;
   note: string | null;
+  prUrl?: string | null;
 }
 
 export interface ProjectPolicy {

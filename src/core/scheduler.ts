@@ -1,14 +1,17 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { loadTaskLedger, saveTaskLedger } from "./task-ledger.js";
 import { resolveModel } from "./model-resolution.js";
 import { loadProjectConfig } from "./project-config.js";
 import { evaluateTaskScopePolicy, loadProjectPolicy } from "./project-policy.js";
 import { loadGlobalConfig } from "./global-config.js";
-import { getGitDiffFingerprint, getGitWorkingTreeState } from "./git.js";
-import { runPi, type PiRunOptions } from "./pi.js";
+import { getGitDiffFingerprint, getGitWorkingTreeState, addWorktree, removeWorktree } from "./git.js";
+import { runPi, runAgent, type PiRunOptions } from "./pi.js";
 import { RunTimeoutError, withTimeout } from "./timeout.js";
 import { writePromotionArtifact } from "./promotion-artifacts.js";
 import { writeRunSummary } from "./run-summaries.js";
 import { runConfiguredValidations, type ValidationRunner } from "./validation.js";
+import { ensureDir } from "./fs.js";
 import { SUPPORTED_SELF_HEALING_TASK_KINDS, type LinkedProject, type ProjectConfig, type ProjectPolicy, type ProjectTask, type PromotionArtifact, type SchedulerResult, type SchedulerSelection, type TaskLedger, type TaskRunSummary, type ValidationSummary, type WorkerRole } from "./types.js";
 import { getConfiguredValidationNames, hasAllRequiredAutoMergeValidations } from "./validation-utils.js";
 
@@ -76,6 +79,7 @@ export async function runProjectIteration(
       reason: selection.reason,
       model,
       exitCode: null,
+      prompt: null,
       validation: [],
       promotionDecision: "none",
       promotionAction: "none",
@@ -120,6 +124,7 @@ export async function runProjectIteration(
       reason: `${selection.reason}; ${scopeDecision.reason ?? "task blocked by project scope policy"}`,
       model,
       exitCode: null,
+      prompt: null,
       validation: [],
       promotionDecision: "none",
       promotionAction: "none",
@@ -152,6 +157,7 @@ export async function runProjectIteration(
       reason: `${selection.reason}; ${selfHealingBlock.reason}`,
       model,
       exitCode: null,
+      prompt: null,
       validation: [],
       promotionDecision: "none",
       promotionAction: "none",
@@ -183,6 +189,7 @@ export async function runProjectIteration(
       reason: `${selection.reason}; max attempts reached`,
       model,
       exitCode: null,
+      prompt: null,
       validation: [],
       promotionDecision: "none",
       promotionAction: "none",
@@ -207,13 +214,39 @@ export async function runProjectIteration(
   task.updatedAt = new Date().toISOString();
   await saveTaskLedger(project.path, ledger);
 
-  const runner = options?.piRunner ?? runPi;
+  // D6: Use the model-agnostic agent runner, falling back to runPi for backward compat.
+  const runner = options?.piRunner ?? ((runOptions: PiRunOptions) => runAgent(runOptions, projectConfig));
   let validation: ValidationSummary[] = [];
   let promotionArtifactPath: string | null = null;
+  // W1: Include spec content in implement prompts when a spec file exists.
+  const specContent = mode === "implement" ? await readSpecContent(project.path, task) : null;
+  const builtPrompt = buildPrompt(task, mode, role, specContent);
   const gitState = await getInitialGitState(project.path);
   const attemptNumber = task.attempts + 1;
   const runStartedAt = Date.now();
   const beforeFingerprint = await getGitDiffFingerprint(project.path);
+
+  // D5: Set up an isolated git worktree for this run if useWorktree is configured.
+  const useWorktree = projectConfig.runtime.useWorktree;
+  const worktreeBranchName = useWorktree
+    ? `${projectConfig.runtime.branchPrefix}${task.id}`
+    : null;
+  const worktreePath = useWorktree
+    ? path.join(project.path, ".openloop", "worktrees", task.id)
+    : null;
+
+  if (useWorktree && worktreePath && worktreeBranchName) {
+    try {
+      await addWorktree(project.path, worktreePath, worktreeBranchName);
+    } catch {
+      // Worktree setup failure: fall back to running in main tree.
+    }
+  }
+
+  // The project context passed to Pi — use worktree path if available.
+  const runProject = worktreePath
+    ? { ...project, path: worktreePath }
+    : project;
 
   const getRemainingTimeoutMs = (): number | undefined => {
     if (timeoutMs === undefined) {
@@ -222,12 +255,18 @@ export async function runProjectIteration(
     return Math.max(timeoutMs - (Date.now() - runStartedAt), 0);
   };
 
+  const cleanupWorktree = async () => {
+    if (worktreePath) {
+      await removeWorktree(project.path, worktreePath).catch(() => {});
+    }
+  };
+
   try {
     const exitCode = await withTimeout(
       runner({
-        project,
+        project: runProject,
         model: model ?? undefined,
-        prompt: buildPrompt(task, mode, role),
+        prompt: builtPrompt,
         timeoutMs: getRemainingTimeoutMs(),
       }),
       getRemainingTimeoutMs(),
@@ -253,6 +292,9 @@ export async function runProjectIteration(
           task.notes = [...(task.notes ?? []), `Openloop ${mode} run succeeded.`];
         }
       } else {
+        // W1: After a successful plan run, detect spec file written by Pi.
+        await ensureDir(path.join(project.path, ".openloop", "specs"));
+        await detectAndSetSpecId(project.path, task);
         task.status = "ready";
         task.notes = [...(task.notes ?? []), `Openloop ${mode} run succeeded.`];
         outcome = "planned";
@@ -265,7 +307,7 @@ export async function runProjectIteration(
       outcome = "pi-failed";
     }
 
-    const effectivePromotionMode = resolveEffectivePromotionMode(task, projectPolicy, projectConfig.risk.requirePolicyForAutoMerge);
+    const effectivePromotionMode = resolveEffectivePromotionMode(task, projectPolicy, projectConfig.risk.requirePolicyForAutoMerge, projectConfig);
     const promotionDecision = decidePromotion(task, validation, effectivePromotionMode, projectConfig);
     const afterFingerprint = await getGitDiffFingerprint(project.path);
     if (shouldStopForNoProgress({
@@ -321,6 +363,7 @@ export async function runProjectIteration(
       reason: selection.reason,
       model,
       exitCode,
+      prompt: builtPrompt,
       validation,
       promotionDecision,
       promotionAction,
@@ -334,6 +377,7 @@ export async function runProjectIteration(
       budgetSnapshotUsd: null,
     };
     await writeRunSummary(project.path, result);
+    await cleanupWorktree();
     return result;
   } catch (error) {
     task.status = previousStatus;
@@ -354,7 +398,7 @@ export async function runProjectIteration(
       task.status = "blocked";
       task.notes = [...(task.notes ?? []), "Openloop blocked task due to no-progress detection."];
     }
-    const effectivePromotionMode = resolveEffectivePromotionMode(task, projectPolicy, projectConfig.risk.requirePolicyForAutoMerge);
+    const effectivePromotionMode = resolveEffectivePromotionMode(task, projectPolicy, projectConfig.risk.requirePolicyForAutoMerge, projectConfig);
     const promotionAction = decidePromotionAction("blocked");
     promotionArtifactPath = await maybeWritePromotionArtifact(project.path, {
       projectAlias: project.alias,
@@ -392,6 +436,7 @@ export async function runProjectIteration(
       reason: selection.reason,
       model,
       exitCode: null,
+      prompt: builtPrompt,
       validation,
       promotionDecision: "blocked",
       promotionAction,
@@ -404,6 +449,7 @@ export async function runProjectIteration(
       dirtyTreeDetected: beforeFingerprint !== afterFingerprint,
       budgetSnapshotUsd: null,
     });
+    await cleanupWorktree();
     throw error;
   }
 }
@@ -517,6 +563,14 @@ function decidePromotion(
   }
 
   if (effectivePromotionMode === "auto-merge") {
+    // S3: If no validations are configured, auto-merge is unsafe regardless of risk tier.
+    if (getConfiguredValidationNames(projectConfig).length === 0) {
+      console.warn(
+        `[openloop] Warning: no validation commands configured for project. Forcing manual-only promotion. ` +
+        `Run 'openloop config project-set-validation' to configure lint/test/typecheck commands.`,
+      );
+      return "manual-review";
+    }
     if (!hasAllRequiredAutoMergeValidations(validation, projectConfig)) {
       return "manual-review";
     }
@@ -530,6 +584,7 @@ function resolveEffectivePromotionMode(
   task: ProjectTask,
   projectPolicy: ProjectPolicy,
   requirePolicyForAutoMerge: boolean,
+  projectConfig?: ProjectConfig,
 ): ProjectTask["promotion"] {
   const policyMode = getPolicyPromotionMode(task.risk, projectPolicy);
   if (task.promotion === "manual-only" || policyMode === "manual-only") {
@@ -618,7 +673,7 @@ export function determineWorkerRole(task: ProjectTask, mode: "implement" | "plan
   return "implementer";
 }
 
-function buildPrompt(task: ProjectTask, mode: "implement" | "plan", role: WorkerRole): string {
+export function buildPrompt(task: ProjectTask, mode: "implement" | "plan", role: WorkerRole, specContent?: string | null): string {
   const header = mode === "implement"
     ? isSupportedSelfHealingTask(task.kind)
       ? `Repair the following ${describeSelfHealingTask(task.kind)} with the smallest viable change.`
@@ -638,12 +693,44 @@ function buildPrompt(task: ProjectTask, mode: "implement" | "plan", role: Worker
     lines.push("Self-Healing Scope: Ledger-driven repair limited to lint-fix, type-fix, and localized-test-fix tasks.");
   }
 
+  if (mode === "plan") {
+    lines.push(`Spec Output: Write your implementation plan to .openloop/specs/${task.id}.md before finishing.`);
+  }
+
   if (task.scope?.paths && task.scope.paths.length > 0) {
     lines.push("Scope Paths:", ...task.scope.paths.map((scopePath) => `- ${scopePath}`));
   }
 
   lines.push("Acceptance Criteria:", ...task.acceptanceCriteria.map((criterion) => `- ${criterion}`));
+
+  if (mode === "implement" && specContent) {
+    lines.push("", "## Implementation Spec", specContent);
+  }
+
   return lines.join("\n");
+}
+
+async function readSpecContent(projectPath: string, task: ProjectTask): Promise<string | null> {
+  const specId = task.specId;
+  if (!specId) {
+    return null;
+  }
+  try {
+    return await fs.readFile(path.join(projectPath, specId), "utf8");
+  } catch {
+    return null;
+  }
+}
+
+async function detectAndSetSpecId(projectPath: string, task: ProjectTask): Promise<void> {
+  const specPath = path.join(".openloop", "specs", `${task.id}.md`);
+  const fullPath = path.join(projectPath, specPath);
+  try {
+    await fs.access(fullPath);
+    task.specId = specPath;
+  } catch {
+    // no spec file written by Pi — that's OK
+  }
 }
 
 function synthesizeContinuousImprovementTask(

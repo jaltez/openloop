@@ -46,6 +46,9 @@ export async function writeRunSummary(projectPath: string, summary: SchedulerRes
     ...(validation.length > 0
       ? validation.map((item) => `- ${item.name}: ${item.command} => ${item.exitCode}`)
       : ["- none"]),
+    "",
+    `## Prompt`,
+    summary.prompt ? summary.prompt : "_none_",
   ].join("\n");
   await fs.writeFile(filePath, `${content}\n`, "utf8");
   return filePath;
