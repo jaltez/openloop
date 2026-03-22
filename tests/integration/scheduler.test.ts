@@ -245,7 +245,7 @@ test("runProjectIteration executes ready medium-risk tasks and queues manual rev
   expect(result.promotionAction).toBe("queue-review");
 });
 
-test("runProjectIteration moves proposed tasks to ready after a successful planning pass", async () => {
+test("runProjectIteration moves proposed medium-risk tasks to awaiting-approval after a successful planning pass", async () => {
   const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-scheduler-"));
   await fs.mkdir(path.join(projectRoot, ".openloop"), { recursive: true });
 
@@ -302,7 +302,7 @@ test("runProjectIteration moves proposed tasks to ready after a successful plann
   expect(result.taskId).toBe("plan-me");
 
   const persisted = JSON.parse(await fs.readFile(path.join(projectRoot, ".openloop", "tasks.json"), "utf8")) as TaskLedger;
-  expect(persisted.tasks[0]?.status).toBe("ready");
+  expect(persisted.tasks[0]?.status).toBe("awaiting-approval");
 });
 
 test("runProjectIteration auto-generates a validation discovery task for idle projects without validation commands", async () => {
@@ -341,7 +341,7 @@ test("runProjectIteration auto-generates a validation discovery task for idle pr
   const persisted = JSON.parse(await fs.readFile(path.join(projectRoot, ".openloop", "tasks.json"), "utf8")) as TaskLedger;
   expect(persisted.tasks).toHaveLength(1);
   expect(persisted.tasks[0]?.kind).toBe("discovery");
-  expect(persisted.tasks[0]?.status).toBe("ready");
+  expect(persisted.tasks[0]?.status).toBe("awaiting-approval");
   expect(persisted.tasks[0]?.source.ref).toBe("continuous-improvement:validation-setup");
 });
 
@@ -380,7 +380,7 @@ test("runProjectIteration auto-generates a scope proposal task when validation e
   const persisted = JSON.parse(await fs.readFile(path.join(projectRoot, ".openloop", "tasks.json"), "utf8")) as TaskLedger;
   expect(persisted.tasks).toHaveLength(1);
   expect(persisted.tasks[0]?.kind).toBe("scope-proposal");
-  expect(persisted.tasks[0]?.status).toBe("ready");
+  expect(persisted.tasks[0]?.status).toBe("awaiting-approval");
   expect(persisted.tasks[0]?.promotion).toBe("manual-only");
 });
 
@@ -430,7 +430,7 @@ test("runProjectIteration auto-generates a targeted test-command task when valid
   const persisted = JSON.parse(await fs.readFile(path.join(projectRoot, ".openloop", "tasks.json"), "utf8")) as TaskLedger;
   expect(persisted.tasks).toHaveLength(1);
   expect(persisted.tasks[0]?.source.ref).toBe("continuous-improvement:test-command");
-  expect(persisted.tasks[0]?.status).toBe("ready");
+  expect(persisted.tasks[0]?.status).toBe("awaiting-approval");
 });
 
 test("runProjectIteration blocks tasks that exceed max attempts before execution", async () => {

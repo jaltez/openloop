@@ -119,7 +119,7 @@ export function registerTaskCommands(cli: Argv): void {
             command
               .option("project", { type: "string", alias: "p", demandOption: true })
               .option("status", {
-                choices: ["proposed", "planned", "ready", "in_progress", "blocked", "done", "failed", "cancelled", "promoted"] as const,
+                choices: ["proposed", "planned", "ready", "awaiting-approval", "in_progress", "blocked", "done", "failed", "cancelled", "promoted"] as const,
               })
               .option("risk", { choices: ["low-risk", "medium-risk", "high-risk"] as const })
               .option("format", { type: "string", choices: ["table", "json"] as const, describe: "Output format (default: table for TTY, json for pipes)" }),
@@ -185,7 +185,7 @@ export function registerTaskCommands(cli: Argv): void {
               .option("task", { type: "string", demandOption: true })
               .option("title", { type: "string" })
               .option("status", {
-                choices: ["proposed", "planned", "ready", "in_progress", "blocked", "done", "failed", "cancelled", "promoted"] as const,
+                choices: ["proposed", "planned", "ready", "awaiting-approval", "in_progress", "blocked", "done", "failed", "cancelled", "promoted"] as const,
               })
               .option("risk", { choices: ["low-risk", "medium-risk", "high-risk"] as const })
               .option("kind", {
@@ -235,6 +235,34 @@ export function registerTaskCommands(cli: Argv): void {
             }
             await saveTaskLedger(project.path, ledger);
             console.log(`Recovered ${stuck.length} task(s) in ${project.alias}: ${stuck.map((t) => t.id).join(", ")}`);
+          },
+        )
+        .command(
+          "approve",
+          "Approve an awaiting-approval task so it can be implemented",
+          (command: Argv) =>
+            command
+              .option("project", { type: "string", alias: "p", demandOption: true })
+              .option("task", { type: "string", demandOption: true }),
+          async (args) => {
+            const project = await getProject(String(args.project));
+            const ledger = await loadTaskLedger(project.path);
+            const task = ledger.tasks.find((t) => t.id === String(args.task));
+            if (!task) {
+              console.error(`Task ${String(args.task)} not found in ${project.alias}.`);
+              process.exitCode = 1;
+              return;
+            }
+            if (task.status !== "awaiting-approval") {
+              console.error(`Task ${task.id} is not awaiting approval (current status: ${task.status}).`);
+              process.exitCode = 1;
+              return;
+            }
+            task.status = "ready";
+            task.notes = [...(task.notes ?? []), "Approved via 'task approve'."];
+            task.updatedAt = new Date().toISOString();
+            await saveTaskLedger(project.path, ledger);
+            console.log(`Approved task ${task.id} in ${project.alias} — now ready for implementation.`);
           },
         )
         .demandCommand(),

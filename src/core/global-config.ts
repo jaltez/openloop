@@ -30,6 +30,7 @@ export async function loadGlobalConfig(appHomeOverride?: string): Promise<Global
   return {
     version: 1,
     model: config.model ?? DEFAULT_GLOBAL_CONFIG.model,
+    defaultProvider: config.defaultProvider ?? null,
     activeProjectAlias: config.activeProjectAlias ?? DEFAULT_GLOBAL_CONFIG.activeProjectAlias,
     budgets: {
       dailyCostUsd: config.budgets?.dailyCostUsd ?? DEFAULT_GLOBAL_CONFIG.budgets.dailyCostUsd,
@@ -47,6 +48,11 @@ export async function loadGlobalConfig(appHomeOverride?: string): Promise<Global
       onTaskFailed: config.notifications?.onTaskFailed ?? null,
       onBudgetBlocked: config.notifications?.onBudgetBlocked ?? null,
       onAllTasksDone: config.notifications?.onAllTasksDone ?? null,
+    },
+    notificationChannels: config.notificationChannels ?? undefined,
+    dashboard: {
+      port: config.dashboard?.port ?? 7399,
+      enabled: config.dashboard?.enabled ?? false,
     },
   };
 }

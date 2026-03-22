@@ -9,6 +9,11 @@ import { listProjects } from "../core/project-registry.js";
 import { loadProjectQueueStates, selectNextProject } from "../core/project-selection.js";
 import { loadTaskLedger, saveTaskLedger } from "../core/task-ledger.js";
 import { determineWorkerRole, runProjectIteration, selectNextTask } from "../core/scheduler.js";
+import { fireNotifications } from "../core/notifications.js";
+import { postTaskStatusToIssue, postPrLinkToIssue } from "../core/issue-sync.js";
+import { loadProjectConfig } from "../core/project-config.js";
+import { syncIssues } from "../core/issue-sync.js";
+import { createDashboardServer, type DashboardServer } from "../core/dashboard.js";
 import type { DaemonState, GlobalConfig, SchedulerResult } from "../core/types.js";
 
 export async function startWorkerLoop(options?: { foreground?: boolean }): Promise<void> {
@@ -19,11 +24,27 @@ export async function startWorkerLoop(options?: { foreground?: boolean }): Promi
   await appendEvent({ ts: startedAt, event: "daemon_started", pid: process.pid }).catch(() => {});
   await recoverStuckTasks();
 
+  // A3: Start dashboard server if enabled
+  let dashboardServer: DashboardServer | null = null;
+  try {
+    const initConfig = await loadGlobalConfig();
+    if (initConfig.dashboard?.enabled) {
+      dashboardServer = createDashboardServer(initConfig.dashboard.port);
+      await dashboardServer.start();
+      await fs.appendFile(daemonLogPath(), `[${new Date().toISOString()}] dashboard started on port ${dashboardServer.port}\n`, "utf8").catch(() => {});
+    }
+  } catch {
+    await fs.appendFile(daemonLogPath(), `[${new Date().toISOString()}] dashboard failed to start\n`, "utf8").catch(() => {});
+  }
+
   let shuttingDown = false;
 
   const shutdown = async () => {
     if (shuttingDown) return;
     shuttingDown = true;
+    if (dashboardServer) {
+      await dashboardServer.stop().catch(() => {});
+    }
     await fs.rm(daemonPidPath(), { force: true });
     await fs.appendFile(daemonLogPath(), `[${new Date().toISOString()}] shutdown\n`, "utf8");
     process.exit(0);
@@ -172,6 +193,17 @@ export async function runWorkerTick(options?: {
         const cost = config.budgets.estimatedCostPerRunUsd ?? 0;
         normalizedState.budgetSpentUsd = parseFloat((normalizedState.budgetSpentUsd + cost).toFixed(4));
         normalizedState.totalBudgetSpentUsd = parseFloat((normalizedState.totalBudgetSpentUsd + cost).toFixed(4));
+
+        // B3: Accumulate estimated cost on the task itself.
+        if (result.taskId && cost > 0) {
+          const taskLedger = await loadTaskLedger(activeProject.path);
+          const task = taskLedger.tasks.find((t) => t.id === result.taskId);
+          if (task) {
+            task.estimatedCostUsd = parseFloat(((task.estimatedCostUsd ?? 0) + cost).toFixed(4));
+            task.updatedAt = new Date().toISOString();
+            await saveTaskLedger(activeProject.path, taskLedger);
+          }
+        }
       }
       // D3: Append structured event to events.jsonl audit trail.
       await appendEvent({
@@ -186,6 +218,35 @@ export async function runWorkerTick(options?: {
         taskStatus: result.taskStatus ?? undefined,
       }).catch(() => {});
       fireNotification(config, result, activeProject.alias).catch(() => {});
+
+      // A2: Post task status back to linked issue (if configured)
+      if (result.taskId && result.taskStatus) {
+        postTaskStatusToIssue(activeProject.path, result.taskId, result.taskStatus).catch(() => {});
+      }
+
+      // A2: Post PR link back to issue when a promotion creates a PR
+      if (result.taskId && result.promotionResultArtifactPath) {
+        import("../core/fs.js")
+          .then(({ readJsonFile }) => readJsonFile(result.promotionResultArtifactPath!, null as never))
+          .then((artifact: { prUrl?: string | null; branch?: string | null } | null) => {
+            if (artifact?.prUrl) {
+              postPrLinkToIssue(activeProject.path, result.taskId!, artifact.prUrl, artifact.branch).catch(() => {});
+            }
+          })
+          .catch(() => {});
+      }
+
+      // A2: Auto-sync issues if configured
+      const projConfig = await loadProjectConfig(activeProject.path).catch(() => null);
+      if (projConfig?.issueSource?.autoSync && projConfig.issueSource.token) {
+        const lastSynced = projConfig.issueSource.lastSyncedAt
+          ? new Date(projConfig.issueSource.lastSyncedAt).getTime()
+          : 0;
+        const intervalMs = (projConfig.issueSource.syncIntervalMinutes ?? 30) * 60_000;
+        if (Date.now() - lastSynced >= intervalMs) {
+          syncIssues(activeProject.path, projConfig.issueSource).catch(() => {});
+        }
+      }
     } catch (error) {
       iterationResult = error instanceof Error ? error.message : String(error);
     }
@@ -269,18 +330,44 @@ async function fireNotification(
     OPENLOOP_EVENT: "",
   };
 
-  if (result.taskStatus === "done" && config.notifications?.onTaskComplete) {
-    env.OPENLOOP_EVENT = "task-complete";
-    await fireShellCommand(config.notifications.onTaskComplete, env);
-  } else if (
-    (result.taskStatus === "failed" || result.taskStatus === "blocked") &&
-    config.notifications?.onTaskFailed
-  ) {
-    env.OPENLOOP_EVENT = "task-failed";
-    await fireShellCommand(config.notifications.onTaskFailed, env);
-  } else if (result.mode === "idle" && config.notifications?.onAllTasksDone) {
-    env.OPENLOOP_EVENT = "all-tasks-done";
-    await fireShellCommand(config.notifications.onAllTasksDone, env);
+  let eventName = "";
+  let message = "";
+
+  if (result.taskStatus === "done") {
+    eventName = "task-complete";
+    message = `Task ${result.taskId ?? "unknown"} completed in project ${projectAlias}`;
+    if (config.notifications?.onTaskComplete) {
+      env.OPENLOOP_EVENT = eventName;
+      await fireShellCommand(config.notifications.onTaskComplete, env);
+    }
+  } else if (result.taskStatus === "failed" || result.taskStatus === "blocked") {
+    eventName = "task-failed";
+    message = `Task ${result.taskId ?? "unknown"} ${result.taskStatus} in project ${projectAlias}`;
+    if (config.notifications?.onTaskFailed) {
+      env.OPENLOOP_EVENT = eventName;
+      await fireShellCommand(config.notifications.onTaskFailed, env);
+    }
+  } else if (result.mode === "idle") {
+    eventName = "all-tasks-done";
+    message = `All tasks done in project ${projectAlias}`;
+    if (config.notifications?.onAllTasksDone) {
+      env.OPENLOOP_EVENT = eventName;
+      await fireShellCommand(config.notifications.onAllTasksDone, env);
+    }
+  }
+
+  // Fire channel-based notifications (webhook, desktop)
+  if (eventName) {
+    await fireNotifications(config, {
+      event: eventName,
+      project: projectAlias,
+      taskId: result.taskId ?? "",
+      message,
+      timestamp: new Date().toISOString(),
+      mode: result.mode,
+      exitCode: result.exitCode,
+      taskStatus: result.taskStatus,
+    }).catch(() => {});
   }
 }
 

@@ -107,6 +107,36 @@ export async function removeWorktree(projectPath: string, worktreePath: string, 
   await runGit(projectPath, ["worktree", "prune"]).catch(() => {});
 }
 
+export interface DiffStatEntry {
+  file: string;
+  added: number;
+  removed: number;
+}
+
+/**
+ * Get per-file diff stats between a branch and its base (or HEAD vs base).
+ * Returns null if the repo is not a git directory or the base is unavailable.
+ */
+export async function getGitDiffStat(projectPath: string, base?: string | null, head?: string | null): Promise<DiffStatEntry[] | null> {
+  try {
+    const baseRef = base ?? "HEAD~1";
+    const headRef = head ?? "HEAD";
+    const result = await runGit(projectPath, ["diff", "--numstat", baseRef, headRef]);
+    const entries: DiffStatEntry[] = [];
+    for (const line of result.stdout.trim().split("\n")) {
+      if (!line) continue;
+      const parts = line.split("\t");
+      if (parts.length < 3) continue;
+      const added = parts[0] === "-" ? 0 : parseInt(parts[0]!, 10);
+      const removed = parts[1] === "-" ? 0 : parseInt(parts[1]!, 10);
+      entries.push({ file: parts[2]!, added, removed });
+    }
+    return entries;
+  } catch {
+    return null;
+  }
+}
+
 async function runGit(projectPath: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn("git", args, {

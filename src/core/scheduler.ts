@@ -6,7 +6,7 @@ import { loadProjectConfig } from "./project-config.js";
 import { evaluateTaskScopePolicy, loadProjectPolicy } from "./project-policy.js";
 import { loadGlobalConfig } from "./global-config.js";
 import { getGitDiffFingerprint, getGitWorkingTreeState, addWorktree, removeWorktree } from "./git.js";
-import { runPi, runAgent, type PiRunOptions } from "./pi.js";
+import { runAgent, type PiRunOptions } from "./pi.js";
 import { RunTimeoutError, withTimeout } from "./timeout.js";
 import { writePromotionArtifact } from "./promotion-artifacts.js";
 import { writeRunSummary } from "./run-summaries.js";
@@ -215,7 +215,8 @@ export async function runProjectIteration(
   await saveTaskLedger(project.path, ledger);
 
   // D6: Use the model-agnostic agent runner, falling back to runPi for backward compat.
-  const runner = options?.piRunner ?? ((runOptions: PiRunOptions) => runAgent(runOptions, projectConfig));
+  const defaultProvider = globalConfig.defaultProvider ?? undefined;
+  const runner = options?.piRunner ?? ((runOptions: PiRunOptions) => runAgent(runOptions, projectConfig, defaultProvider));
   let validation: ValidationSummary[] = [];
   let promotionArtifactPath: string | null = null;
   // W1: Include spec content in implement prompts when a spec file exists.
@@ -295,8 +296,14 @@ export async function runProjectIteration(
         // W1: After a successful plan run, detect spec file written by Pi.
         await ensureDir(path.join(project.path, ".openloop", "specs"));
         await detectAndSetSpecId(project.path, task);
-        task.status = "ready";
-        task.notes = [...(task.notes ?? []), `Openloop ${mode} run succeeded.`];
+        // B2: Gate medium/high-risk tasks for human approval after planning.
+        if (task.risk === "medium-risk" || task.risk === "high-risk") {
+          task.status = "awaiting-approval";
+          task.notes = [...(task.notes ?? []), `Openloop ${mode} run succeeded; awaiting human approval (${task.risk}).`];
+        } else {
+          task.status = "ready";
+          task.notes = [...(task.notes ?? []), `Openloop ${mode} run succeeded.`];
+        }
         outcome = "planned";
       }
     } else {
@@ -374,7 +381,7 @@ export async function runProjectIteration(
       stoppedBy,
       attemptNumber,
       dirtyTreeDetected: beforeFingerprint !== afterFingerprint,
-      budgetSnapshotUsd: null,
+      budgetSnapshotUsd: task.estimatedCostUsd ?? null,
     };
     await writeRunSummary(project.path, result);
     await cleanupWorktree();

@@ -1,5 +1,6 @@
 import { spawn, execFileSync } from "node:child_process";
 import { RunTimeoutError } from "./timeout.js";
+import { resolveProvider, type AgentRunOptions } from "./providers.js";
 import type { LinkedProject, ProjectConfig } from "./types.js";
 
 export interface PiRunOptions {
@@ -28,45 +29,20 @@ export async function runPi(options: PiRunOptions): Promise<number> {
   return spawnAgent("pi", args, options.project.path, options.timeoutMs);
 }
 
-// D6: Model-agnostic agent runner dispatching to the configured backend.
-export async function runAgent(options: PiRunOptions, projectConfig?: ProjectConfig): Promise<number> {
-  const agentType = projectConfig?.agent?.type ?? "pi";
+// D6 / A1: Model-agnostic agent runner dispatching to the configured provider.
+export async function runAgent(options: PiRunOptions, projectConfig?: ProjectConfig, defaultProvider?: string): Promise<number> {
+  const agentType = projectConfig?.agent?.type ?? undefined;
   const customCommand = projectConfig?.agent?.command ?? null;
+  const provider = resolveProvider(agentType, customCommand, defaultProvider);
 
-  if (agentType === "pi") {
-    return runPi(options);
-  }
+  const runOptions: AgentRunOptions = {
+    prompt: options.prompt,
+    model: options.model,
+    projectPath: options.project.path,
+    timeoutMs: options.timeoutMs,
+  };
 
-  if (agentType === "claude") {
-    const args = ["-p", options.prompt];
-    if (options.model) args.push("--model", options.model);
-    return spawnAgent("claude", args, options.project.path, options.timeoutMs);
-  }
-
-  if (agentType === "aider") {
-    const args = ["--message", options.prompt, "--yes"];
-    if (options.model) args.push("--model", options.model);
-    return spawnAgent("aider", args, options.project.path, options.timeoutMs);
-  }
-
-  if (agentType === "custom" && customCommand) {
-    // Custom: run as shell command with OPENLOOP_PROMPT env var and prompt appended as arg.
-    return new Promise<number>((resolve, reject) => {
-      const child = spawn("sh", ["-c", `${customCommand} "$OPENLOOP_PROMPT"`], {
-        cwd: options.project.path,
-        env: {
-          ...process.env,
-          OPENLOOP_PROMPT: options.prompt,
-          OPENLOOP_MODEL: options.model ?? "",
-        },
-        stdio: "inherit",
-      });
-      setupAgentProcess(child, options.timeoutMs, resolve, reject);
-    });
-  }
-
-  // Fallback to pi.
-  return runPi(options);
+  return provider.run(runOptions);
 }
 
 function spawnAgent(

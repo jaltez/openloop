@@ -114,3 +114,81 @@ test("prefers typecheck script over check script", async () => {
   const commands = await detectValidationCommands(projectRoot);
   expect(commands.typecheckCommand).toBe("npm run typecheck");
 });
+
+test("detects Go validation commands from go.mod", async () => {
+  const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-go-project-"));
+  await fs.writeFile(path.join(projectRoot, "go.mod"), "module example.com/app\n\ngo 1.21\n", "utf8");
+
+  const commands = await detectValidationCommands(projectRoot);
+  expect(commands.lintCommand).toBe("golangci-lint run");
+  expect(commands.testCommand).toBe("go test ./...");
+  expect(commands.typecheckCommand).toBe("go vet ./...");
+});
+
+test("detects Rust validation commands from Cargo.toml", async () => {
+  const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-rust-project-"));
+  await fs.writeFile(path.join(projectRoot, "Cargo.toml"), "[package]\nname = \"myapp\"\nversion = \"0.1.0\"\n", "utf8");
+
+  const commands = await detectValidationCommands(projectRoot);
+  expect(commands.lintCommand).toBe("cargo clippy");
+  expect(commands.testCommand).toBe("cargo test");
+  expect(commands.typecheckCommand).toBe("cargo check");
+});
+
+test("detects Gradle validation commands from build.gradle", async () => {
+  const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-gradle-project-"));
+  await fs.writeFile(path.join(projectRoot, "build.gradle"), "plugins { id 'java' }\n", "utf8");
+
+  const commands = await detectValidationCommands(projectRoot);
+  expect(commands.lintCommand).toBeNull();
+  expect(commands.testCommand).toBe("./gradlew test");
+  expect(commands.typecheckCommand).toBe("./gradlew compileJava");
+});
+
+test("detects Maven validation commands from pom.xml", async () => {
+  const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-maven-project-"));
+  await fs.writeFile(path.join(projectRoot, "pom.xml"), "<project></project>\n", "utf8");
+
+  const commands = await detectValidationCommands(projectRoot);
+  expect(commands.lintCommand).toBeNull();
+  expect(commands.testCommand).toBe("mvn test");
+  expect(commands.typecheckCommand).toBe("mvn compile");
+});
+
+test("detects Ruby validation commands from Gemfile", async () => {
+  const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-ruby-project-"));
+  await fs.writeFile(path.join(projectRoot, "Gemfile"), "source 'https://rubygems.org'\ngem 'rails'\n", "utf8");
+
+  const commands = await detectValidationCommands(projectRoot);
+  expect(commands.lintCommand).toBe("bundle exec rubocop");
+  expect(commands.testCommand).toBe("bundle exec rspec");
+  expect(commands.typecheckCommand).toBeNull();
+});
+
+test("detects .NET validation commands from .csproj", async () => {
+  const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-dotnet-project-"));
+  await fs.writeFile(path.join(projectRoot, "MyApp.csproj"), "<Project></Project>\n", "utf8");
+
+  const commands = await detectValidationCommands(projectRoot);
+  expect(commands.lintCommand).toBeNull();
+  expect(commands.testCommand).toBe("dotnet test");
+  expect(commands.typecheckCommand).toBe("dotnet build --no-restore");
+});
+
+test("detects .NET validation commands from .sln", async () => {
+  const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-dotnet-sln-"));
+  await fs.writeFile(path.join(projectRoot, "MyApp.sln"), "Microsoft Visual Studio Solution\n", "utf8");
+
+  const commands = await detectValidationCommands(projectRoot);
+  expect(commands.testCommand).toBe("dotnet test");
+  expect(commands.typecheckCommand).toBe("dotnet build --no-restore");
+});
+
+test("detects Gradle Kotlin DSL from build.gradle.kts", async () => {
+  const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-gradle-kts-"));
+  await fs.writeFile(path.join(projectRoot, "build.gradle.kts"), "plugins { java }\n", "utf8");
+
+  const commands = await detectValidationCommands(projectRoot);
+  expect(commands.testCommand).toBe("./gradlew test");
+  expect(commands.typecheckCommand).toBe("./gradlew compileJava");
+});

@@ -12,6 +12,11 @@ import { registerTaskCommands } from "./cli/commands/task.js";
 import { registerStatusCommand } from "./cli/commands/status.js";
 import { registerEventsCommand } from "./cli/commands/events.js";
 import { registerWatchCommand } from "./cli/commands/watch.js";
+import { registerDoctorCommand } from "./cli/commands/doctor.js";
+import { registerSetupCommand } from "./cli/commands/setup.js";
+import { registerReportCommand } from "./cli/commands/report.js";
+import { registerIssueCommands } from "./cli/commands/issue.js";
+import { registerDashboardCommands } from "./cli/commands/dashboard.js";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../package.json") as { version: string };
@@ -47,6 +52,11 @@ async function main(): Promise<void> {
   registerStatusCommand(cli);
   registerEventsCommand(cli);
   registerWatchCommand(cli);
+  registerDoctorCommand(cli);
+  registerSetupCommand(cli);
+  registerReportCommand(cli);
+  registerIssueCommands(cli);
+  registerDashboardCommands(cli);
 
   await cli.parseAsync();
 }

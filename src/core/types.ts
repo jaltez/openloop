@@ -1,6 +1,7 @@
 export interface GlobalConfig {
   version: 1;
   model?: string | null;
+  defaultProvider?: string | null;
   activeProjectAlias?: string | null;
   budgets: {
     dailyCostUsd: number;
@@ -19,7 +20,54 @@ export interface GlobalConfig {
     onBudgetBlocked: string | null;
     onAllTasksDone: string | null;
   };
+  notificationChannels?: NotificationChannelConfig[];
+  dashboard?: {
+    port: number;
+    enabled: boolean;
+  };
 }
+
+export interface IssueSourceConfig {
+  provider: "github" | "gitlab";
+  repo: string;
+  label: string;
+  token?: string | null;
+  autoSync?: boolean;
+  syncIntervalMinutes?: number;
+  postStatusComments?: boolean;
+  lastSyncedAt?: string | null;
+}
+
+export interface SyncedIssue {
+  number: number;
+  title: string;
+  body: string;
+  labels: string[];
+  state: "open" | "closed";
+  url: string;
+  taskId: string | null;
+  syncedAt: string;
+}
+
+export interface IssueSyncLedger {
+  version: 1;
+  source: IssueSourceConfig;
+  issues: SyncedIssue[];
+  updatedAt: string;
+}
+
+export interface WebhookChannelConfig {
+  type: "webhook";
+  url: string;
+  events: string[];
+}
+
+export interface DesktopChannelConfig {
+  type: "desktop";
+  events: string[];
+}
+
+export type NotificationChannelConfig = WebhookChannelConfig | DesktopChannelConfig;
 
 export interface ProjectConfig {
   version: 1;
@@ -33,7 +81,7 @@ export interface ProjectConfig {
     promptFiles: string[];
   };
   agent?: {
-    type: "pi" | "claude" | "aider" | "custom";
+    type: "pi" | "claude" | "aider" | "codex" | "opencode" | "custom";
     command: string | null;
   };
   runtime: {
@@ -51,6 +99,7 @@ export interface ProjectConfig {
     defaultUnknownAreaClassification: "low-risk" | "medium-risk" | "high-risk";
     requirePolicyForAutoMerge: boolean;
   };
+  issueSource?: IssueSourceConfig | null;
 }
 
 export interface LinkedProject {
@@ -134,7 +183,7 @@ export interface ProjectTask {
     | "ci-heal"
     | "discovery"
     | "scope-proposal";
-  status: "proposed" | "planned" | "ready" | "in_progress" | "blocked" | "done" | "failed" | "cancelled" | "promoted";
+  status: "proposed" | "planned" | "ready" | "awaiting-approval" | "in_progress" | "blocked" | "done" | "failed" | "cancelled" | "promoted";
   risk: "low-risk" | "medium-risk" | "high-risk";
   scope?: TaskScope | null;
   source: TaskSource;
@@ -146,6 +195,7 @@ export interface ProjectTask {
   lastFailureSignature: string | null;
   promotion: "auto-merge" | "pull-request" | "manual-only";
   promotedAt?: string | null;
+  estimatedCostUsd?: number;
   notes?: string[];
   lastRun?: TaskRunSummary;
   createdAt: string;
