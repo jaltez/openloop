@@ -16,7 +16,18 @@ import { registerWatchCommand } from "./cli/commands/watch.js";
 const require = createRequire(import.meta.url);
 const { version } = require("../package.json") as { version: string };
 
+function shouldLaunchTUI(): boolean {
+  const args = hideBin(process.argv);
+  return process.stdout.isTTY === true && args.length === 0;
+}
+
 async function main(): Promise<void> {
+  if (shouldLaunchTUI()) {
+    const { launchTUI } = await import("./tui/index.js");
+    await launchTUI(version);
+    return;
+  }
+
   const cli = yargs(hideBin(process.argv))
     .scriptName("openloop")
     .version(version)

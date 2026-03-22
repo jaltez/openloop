@@ -1,8 +1,6 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
 import { execFileSync } from "node:child_process";
-
-const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 
 const requiredPackageEntries = [
   "README.md",
@@ -18,13 +16,10 @@ const requiredPackageEntries = [
   "templates/project/.pi/SYSTEM.md",
 ];
 
-const forbiddenPackageEntries = [
-  "AGENTS.md",
-  "BLUEPRINT.md",
-];
+const forbiddenPackageEntries = ["AGENTS.md", "BLUEPRINT.md"];
 
 runStep("Typecheck", ["run", "check"]);
-runStep("Test suite", ["test"]);
+runStep("Test suite", ["run", "test"]);
 runStep("Build", ["run", "build"]);
 
 const packResult = inspectPackContents();
@@ -51,14 +46,14 @@ console.log(`Release verification passed for ${packResult.name}@${packResult.ver
 
 function runStep(label, args) {
   console.log(`\n==> ${label}`);
-  execFileSync(npmCommand, args, {
+  execFileSync("bun", args, {
     stdio: "inherit",
   });
 }
 
 function inspectPackContents() {
   console.log("\n==> npm pack --dry-run");
-  const raw = execFileSync(npmCommand, ["pack", "--dry-run", "--json"], {
+  const raw = execFileSync("npm", ["pack", "--dry-run", "--json"], {
     encoding: "utf8",
   });
   const payload = extractJsonPayload(raw);

@@ -7,7 +7,7 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   prettierConfig,
   {
-    ignores: ["dist/", "node_modules/", "templates/"],
+    ignores: ["dist/", "node_modules/", "templates/", "bun-build.ts"],
   },
   {
     rules: {

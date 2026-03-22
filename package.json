@@ -25,23 +25,23 @@
     "templates/project",
     "README.md"
   ],
-  "engines": {
-    "node": ">=20"
-  },
   "scripts": {
-    "build": "tsup",
-    "dev": "tsx src/index.ts",
+    "build": "bun bun-build.ts",
+    "dev": "bun src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "check": "tsc --noEmit",
     "lint": "eslint src/ tests/",
     "format": "prettier --check .",
     "format:fix": "prettier --write .",
-    "prepack": "npm run build",
-    "release:verify": "node scripts/release-verify.mjs",
-    "release:pack": "npm run release:verify && npm pack"
+    "prepack": "bun run build",
+    "release:verify": "bun scripts/release-verify.mjs",
+    "release:pack": "bun run release:verify && bun run pack"
   },
   "dependencies": {
+    "@opentui/core": "^0.1.88",
+    "@opentui/solid": "^0.1.88",
+    "solid-js": "^1.9.11",
     "yaml": "^2.8.1",
     "yargs": "^17.7.2"
   },
@@ -52,8 +52,6 @@
     "eslint": "^9.39.4",
     "eslint-config-prettier": "^10.1.8",
     "prettier": "^3.8.1",
-    "tsup": "^8.4.0",
-    "tsx": "^4.19.3",
     "typescript": "^5.8.2",
     "typescript-eslint": "^8.57.0",
     "vitest": "^3.0.9"
