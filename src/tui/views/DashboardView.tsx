@@ -1,5 +1,5 @@
 import { Span, Bold } from "../primitives.js";
-import { createSignal, For, type Accessor } from "solid-js";
+import { createSignal, For } from "solid-js";
 import { useKeyboard } from "@opentui/solid";
 import { colors } from "../theme.js";
 import { useDaemonState } from "../hooks/useDaemonState.js";
@@ -38,7 +38,8 @@ export default function DashboardView() {
     const p = projects()[selectedIdx()];
     return p?.path ?? null;
   };
-  const ledger = useTaskLedger(selectedPath);
+  // Task ledger available for future detail panels
+  void useTaskLedger(selectedPath);
 
   useKeyboard((key) => {
     const len = projects().length;

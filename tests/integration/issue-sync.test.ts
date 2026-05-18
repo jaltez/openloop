@@ -1,11 +1,10 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { createTempDir, makeProjectTask, makeEmptyLedger, makeProjectConfigJson } from "../helpers/factories.js";
-import { loadIssueSyncLedger, saveIssueSyncLedger, syncIssues, listSyncedIssues, postTaskStatusToIssue } from "../../src/core/issue-sync.js";
-import { saveTaskLedger, loadTaskLedger } from "../../src/core/task-ledger.js";
+import { createTempDir, makeEmptyLedger, makeProjectConfigJson } from "../helpers/factories.js";
+import { loadIssueSyncLedger, saveIssueSyncLedger, listSyncedIssues, postTaskStatusToIssue } from "../../src/core/issue-sync.js";
+import { saveTaskLedger } from "../../src/core/task-ledger.js";
 import { loadProjectConfig, saveProjectConfig } from "../../src/core/project-config.js";
-import { DEFAULT_PROJECT_CONFIG } from "../../src/core/project-config.js";
 import type { IssueSourceConfig, IssueSyncLedger, SyncedIssue } from "../../src/core/types.js";
 
 describe("Issue Sync", () => {

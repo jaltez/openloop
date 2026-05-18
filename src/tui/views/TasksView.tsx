@@ -22,7 +22,7 @@ export default function TasksView(props: TasksViewProps) {
   const [statusMsg, setStatusMsg] = createSignal("");
   const [mode, setMode] = createSignal<"list" | "add">("list");
   const [addTitle, setAddTitle] = createSignal("");
-  const [addKind, setAddKind] = createSignal("feature");
+  const [addKind] = createSignal("feature");
 
   const filteredTasks = createMemo(() => {
     const tasks = ledger().tasks;

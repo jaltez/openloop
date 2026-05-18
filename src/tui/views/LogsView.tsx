@@ -4,7 +4,6 @@ import { useKeyboard } from "@opentui/solid";
 import { colors } from "../theme.js";
 import { daemonLogPath } from "../../core/paths.js";
 import { fileExists } from "../../core/fs.js";
-import { useProjects } from "../hooks/useProjects.js";
 import KeyHint from "../components/KeyHint.js";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -20,7 +19,7 @@ export default function LogsView(props: LogsViewProps) {
   const [runFiles, setRunFiles] = createSignal<string[]>([]);
   const [selectedFileIdx, setSelectedFileIdx] = createSignal(0);
   const [fileContent, setFileContent] = createSignal("");
-  const [lineCount, setLineCount] = createSignal(50);
+  const lineCount = () => 50;
 
   const loadDaemonLogs = async () => {
     try {

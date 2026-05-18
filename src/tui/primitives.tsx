@@ -16,9 +16,9 @@ interface TextNodeStyleProps {
 }
 
 export function Span(props: TextNodeStyleProps): JSX.Element {
-  return <span {...(props as any)} />;
+  return <span {...(props as Record<string, unknown>)} />;
 }
 
 export function Bold(props: TextNodeStyleProps): JSX.Element {
-  return <b {...(props as any)} />;
+  return <b {...(props as Record<string, unknown>)} />;
 }

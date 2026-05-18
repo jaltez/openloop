@@ -4,7 +4,7 @@ import { useKeyboard } from "@opentui/solid";
 import { colors } from "../theme.js";
 import { useDaemonState } from "../hooks/useDaemonState.js";
 import { pauseDaemon, resumeDaemon } from "../../core/daemon-state.js";
-import { daemonLogPath, daemonPidPath } from "../../core/paths.js";
+import { daemonLogPath } from "../../core/paths.js";
 import { fileExists } from "../../core/fs.js";
 import KeyHint from "../components/KeyHint.js";
 import { readFile } from "node:fs/promises";

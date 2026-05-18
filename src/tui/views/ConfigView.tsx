@@ -5,7 +5,6 @@ import { colors } from "../theme.js";
 import { loadGlobalConfig, saveGlobalConfig } from "../../core/global-config.js";
 import { loadProjectConfig, saveProjectConfig } from "../../core/project-config.js";
 import KeyHint from "../components/KeyHint.js";
-import type { GlobalConfig, ProjectConfig } from "../../core/types.js";
 
 interface ConfigViewProps {
   activeProjectPath: Accessor<string | null>;

@@ -13,7 +13,7 @@ const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 const GREEN = "\x1b[32m";
 const YELLOW = "\x1b[33m";
-const RED = "\x1b[31m";
+// RED and CYAN reserved for future status highlighting
 const CYAN = "\x1b[36m";
 
 function padRight(str: string, len: number): string {
