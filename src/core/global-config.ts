@@ -23,6 +23,7 @@ const DEFAULT_GLOBAL_CONFIG: GlobalConfig = {
     onBudgetBlocked: null,
     onAllTasksDone: null,
   },
+  hooks: [],
 };
 
 export async function loadGlobalConfig(appHomeOverride?: string): Promise<GlobalConfig> {
@@ -50,6 +51,7 @@ export async function loadGlobalConfig(appHomeOverride?: string): Promise<Global
       onAllTasksDone: config.notifications?.onAllTasksDone ?? null,
     },
     notificationChannels: config.notificationChannels ?? undefined,
+    hooks: config.hooks ?? [],
     dashboard: {
       port: config.dashboard?.port ?? 7399,
       enabled: config.dashboard?.enabled ?? false,

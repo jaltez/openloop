@@ -21,10 +21,20 @@ export interface GlobalConfig {
     onAllTasksDone: string | null;
   };
   notificationChannels?: NotificationChannelConfig[];
+  hooks?: LifecycleHookConfig[];
   dashboard?: {
     port: number;
     enabled: boolean;
   };
+}
+
+export interface LifecycleHookConfig {
+  type: "command" | "webhook";
+  events: string[];
+  command?: string | null;
+  url?: string | null;
+  timeoutSeconds?: number | null;
+  disabled?: boolean;
 }
 
 export interface IssueSourceConfig {
@@ -100,6 +110,7 @@ export interface ProjectConfig {
     requirePolicyForAutoMerge: boolean;
   };
   issueSource?: IssueSourceConfig | null;
+  hooks?: LifecycleHookConfig[];
 }
 
 export interface LinkedProject {
@@ -234,6 +245,7 @@ export interface SchedulerResult {
   attemptNumber: number | null;
   dirtyTreeDetected: boolean;
   budgetSnapshotUsd: number | null;
+  runSummaryPath?: string | null;
 }
 
 export interface ValidationSummary {

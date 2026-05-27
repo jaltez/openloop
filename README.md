@@ -120,12 +120,12 @@ Each run is labeled with a worker role that shapes Pi's behavior:
 
 ### Worker Roles
 
-| Role | When |
-|------|------|
-| `sdd-planner` | A task needs planning before code changes |
-| `implementer` | A task is ready for implementation |
+| Role            | When                                                      |
+| --------------- | --------------------------------------------------------- |
+| `sdd-planner`   | A task needs planning before code changes                 |
+| `implementer`   | A task is ready for implementation                        |
 | `repo-improver` | The scheduler is doing discovery or idle improvement work |
-| `ci-healer` | The scheduler is handling ledger-driven self-healing |
+| `ci-healer`     | The scheduler is handling ledger-driven self-healing      |
 
 ### Self-Healing
 
@@ -139,11 +139,11 @@ Anything outside these categories is blocked rather than attempted unattended.
 
 ### Risk and Promotion
 
-| Risk | Auto-merge | Human review |
-|------|------------|--------------|
-| `low-risk` | Allowed when policy permits and validations pass | Optional |
-| `medium-risk` | Not allowed | Required |
-| `high-risk` | Never | Required |
+| Risk          | Auto-merge                                       | Human review |
+| ------------- | ------------------------------------------------ | ------------ |
+| `low-risk`    | Allowed when policy permits and validations pass | Optional     |
+| `medium-risk` | Not allowed                                      | Required     |
+| `high-risk`   | Never                                            | Required     |
 
 Tasks can declare `scope.paths`, and the runtime enforces project policy:
 
@@ -154,62 +154,88 @@ Tasks can declare `scope.paths`, and the runtime enforces project policy:
 
 ### Safety Guardrails
 
-| Guard | Default | Details |
-|-------|---------|----------|
-| Budget ceiling | $25/day | Daemon pauses when exhausted |
-| Max attempts | 3 per task | Task is blocked after repeated failures |
-| Run timeout | 30 min | Hard cap per Pi invocation |
-| No-progress detection | On | Blocks tasks with ineffective diffs or repeated errors |
-| Scope policy | Per-project | `allowGlobs`, `denyGlobs`, `highRiskAreas` in `.openloop/policy.yaml` |
-| Auto-merge | Low-risk only | All validations must pass; medium/high-risk always requires review |
+| Guard                 | Default       | Details                                                               |
+| --------------------- | ------------- | --------------------------------------------------------------------- |
+| Budget ceiling        | $25/day       | Daemon pauses when exhausted                                          |
+| Max attempts          | 3 per task    | Task is blocked after repeated failures                               |
+| Run timeout           | 30 min        | Hard cap per Pi invocation                                            |
+| No-progress detection | On            | Blocks tasks with ineffective diffs or repeated errors                |
+| Scope policy          | Per-project   | `allowGlobs`, `denyGlobs`, `highRiskAreas` in `.openloop/policy.yaml` |
+| Auto-merge            | Low-risk only | All validations must pass; medium/high-risk always requires review    |
 
 ## CLI Reference
 
 ### Project Management
 
-| Command | Description |
-|---------|-------------|
-| `project add <alias> <path> [--init]` | Register a repository |
-| `project init <alias>` | Materialize control-plane templates |
-| `project list` | List linked projects |
-| `project show <alias>` | Show project details |
+| Command                               | Description                         |
+| ------------------------------------- | ----------------------------------- |
+| `project add <alias> <path> [--init]` | Register a repository               |
+| `project init <alias>`                | Materialize control-plane templates |
+| `project list`                        | List linked projects                |
+| `project show <alias>`                | Show project details                |
 
 ### Tasks
 
-| Command | Description |
-|---------|-------------|
+| Command                                     | Description                                        |
+| ------------------------------------------- | -------------------------------------------------- |
 | `task add --project <alias> --title <text>` | Add a task (accepts `--kind`, `--risk`, `--scope`) |
-| `task list --project <alias>` | List tasks (accepts `--status`, `--risk` filters) |
-| `task show --project <alias> --task <id>` | Show task detail with promotion history |
-| `enqueue --project <alias> --ref <ref>` | Create a task from an issue or external reference |
+| `task list --project <alias>`               | List tasks (accepts `--status`, `--risk` filters)  |
+| `task show --project <alias> --task <id>`   | Show task detail with promotion history            |
+| `enqueue --project <alias> --ref <ref>`     | Create a task from an issue or external reference  |
 
 ### Execution
 
-| Command | Description |
-|---------|-------------|
-| `run --project <alias> --prompt <text>` | Run Pi directly with a prompt |
-| `run-once --project <alias>` | Execute one scheduler iteration |
-| `service start\|stop\|status\|restart` | Manage the resident daemon |
-| `pause` / `resume` | Pause/resume the daemon globally |
+| Command                                 | Description                      |
+| --------------------------------------- | -------------------------------- |
+| `run --project <alias> --prompt <text>` | Run Pi directly with a prompt    |
+| `run-once --project <alias>`            | Execute one scheduler iteration  |
+| `service start\|stop\|status\|restart`  | Manage the resident daemon       |
+| `pause` / `resume`                      | Pause/resume the daemon globally |
 
 ### Promotion
 
-| Command | Description |
-|---------|-------------|
-| `promotion list --project <alias>` | List promotion artifacts |
-| `promotion show --project <alias> --task <id>` | Show promotion detail |
-| `promotion history --project <alias> --task <id>` | Chronological promotion log |
-| `promotion apply --project <alias> --task <id>` | Apply a pending promotion (merge or checkout) |
-| `promotion reject --project <alias> --task <id>` | Reject a pending promotion |
+| Command                                           | Description                                   |
+| ------------------------------------------------- | --------------------------------------------- |
+| `promotion list --project <alias>`                | List promotion artifacts                      |
+| `promotion show --project <alias> --task <id>`    | Show promotion detail                         |
+| `promotion history --project <alias> --task <id>` | Chronological promotion log                   |
+| `promotion apply --project <alias> --task <id>`   | Apply a pending promotion (merge or checkout) |
+| `promotion reject --project <alias> --task <id>`  | Reject a pending promotion                    |
 
 ### Configuration
 
-| Command | Description |
-|---------|-------------|
-| `config show` | Show global configuration |
-| `config set-model <model>` | Set default Pi model |
-| `config project-show <project>` | Show project-local config |
-| `config project-set-model <project> <model>` | Set project Pi model |
+| Command                                      | Description                          |
+| -------------------------------------------- | ------------------------------------ |
+| `config show`                                | Show global configuration            |
+| `config set-model <model>`                   | Set default Pi model                 |
+| `config add-hook` / `config list-hooks`      | Manage global lifecycle hooks        |
+| `config project-add-hook <project>`          | Manage project-local lifecycle hooks |
+| `config project-show <project>`              | Show project-local config            |
+| `config project-set-model <project> <model>` | Set project Pi model                 |
+
+### Lifecycle Hooks
+
+OpenLoop can fire command and webhook hooks for lifecycle events including `task-complete`, `task-failed`, `validation-failed`, `task-awaiting-approval`, `promotion-auto-merge-queued`, `promotion-review-queued`, `promotion-blocked`, `all-tasks-done`, and `budget-blocked`.
+
+Global hook example:
+
+```bash
+openloop config add-hook \
+  --type command \
+  --events promotion-auto-merge-queued \
+  --command 'node scripts/review-gate.mjs'
+```
+
+Project-local hook example:
+
+```bash
+openloop config project-add-hook myapp \
+  --type webhook \
+  --events task-awaiting-approval,validation-failed \
+  --url https://example.com/openloop/hooks
+```
+
+Command hooks receive the JSON payload on stdin. Command and webhook hooks may return JSON like `{"note":"Needs security review","requireManualReview":true}` to attach a note to the run summary and downgrade a queued auto-merge to manual review.
 
 ## Project Structure
 
@@ -249,8 +275,11 @@ The npm tarball includes `README.md`, `dist/`, and `templates/project/` only. In
 
 ## Roadmap (Post-V1)
 
-- Cron / timer-triggered execution
-- `git worktree` support
-- Webhook-driven CI self-healing
-- Direct spec-file generation
-- Broader heuristic backlog discovery
+See [BACKLOG.md](BACKLOG.md) for prioritized epics, acceptance criteria, and rough effort.
+
+- Lifecycle hooks and policy engine
+- Approval packets and automated reviewer pass
+- Context packs and repo maps
+- Inline task capture and broader backlog discovery
+- Scheduled and event-driven execution
+- Rich morning reports and autonomy profiles

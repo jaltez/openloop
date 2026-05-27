@@ -372,7 +372,7 @@ export async function runProjectIteration(
     task.updatedAt = new Date().toISOString();
     await saveTaskLedger(project.path, ledger);
 
-    const result = {
+    const result: SchedulerResult = {
       projectAlias: project.alias,
       taskId: task.id,
       mode,
@@ -392,8 +392,9 @@ export async function runProjectIteration(
       attemptNumber,
       dirtyTreeDetected: beforeFingerprint !== afterFingerprint,
       budgetSnapshotUsd: task.estimatedCostUsd ?? null,
+      runSummaryPath: null,
     };
-    await writeRunSummary(project.path, result);
+    result.runSummaryPath = await writeRunSummary(project.path, result);
     await cleanupWorktree();
     return result;
   } catch (error) {
@@ -465,6 +466,7 @@ export async function runProjectIteration(
       attemptNumber,
       dirtyTreeDetected: beforeFingerprint !== afterFingerprint,
       budgetSnapshotUsd: null,
+      runSummaryPath: null,
     });
     await cleanupWorktree();
     throw error;

@@ -14,6 +14,8 @@ import { postTaskStatusToIssue, postPrLinkToIssue } from "../core/issue-sync.js"
 import { loadProjectConfig } from "../core/project-config.js";
 import { syncIssues } from "../core/issue-sync.js";
 import { createDashboardServer, type DashboardServer } from "../core/dashboard.js";
+import { runLifecycleHooks, type LifecycleHookPayload } from "../core/hooks.js";
+import { downgradePendingAutoMergePromotionToReview } from "../core/promotion-queue.js";
 import type { DaemonState, GlobalConfig, SchedulerResult } from "../core/types.js";
 
 export async function startWorkerLoop(options?: { foreground?: boolean }): Promise<void> {
@@ -137,6 +139,21 @@ export async function runWorkerTick(options?: {
       currentRun: null,
     });
     await saveDaemonState(blockedState);
+    const payload: LifecycleHookPayload = {
+      event: "budget-blocked",
+      project: "",
+      taskId: "",
+      message: `Daily budget exhausted at $${normalizedState.budgetSpentUsd.toFixed(4)}.`,
+      timestamp: new Date().toISOString(),
+      mode: "idle",
+      budgetSnapshotUsd: normalizedState.budgetSpentUsd,
+    };
+    await runLifecycleHooks({
+      globalConfig: config,
+      payload,
+      daemonLogPath: daemonLogPath(),
+    }).catch(() => {});
+    await fireNotifications(config, payload).catch(() => {});
     if (config.notifications?.onBudgetBlocked) {
       fireShellCommand(config.notifications.onBudgetBlocked, {
         OPENLOOP_EVENT: "budget-blocked",
@@ -217,7 +234,8 @@ export async function runWorkerTick(options?: {
         stoppedBy: result.stoppedBy,
         taskStatus: result.taskStatus ?? undefined,
       }).catch(() => {});
-      fireNotification(config, result, activeProject.alias).catch(() => {});
+      const projConfig = await loadProjectConfig(activeProject.path).catch(() => null);
+      await emitLifecycleHooksAndNotifications(config, projConfig, activeProject.path, result, activeProject.alias).catch(() => {});
 
       // A2: Post task status back to linked issue (if configured)
       if (result.taskId && result.taskStatus) {
@@ -237,7 +255,6 @@ export async function runWorkerTick(options?: {
       }
 
       // A2: Auto-sync issues if configured
-      const projConfig = await loadProjectConfig(activeProject.path).catch(() => null);
       if (projConfig?.issueSource?.autoSync && projConfig.issueSource.token) {
         const lastSynced = projConfig.issueSource.lastSyncedAt
           ? new Date(projConfig.issueSource.lastSyncedAt).getTime()
@@ -356,18 +373,138 @@ async function fireNotification(
     }
   }
 
-  // Fire channel-based notifications (webhook, desktop)
-  if (eventName) {
-    await fireNotifications(config, {
-      event: eventName,
-      project: projectAlias,
-      taskId: result.taskId ?? "",
-      message,
-      timestamp: new Date().toISOString(),
-      mode: result.mode,
-      exitCode: result.exitCode,
-      taskStatus: result.taskStatus,
-    }).catch(() => {});
+  void message;
+}
+
+async function emitLifecycleHooksAndNotifications(
+  config: GlobalConfig,
+  projectConfig: Awaited<ReturnType<typeof loadProjectConfig>> | null,
+  projectPath: string,
+  result: SchedulerResult,
+  projectAlias: string,
+): Promise<void> {
+  const initialPayloads = buildLifecyclePayloads(result, projectAlias);
+  const hookNotes: string[] = [];
+  let requireManualReview = false;
+
+  for (const payload of initialPayloads) {
+    const hookResult = await runLifecycleHooks({
+      globalConfig: config,
+      projectConfig,
+      payload,
+      daemonLogPath: daemonLogPath(),
+    });
+    hookNotes.push(...hookResult.notes.map((note) => `${payload.event}: ${note}`));
+    requireManualReview ||= hookResult.requireManualReview;
+  }
+
+  if (requireManualReview && result.taskId && result.promotionAction === "queue-auto-merge") {
+    const downgraded = await downgradePendingAutoMergePromotionToReview(projectPath, result.taskId);
+    if (downgraded) {
+      result.promotionDecision = "manual-review";
+      result.promotionAction = "queue-review";
+      hookNotes.push("promotion-auto-merge-queued: Downgraded to manual review by lifecycle hook.");
+    }
+  }
+
+  const finalPayloads = buildLifecyclePayloads(result, projectAlias);
+  await Promise.allSettled(finalPayloads.map((payload) => fireNotifications(config, payload)));
+  await persistHookNotes(projectPath, result, hookNotes);
+  await fireNotification(config, result, projectAlias);
+}
+
+function buildLifecyclePayloads(result: SchedulerResult, projectAlias: string): LifecycleHookPayload[] {
+  const base = {
+    project: projectAlias,
+    taskId: result.taskId ?? "",
+    timestamp: new Date().toISOString(),
+    mode: result.mode,
+    exitCode: result.exitCode,
+    taskStatus: result.taskStatus,
+    role: result.role,
+    stoppedBy: result.stoppedBy,
+    promotionDecision: result.promotionDecision,
+    promotionAction: result.promotionAction,
+    budgetSnapshotUsd: result.budgetSnapshotUsd,
+    validation: result.validation,
+  };
+  const payloads: LifecycleHookPayload[] = [];
+
+  if (result.taskStatus === "done") {
+    payloads.push({
+      ...base,
+      event: "task-complete",
+      message: `Task ${result.taskId ?? "unknown"} completed in project ${projectAlias}`,
+    });
+  } else if (result.taskStatus === "failed" || result.taskStatus === "blocked") {
+    payloads.push({
+      ...base,
+      event: "task-failed",
+      message: `Task ${result.taskId ?? "unknown"} ${result.taskStatus} in project ${projectAlias}`,
+    });
+  } else if (result.taskStatus === "awaiting-approval") {
+    payloads.push({
+      ...base,
+      event: "task-awaiting-approval",
+      message: `Task ${result.taskId ?? "unknown"} is awaiting approval in project ${projectAlias}`,
+    });
+  } else if (result.mode === "idle") {
+    payloads.push({
+      ...base,
+      event: "all-tasks-done",
+      message: `All tasks done in project ${projectAlias}`,
+    });
+  }
+
+  if (result.taskStatus === "failed" && result.validation.some((item) => item.exitCode !== 0)) {
+    payloads.push({
+      ...base,
+      event: "validation-failed",
+      message: `Validation failed for task ${result.taskId ?? "unknown"} in project ${projectAlias}`,
+    });
+  }
+
+  if (result.promotionAction === "queue-auto-merge") {
+    payloads.push({
+      ...base,
+      event: "promotion-auto-merge-queued",
+      message: `Promotion queued for auto-merge for task ${result.taskId ?? "unknown"} in project ${projectAlias}`,
+    });
+  } else if (result.promotionAction === "queue-review") {
+    payloads.push({
+      ...base,
+      event: "promotion-review-queued",
+      message: `Promotion queued for review for task ${result.taskId ?? "unknown"} in project ${projectAlias}`,
+    });
+  } else if (result.promotionAction === "block") {
+    payloads.push({
+      ...base,
+      event: "promotion-blocked",
+      message: `Promotion blocked for task ${result.taskId ?? "unknown"} in project ${projectAlias}`,
+    });
+  }
+
+  return payloads;
+}
+
+async function persistHookNotes(projectPath: string, result: SchedulerResult, notes: string[]): Promise<void> {
+  if (notes.length === 0) {
+    return;
+  }
+
+  if (result.taskId) {
+    const ledger = await loadTaskLedger(projectPath).catch(() => null);
+    const task = ledger?.tasks.find((candidate) => candidate.id === result.taskId);
+    if (ledger && task) {
+      task.notes = [...(task.notes ?? []), ...notes.map((note) => `Hook: ${note}`)];
+      task.updatedAt = new Date().toISOString();
+      await saveTaskLedger(projectPath, ledger).catch(() => {});
+    }
+  }
+
+  if (result.runSummaryPath) {
+    const section = ["", "## Hook Notes", ...notes.map((note) => `- ${note}`), ""].join("\n");
+    await fs.appendFile(result.runSummaryPath, section, "utf8").catch(() => {});
   }
 }
 

@@ -1,13 +1,21 @@
-import type { Argv, ArgumentsCamelCase } from "yargs";
+import type { Argv, ArgumentsCamelCase, Options } from "yargs";
 import { getProject } from "../../core/project-registry.js";
 import { loadGlobalConfig, saveGlobalConfig } from "../../core/global-config.js";
 import { loadProjectConfig, saveProjectConfig } from "../../core/project-config.js";
 import { listProviders, PROVIDER_NAMES, getProvider } from "../../core/providers.js";
+import type { LifecycleHookConfig } from "../../core/types.js";
 
 type ModelArgs = ArgumentsCamelCase<{ model: string }>;
 type ProjectArgs = ArgumentsCamelCase<{ project: string }>;
 type ProjectModelArgs = ArgumentsCamelCase<{ project: string; model: string }>;
 type ConfigSetArgs = ArgumentsCamelCase<{ key: string; value: string }>;
+type HookArgs = ArgumentsCamelCase<{
+  type: string;
+  events: string;
+  command?: string;
+  url?: string;
+  timeoutSeconds?: number;
+}>;
 
 const SETTABLE_CONFIG_KEYS: Record<string, { type: "number" | "string"; min?: number; max?: number }> = {
   "budgets.dailyCostUsd": { type: "number", min: 0 },
@@ -35,6 +43,67 @@ function setNestedValue(obj: Record<string, unknown>, keyPath: string, value: un
   }
   current[parts[parts.length - 1]!] = value;
 }
+
+function parseEvents(raw: string): string[] {
+  return String(raw).split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function buildHookConfig(args: HookArgs): LifecycleHookConfig | null {
+  const type = String(args.type) as LifecycleHookConfig["type"];
+  const events = parseEvents(String(args.events || "*"));
+  const timeoutSeconds = args.timeoutSeconds === undefined ? 10 : Number(args.timeoutSeconds);
+
+  if (!Number.isFinite(timeoutSeconds) || timeoutSeconds < 1) {
+    console.error("Error: --timeout-seconds must be a number >= 1");
+    return null;
+  }
+
+  if (type === "command") {
+    if (!args.command) {
+      console.error("Error: --command is required for command hooks");
+      return null;
+    }
+    return {
+      type,
+      events,
+      command: String(args.command),
+      timeoutSeconds,
+    };
+  }
+
+  if (!args.url) {
+    console.error("Error: --url is required for webhook hooks");
+    return null;
+  }
+  try {
+    new URL(String(args.url));
+  } catch {
+    console.error("Error: --url must be a valid URL");
+    return null;
+  }
+
+  return {
+    type,
+    events,
+    url: String(args.url),
+    timeoutSeconds,
+  };
+}
+
+function formatHook(hook: LifecycleHookConfig, index: number): string {
+  const target = hook.type === "command" ? hook.command : hook.url;
+  const events = hook.events.join(", ") || "*";
+  const timeout = hook.timeoutSeconds ?? 10;
+  return `[${index}] ${hook.type} → ${target} (events: ${events}; timeout: ${timeout}s)`;
+}
+
+const HOOK_OPTIONS: Record<string, Options> = {
+  type: { type: "string", demandOption: true, choices: ["command", "webhook"] as const, describe: "Hook type" },
+  events: { type: "string", default: "*", describe: "Comma-separated events or * for all" },
+  command: { type: "string", describe: "Shell command for command hooks" },
+  url: { type: "string", describe: "URL for webhook hooks" },
+  timeoutSeconds: { type: "number", default: 10, describe: "Hook timeout in seconds" },
+};
 
 export function registerConfigCommands(cli: Argv): void {
   cli.command(
@@ -183,6 +252,121 @@ export function registerConfigCommands(cli: Argv): void {
             };
             await saveProjectConfig(project.path, config);
             console.log(`Project ${project.alias} agent set to ${providerName}`);
+          },
+        )
+        .command(
+          "add-hook",
+          "Add a global lifecycle hook",
+          HOOK_OPTIONS,
+          async (args) => {
+            const hook = buildHookConfig(args as HookArgs);
+            if (!hook) {
+              process.exitCode = 1;
+              return;
+            }
+            const config = await loadGlobalConfig();
+            config.hooks = [...(config.hooks ?? []), hook];
+            await saveGlobalConfig(config);
+            console.log(`Added global ${hook.type} hook (events: ${hook.events.join(", ")})`);
+          },
+        )
+        .command(
+          "remove-hook <index>",
+          "Remove a global lifecycle hook by index",
+          {
+            index: { type: "number", demandOption: true },
+          },
+          async (args: ArgumentsCamelCase<{ index: number }>) => {
+            const idx = Number(args.index);
+            const config = await loadGlobalConfig();
+            const hooks = config.hooks ?? [];
+            if (idx < 0 || idx >= hooks.length) {
+              console.error(`Error: index ${idx} out of range (${hooks.length} hooks configured)`);
+              process.exitCode = 1;
+              return;
+            }
+            const removed = hooks.splice(idx, 1)[0]!;
+            config.hooks = hooks;
+            await saveGlobalConfig(config);
+            console.log(`Removed global ${removed.type} hook at index ${idx}`);
+          },
+        )
+        .command(
+          "list-hooks",
+          "List configured global lifecycle hooks",
+          () => {},
+          async () => {
+            const config = await loadGlobalConfig();
+            const hooks = config.hooks ?? [];
+            if (hooks.length === 0) {
+              console.log("No global hooks configured.");
+              return;
+            }
+            for (let i = 0; i < hooks.length; i++) {
+              console.log(formatHook(hooks[i]!, i));
+            }
+          },
+        )
+        .command(
+          "project-add-hook <project>",
+          "Add a project-local lifecycle hook",
+          {
+            project: { type: "string", demandOption: true },
+            ...HOOK_OPTIONS,
+          },
+          async (args) => {
+            const hook = buildHookConfig(args as unknown as HookArgs);
+            if (!hook) {
+              process.exitCode = 1;
+              return;
+            }
+            const project = await getProject(String(args.project));
+            const config = await loadProjectConfig(project.path);
+            config.hooks = [...(config.hooks ?? []), hook];
+            await saveProjectConfig(project.path, config);
+            console.log(`Added project hook for ${project.alias} (events: ${hook.events.join(", ")})`);
+          },
+        )
+        .command(
+          "project-remove-hook <project> <index>",
+          "Remove a project-local lifecycle hook by index",
+          {
+            project: { type: "string", demandOption: true },
+            index: { type: "number", demandOption: true },
+          },
+          async (args: ArgumentsCamelCase<{ project: string; index: number }>) => {
+            const project = await getProject(String(args.project));
+            const config = await loadProjectConfig(project.path);
+            const hooks = config.hooks ?? [];
+            const idx = Number(args.index);
+            if (idx < 0 || idx >= hooks.length) {
+              console.error(`Error: index ${idx} out of range (${hooks.length} hooks configured)`);
+              process.exitCode = 1;
+              return;
+            }
+            const removed = hooks.splice(idx, 1)[0]!;
+            config.hooks = hooks;
+            await saveProjectConfig(project.path, config);
+            console.log(`Removed project ${removed.type} hook at index ${idx} for ${project.alias}`);
+          },
+        )
+        .command(
+          "project-list-hooks <project>",
+          "List configured project-local lifecycle hooks",
+          {
+            project: { type: "string", demandOption: true },
+          },
+          async (args: ProjectArgs) => {
+            const project = await getProject(String(args.project));
+            const config = await loadProjectConfig(project.path);
+            const hooks = config.hooks ?? [];
+            if (hooks.length === 0) {
+              console.log(`No project hooks configured for ${project.alias}.`);
+              return;
+            }
+            for (let i = 0; i < hooks.length; i++) {
+              console.log(formatHook(hooks[i]!, i));
+            }
           },
         )
         .command(

@@ -220,6 +220,37 @@ export async function getPromotionHistory(projectPath: string, taskId: string): 
   return [...requests, ...results].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
 }
 
+export async function downgradePendingAutoMergePromotionToReview(
+  projectPath: string,
+  taskId: string,
+  note = "Manual review required by lifecycle hook.",
+): Promise<boolean> {
+  const items = await listPromotionArtifacts(projectPath);
+  const match = items.find(
+    (item) => item.artifact.taskId === taskId && item.artifact.status === "pending" && item.artifact.action === "queue-auto-merge",
+  );
+  if (!match) {
+    return false;
+  }
+
+  match.artifact.decision = "manual-review";
+  match.artifact.action = "queue-review";
+  match.artifact.note = note;
+  await writeJsonFile(match.artifactPath, match.artifact);
+
+  const ledger = await loadTaskLedger(projectPath);
+  const task = ledger.tasks.find((candidate) => candidate.id === taskId);
+  if (task?.lastRun && task.lastRun.promotionArtifactPath === match.artifactPath) {
+    task.lastRun.promotionDecision = "manual-review";
+    task.lastRun.promotionAction = "queue-review";
+    task.notes = [...(task.notes ?? []), `Promotion artifact downgraded to review: ${note}`];
+    task.updatedAt = new Date().toISOString();
+    await saveTaskLedger(projectPath, ledger);
+  }
+
+  return true;
+}
+
 async function prepareReviewBranch(projectPath: string, taskId: string): Promise<string> {
   const config = await loadProjectConfig(projectPath);
   const branchName = `${config.runtime.branchPrefix}${taskId}`;
