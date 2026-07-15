@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -799,4 +800,150 @@ test("runProjectIteration escalates high-risk policy areas before promotion deci
   const persisted = JSON.parse(await fs.readFile(path.join(projectRoot, ".openloop", "tasks.json"), "utf8")) as TaskLedger;
   expect(persisted.tasks[0]?.risk).toBe("high-risk");
   expect(persisted.tasks[0]?.notes?.some((note) => note.includes("high-risk areas"))).toBe(true);
+});
+
+test("runProjectIteration aborts when useWorktree is enabled but worktree creation fails", async () => {
+  // No git repo initialized — git worktree add will fail, triggering fail-closed.
+  const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-scheduler-worktree-fail-"));
+  await fs.mkdir(path.join(projectRoot, ".openloop"), { recursive: true });
+
+  const projectConfig: ProjectConfig = {
+    version: 1,
+    project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
+    pi: { model: null, promptFiles: [] },
+    runtime: { autoCommit: true, useWorktree: true, branchPrefix: "openloop/" },
+    validation: { lintCommand: "npm run lint", testCommand: null, typecheckCommand: null },
+    risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
+  };
+  await fs.writeFile(path.join(projectRoot, ".openloop", "project.json"), `${JSON.stringify(projectConfig, null, 2)}\n`, "utf8");
+  await fs.writeFile(path.join(projectRoot, ".openloop", "policy.yaml"), "version: 1\n", "utf8");
+
+  const ledger: TaskLedger = {
+    version: 1,
+    updatedAt: new Date().toISOString(),
+    tasks: [
+      {
+        id: "worktree-task",
+        title: "Isolated task",
+        kind: "feature",
+        status: "ready",
+        risk: "low-risk",
+        source: { type: "human", ref: "test" },
+        specId: null,
+        branch: null,
+        owner: null,
+        acceptanceCriteria: ["Do the thing"],
+        attempts: 0,
+        lastFailureSignature: null,
+        promotion: "auto-merge",
+        notes: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ],
+  };
+  await fs.writeFile(path.join(projectRoot, ".openloop", "tasks.json"), `${JSON.stringify(ledger, null, 2)}\n`, "utf8");
+
+  const project: LinkedProject = {
+    alias: "demo",
+    path: projectRoot,
+    defaultBranch: null,
+    initialized: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  const piRunner = vi.fn(async () => 0);
+
+  await expect(
+    runProjectIteration(project, {
+      piRunner,
+      validationRunner: async () => 0,
+    }),
+  ).rejects.toThrow(/Worktree isolation failed/);
+
+  // Fail closed: the agent must never execute when isolation cannot be established.
+  expect(piRunner).not.toHaveBeenCalled();
+
+  // The task is recorded as a failed attempt and reverted, not left stuck in-progress.
+  const persisted = JSON.parse(await fs.readFile(path.join(projectRoot, ".openloop", "tasks.json"), "utf8")) as TaskLedger;
+  expect(persisted.tasks[0]?.attempts).toBe(1);
+  expect(persisted.tasks[0]?.status).toBe("ready");
+});
+
+test("runProjectIteration downgrades auto-merge when review detects a hardcoded secret", async () => {
+  const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-scheduler-review-"));
+  await fs.mkdir(path.join(projectRoot, ".openloop"), { recursive: true });
+
+  // Real git repo so getDiffPatch has an actual diff to analyze.
+  execFileSync("git", ["init"], { cwd: projectRoot });
+  execFileSync("git", ["config", "user.email", "test@test.com"], { cwd: projectRoot });
+  execFileSync("git", ["config", "user.name", "Test"], { cwd: projectRoot });
+  await fs.writeFile(path.join(projectRoot, "init.txt"), "init\n");
+  execFileSync("git", ["add", "."], { cwd: projectRoot });
+  execFileSync("git", ["commit", "-m", "init"], { cwd: projectRoot });
+
+  const projectConfig: ProjectConfig = {
+    version: 1,
+    project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
+    pi: { model: null, promptFiles: [] },
+    runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    review: { enabled: true },
+    validation: { lintCommand: "npm run lint", testCommand: null, typecheckCommand: null },
+    risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
+  };
+  await fs.writeFile(path.join(projectRoot, ".openloop", "project.json"), `${JSON.stringify(projectConfig, null, 2)}\n`, "utf8");
+  await fs.writeFile(path.join(projectRoot, ".openloop", "policy.yaml"), "version: 1\n", "utf8");
+
+  const ledger: TaskLedger = {
+    version: 1,
+    updatedAt: new Date().toISOString(),
+    tasks: [
+      {
+        id: "secret-task",
+        title: "Add config",
+        kind: "feature",
+        status: "ready",
+        risk: "low-risk",
+        source: { type: "human", ref: "test" },
+        specId: null,
+        branch: null,
+        owner: null,
+        acceptanceCriteria: ["Add config"],
+        attempts: 0,
+        lastFailureSignature: null,
+        promotion: "auto-merge",
+        notes: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ],
+  };
+  await fs.writeFile(path.join(projectRoot, ".openloop", "tasks.json"), `${JSON.stringify(ledger, null, 2)}\n`, "utf8");
+
+  const project: LinkedProject = {
+    alias: "demo",
+    path: projectRoot,
+    defaultBranch: null,
+    initialized: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  // Mock runner simulates the agent writing a hardcoded AWS key into a tracked file.
+  const piRunner = async () => {
+    await fs.writeFile(path.join(projectRoot, "init.txt"), "AWS_KEY=AKIAIOSFODNN7EXAMPLE\n");
+    return 0;
+  };
+
+  const result = await runProjectIteration(project, {
+    piRunner,
+    validationRunner: async () => 0,
+  });
+
+  // Without review this would be auto-merge-eligible. The deterministic secret
+  // detection catches what validation structurally cannot, downgrading to manual-review.
+  expect(result.taskStatus).toBe("done");
+  expect(result.promotionDecision).toBe("manual-review");
+  expect(result.reviewFindings?.some((f) => f.rule.includes("secret-detection"))).toBe(true);
 });

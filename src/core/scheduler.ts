@@ -11,7 +11,8 @@ import { writePromotionArtifact } from "./promotion-artifacts.js";
 import { writeRunSummary } from "./run-summaries.js";
 import { runConfiguredValidations, type ValidationRunner } from "./validation.js";
 import { ensureDir } from "./fs.js";
-import type { LinkedProject, PromotionArtifact, SchedulerResult, SchedulerSelection, TaskLedger, ValidationSummary } from "./types.js";
+import { runReview } from "./review.js";
+import type { LinkedProject, ProjectConfig, PromotionArtifact, ReviewResult, SchedulerResult, SchedulerSelection, TaskLedger, ValidationSummary } from "./types.js";
 
 // Re-export from extracted submodules for backward compatibility
 export { determineWorkerRole, isSupportedSelfHealingTask, getSelfHealingBlock } from "./scheduler/self-healing.js";
@@ -55,6 +56,7 @@ export async function runProjectIteration(
     timeoutMs?: number;
     maxAttemptsPerTask?: number;
     noProgressRepeatLimit?: number;
+    reviewerRunner?: (prompt: string) => Promise<number>;
   },
 ): Promise<SchedulerResult> {
   const ledger = await loadTaskLedger(project.path);
@@ -237,7 +239,7 @@ export async function runProjectIteration(
   const runStartedAt = Date.now();
   const beforeFingerprint = await getGitDiffFingerprint(project.path);
 
-  // D5: Set up an isolated git worktree for this run if useWorktree is configured.
+  // D5: Worktree path/branch for isolated runs (setup happens inside the try below).
   const useWorktree = projectConfig.runtime.useWorktree;
   const worktreeBranchName = useWorktree
     ? `${projectConfig.runtime.branchPrefix}${task.id}`
@@ -245,19 +247,6 @@ export async function runProjectIteration(
   const worktreePath = useWorktree
     ? path.join(project.path, ".openloop", "worktrees", task.id)
     : null;
-
-  if (useWorktree && worktreePath && worktreeBranchName) {
-    try {
-      await addWorktree(project.path, worktreePath, worktreeBranchName);
-    } catch {
-      // Worktree setup failure: fall back to running in main tree.
-    }
-  }
-
-  // The project context passed to Pi — use worktree path if available.
-  const runProject = worktreePath
-    ? { ...project, path: worktreePath }
-    : project;
 
   const getRemainingTimeoutMs = (): number | undefined => {
     if (timeoutMs === undefined) {
@@ -273,6 +262,23 @@ export async function runProjectIteration(
   };
 
   try {
+    // D5: Set up an isolated git worktree for this run if useWorktree is configured.
+    // Fail closed: when isolation is explicitly requested but cannot be established,
+    // abort the run rather than silently operating on the main working tree.
+    if (useWorktree && worktreePath && worktreeBranchName) {
+      try {
+        await addWorktree(project.path, worktreePath, worktreeBranchName);
+      } catch (error) {
+        throw new Error(
+          `Worktree isolation failed for ${worktreePath}: ` +
+          `${error instanceof Error ? error.message : String(error)}. ` +
+          `Aborting because useWorktree is enabled; refusing to fall back to the main working tree.`,
+        );
+      }
+    }
+    const runProject = worktreePath
+      ? { ...project, path: worktreePath }
+      : project;
     const exitCode = await withTimeout(
       runner({
         project: runProject,
@@ -285,6 +291,7 @@ export async function runProjectIteration(
     );
     let outcome: TaskRunSummary["outcome"] = "completed";
     let stoppedBy: SchedulerResult["stoppedBy"] = "none";
+    let reviewResult: ReviewResult | null = null;
 
     if (exitCode === 0) {
       if (mode === "implement") {
@@ -301,6 +308,30 @@ export async function runProjectIteration(
         } else {
           task.status = "done";
           task.notes = [...(task.notes ?? []), `Openloop ${mode} run succeeded.`];
+          if (projectConfig.review?.enabled) {
+            const reviewerRunner = options?.reviewerRunner
+              ?? (async (reviewPrompt: string) => runner({
+                  project: runProject,
+                  prompt: reviewPrompt,
+                  model: model ?? undefined,
+                  timeoutMs: getRemainingTimeoutMs(),
+                }));
+            reviewResult = await runReview({
+              projectPath: project.path,
+              task,
+              projectConfig,
+              projectPolicy,
+              reviewerRunner,
+            }).catch(() => ({ findings: [], hasBlocking: false }) as ReviewResult);
+            if (reviewResult.findings.length > 0) {
+              task.notes = [...(task.notes ?? []), ...reviewResult.findings.map(
+                (f) => `Review [${f.severity}] ${f.rule}: ${f.message}`,
+              )];
+              if (reviewResult.hasBlocking) {
+                task.notes = [...(task.notes ?? []), "Openloop review found blocking issues; downgrading auto-merge to manual review."];
+              }
+            }
+          }
         }
       } else {
         // W1: After a successful plan run, detect spec file written by Pi.
@@ -325,7 +356,10 @@ export async function runProjectIteration(
     }
 
     const effectivePromotionMode = resolveEffectivePromotionMode(task, projectPolicy, projectConfig.risk.requirePolicyForAutoMerge, projectConfig);
-    const promotionDecision = decidePromotion(task, validation, effectivePromotionMode, projectConfig);
+    let promotionDecision = decidePromotion(task, validation, effectivePromotionMode, projectConfig);
+    if (reviewResult?.hasBlocking && promotionDecision === "auto-merge-eligible") {
+      promotionDecision = "manual-review";
+    }
     const afterFingerprint = await getGitDiffFingerprint(project.path);
     if (shouldStopForNoProgress({
       task,
@@ -392,6 +426,7 @@ export async function runProjectIteration(
       attemptNumber,
       dirtyTreeDetected: beforeFingerprint !== afterFingerprint,
       budgetSnapshotUsd: task.estimatedCostUsd ?? null,
+      reviewFindings: reviewResult?.findings ?? undefined,
       runSummaryPath: null,
     };
     result.runSummaryPath = await writeRunSummary(project.path, result);

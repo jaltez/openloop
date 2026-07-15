@@ -111,6 +111,9 @@ export interface ProjectConfig {
   };
   issueSource?: IssueSourceConfig | null;
   hooks?: LifecycleHookConfig[];
+  review?: {
+    enabled: boolean;
+  };
 }
 
 export interface LinkedProject {
@@ -225,6 +228,20 @@ export interface SchedulerSelection {
   reason: string;
 }
 
+export type ReviewFindingSeverity = "block" | "warn" | "info";
+
+export interface ReviewFinding {
+  rule: string;
+  severity: ReviewFindingSeverity;
+  message: string;
+  file?: string | null;
+}
+
+export interface ReviewResult {
+  findings: ReviewFinding[];
+  hasBlocking: boolean;
+}
+
 export interface SchedulerResult {
   projectAlias: string;
   taskId: string | null;
@@ -245,6 +262,7 @@ export interface SchedulerResult {
   attemptNumber: number | null;
   dirtyTreeDetected: boolean;
   budgetSnapshotUsd: number | null;
+  reviewFindings?: ReviewFinding[];
   runSummaryPath?: string | null;
 }
 

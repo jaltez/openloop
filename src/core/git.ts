@@ -137,6 +137,19 @@ export async function getGitDiffStat(projectPath: string, base?: string | null, 
   }
 }
 
+/**
+ * Get the full diff patch of uncommitted changes relative to HEAD.
+ * Returns null if the repo is not a git directory.
+ */
+export async function getDiffPatch(projectPath: string): Promise<string | null> {
+  try {
+    const result = await runGit(projectPath, ["diff", "HEAD"]);
+    return result.stdout;
+  } catch {
+    return null;
+  }
+}
+
 async function runGit(projectPath: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn("git", args, {

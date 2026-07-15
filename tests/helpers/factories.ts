@@ -54,6 +54,7 @@ export function makeProjectConfigJson(overrides?: Partial<ProjectConfig>): strin
     project: { alias: null, repoRoot: null, initializedAt: null },
     pi: { model: null, promptFiles: [] },
     runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    review: { enabled: false },
     validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
     risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
     ...overrides,

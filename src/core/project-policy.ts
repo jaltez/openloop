@@ -178,15 +178,15 @@ function mergePolicy(policy: Partial<ProjectPolicy> | null): ProjectPolicy {
   };
 }
 
-function normalizeScopePaths(paths: string[]): string[] {
+export function normalizeScopePaths(paths: string[]): string[] {
   return [...new Set(paths.map(normalizeScopePath).filter((candidate) => candidate.length > 0))];
 }
 
-function normalizeScopePath(value: string): string {
+export function normalizeScopePath(value: string): string {
   return value.replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\//, "");
 }
 
-function matchesAnyGlob(candidate: string, globs: string[]): boolean {
+export function matchesAnyGlob(candidate: string, globs: string[]): boolean {
   return globs.some((pattern) => matchesGlob(candidate, pattern));
 }
 

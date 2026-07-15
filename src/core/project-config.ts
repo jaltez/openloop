@@ -32,7 +32,7 @@ export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
     defaultUnknownAreaClassification: "medium-risk",
     requirePolicyForAutoMerge: true,
   },
-  hooks: [],
+  review: { enabled: false },
 };
 
 export async function loadProjectConfig(projectPath: string): Promise<ProjectConfig> {

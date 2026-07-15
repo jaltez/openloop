@@ -47,6 +47,10 @@ export async function writeRunSummary(projectPath: string, summary: SchedulerRes
       ? validation.map((item) => `- ${item.name}: ${item.command} => ${item.exitCode}`)
       : ["- none"]),
     "",
+    ...(summary.reviewFindings && summary.reviewFindings.length > 0
+      ? ["## Review", ...summary.reviewFindings.map((f) => `- [${f.severity}] ${f.rule}: ${f.message}${f.file ? ` (${f.file})` : ""}`)]
+      : []),
+    "",
     `## Prompt`,
     summary.prompt ? summary.prompt : "_none_",
   ].join("\n");

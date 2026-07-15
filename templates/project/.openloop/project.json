@@ -26,5 +26,8 @@
   "risk": {
     "defaultUnknownAreaClassification": "medium-risk",
     "requirePolicyForAutoMerge": true
+  },
+  "review": {
+    "enabled": false
   }
 }
