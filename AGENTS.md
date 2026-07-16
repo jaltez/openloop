@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repository builds `openloop`, a global CLI and daemon for unattended Pi-driven development across linked project repositories.
+This repository builds `openloop`, a global CLI and daemon for unattended AI-driven development across linked project repositories. Pi is the default agent, but the runtime supports Claude Code, Aider, Codex, OpenCode, and custom commands via a provider abstraction.
 
 ## Product Boundaries
 

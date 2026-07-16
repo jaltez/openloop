@@ -43,3 +43,6 @@ bun.lockb
 .idea/
 .DS_Store
 Thumbs.db
+
+# Internal planning tools
+.opencode/

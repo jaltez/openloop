@@ -1,6 +1,6 @@
 # OpenLoop
 
-**Ship while you sleep.** OpenLoop turns [Pi](https://pi.dev) into a tireless developer that works across all your repositories — planning tasks, writing code, running validations, and promoting changes — on a loop, without manual intervention.
+**Ship while you sleep.** OpenLoop turns your AI coding agent into a tireless developer that works across all your repositories — planning tasks, writing code, running validations, and promoting changes — on a loop, without manual intervention.
 
 One CLI. One daemon. Every linked repo gets its own control plane, task ledger, and safety policy. You define the work; OpenLoop handles the rest.
 
@@ -89,7 +89,7 @@ Low-risk tasks with passing validations can auto-merge. Everything else waits fo
 ## Requirements
 
 - Node.js 20+
-- `pi` available on `PATH`
+- An AI coding agent on `PATH` — Pi (default), Claude Code, Aider, Codex, OpenCode, or a custom command
 - `git` available on `PATH`
 
 ## Development
@@ -104,15 +104,15 @@ npm run build     # build CLI
 
 OpenLoop cycles through three modes automatically:
 
-1. **Active development** — picks the next eligible task, runs Pi with a role-specific prompt, validates the output, and decides whether to auto-merge or create a review branch.
+1. **Active development** — picks the next eligible task, runs your configured agent with a role-specific prompt, validates the output, and decides whether to auto-merge or create a review branch.
 2. **Self-healing** — detects and fixes lint errors, type errors, and localized test failures without being asked.
 3. **Continuous improvement** — when idle, discovers gaps like missing validations or loose scope policies and proposes tasks to address them.
 
-Each run is labeled with a worker role that shapes Pi's behavior:
+Each run is labeled with a worker role that shapes the agent's behavior:
 
 ### Runtime Model
 
-- Pi runs as a subprocess via the `pi` binary.
+- The configured agent runs as a subprocess. Supports Pi, Claude Code, Aider, Codex, OpenCode, or a custom command via the provider abstraction.
 - Model resolution is deterministic: CLI flag > project config > global config.
 - A single resident daemon manages scheduling across all linked projects.
 - One active worker per project at a time; the daemon sleeps between iterations.
@@ -158,10 +158,11 @@ Tasks can declare `scope.paths`, and the runtime enforces project policy:
 | --------------------- | ------------- | --------------------------------------------------------------------- |
 | Budget ceiling        | $25/day       | Daemon pauses when exhausted                                          |
 | Max attempts          | 3 per task    | Task is blocked after repeated failures                               |
-| Run timeout           | 30 min        | Hard cap per Pi invocation                                            |
+| Run timeout           | 30 min        | Hard cap per agent invocation                                        |
 | No-progress detection | On            | Blocks tasks with ineffective diffs or repeated errors                |
 | Scope policy          | Per-project   | `allowGlobs`, `denyGlobs`, `highRiskAreas` in `.openloop/policy.yaml` |
 | Auto-merge            | Low-risk only | All validations must pass; medium/high-risk always requires review    |
+| Post-implementation review | Optional  | Scope-drift and secret detection on diffs; blocking findings downgrade auto-merge to manual review |
 
 ## CLI Reference
 
@@ -273,13 +274,10 @@ npm run release:pack      # verify + pack
 
 The npm tarball includes `README.md`, `dist/`, and `templates/project/` only. Internal docs and source maps are excluded.
 
-## Roadmap (Post-V1)
+## Roadmap
 
-See [BACKLOG.md](BACKLOG.md) for prioritized epics, acceptance criteria, and rough effort.
-
-- Lifecycle hooks and policy engine
-- Approval packets and automated reviewer pass
-- Context packs and repo maps
-- Inline task capture and broader backlog discovery
-- Scheduled and event-driven execution
-- Rich morning reports and autonomy profiles
+- **Approval packets** — structured review artifacts for `awaiting-approval` tasks with spec, scope, and validation plan
+- **Confidence digest** — per-run trust signal summarizing validation, review findings, and risk assessment
+- **Context packs** — persistent repo maps for faster agent context loading
+- **Scheduled execution** — cron-like triggers and event-driven runs from webhooks
+- **Inline task capture** — `OPENLOOP:` markers in source code as lightweight task intake
