@@ -9,7 +9,13 @@ One CLI. One daemon. Every linked repo gets its own control plane, task ledger, 
 ### 1. Install
 
 ```bash
-git clone <repo-url> && cd openloop
+npm install -g openloop
+```
+
+Requires Node.js 22+ (Bun also works). To run from source instead:
+
+```bash
+git clone https://github.com/jaltez/openloop.git && cd openloop
 npm install
 npm run build
 npm link        # makes `openloop` available globally
@@ -88,9 +94,10 @@ Low-risk tasks with passing validations can auto-merge. Everything else waits fo
 
 ## Requirements
 
-- Node.js 20+
+- Node.js 22+ (Bun recommended)
 - An AI coding agent on `PATH` — Pi (default), Claude Code, Aider, Codex, OpenCode, or a custom command
 - `git` available on `PATH`
+- `git worktree` support when `runtime.useWorktree` is enabled (opt-in isolation); `runtime.worktreeSetupCommand` can provision worktree-local build state (e.g. `npm install`)
 
 ## Development
 

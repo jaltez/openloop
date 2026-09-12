@@ -1,9 +1,17 @@
 {
   "name": "openloop",
-  "version": "0.1.0",
+  "version": "0.5.0",
   "description": "Global CLI and service for unattended Pi-driven development across linked repositories.",
   "author": "Javier Altez",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jaltez/openloop.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jaltez/openloop/issues"
+  },
+  "homepage": "https://github.com/jaltez/openloop#readme",
   "keywords": [
     "ai",
     "agent",
@@ -17,6 +25,9 @@
     "agent"
   ],
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "bin": {
     "openloop": "dist/index.js"
   },
