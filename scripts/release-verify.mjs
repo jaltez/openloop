@@ -21,6 +21,7 @@ const forbiddenPackageEntries = ["AGENTS.md", "BLUEPRINT.md"];
 runStep("Typecheck", ["run", "check"]);
 runStep("Test suite", ["run", "test"]);
 runStep("Build", ["run", "build"]);
+runStep("Built CLI smoke test", ["dist/index.js", "--version"]);
 
 const packResult = inspectPackContents();
 const packageEntries = new Set(packResult.files.map((entry) => entry.path));

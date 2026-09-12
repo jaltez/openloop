@@ -1,4 +1,3 @@
-import { createRequire } from "node:module";
 import { hideBin } from "yargs/helpers";
 import yargs from "yargs/yargs";
 import { registerDaemonCommands } from "./cli/commands/service.js";
@@ -18,9 +17,7 @@ import { registerDigestCommand, registerReportCommand } from "./cli/commands/rep
 import { registerIssueCommands } from "./cli/commands/issue.js";
 import { registerDashboardCommands } from "./cli/commands/dashboard.js";
 import { registerMcpCommand } from "./cli/commands/mcp.js";
-
-const require = createRequire(import.meta.url);
-const { version } = require("../package.json") as { version: string };
+import { version } from "./version.js";
 
 function shouldLaunchTUI(): boolean {
   const args = hideBin(process.argv);

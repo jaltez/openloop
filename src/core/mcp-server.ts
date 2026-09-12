@@ -1,4 +1,3 @@
-import { createRequire } from "node:module";
 import readline from "node:readline";
 import { listProjects, getProject } from "./project-registry.js";
 import { addTask, getTask, loadTaskLedger } from "./task-ledger.js";
@@ -6,10 +5,8 @@ import { listPromotionArtifacts } from "./promotion-queue.js";
 import { buildDigest } from "./digest.js";
 import { loadDaemonState, pauseDaemon, resumeDaemon } from "./daemon-state.js";
 import { loadGlobalConfig } from "./global-config.js";
+import { version } from "../version.js";
 import type { ProjectTask } from "./types.js";
-
-const require = createRequire(import.meta.url);
-const { version } = require("../../package.json") as { version: string };
 
 interface JsonRpcRequest {
   jsonrpc: "2.0";
