@@ -94,7 +94,7 @@ Low-risk tasks with passing validations can auto-merge. Everything else waits fo
 
 ## Requirements
 
-- Node.js 22+ (Bun recommended)
+- Node.js 22+ (Bun also works). The interactive TUI additionally requires Bun; without it, `openloop watch` provides a no-Bun live dashboard.
 - An AI coding agent on `PATH` — Pi (default), Claude Code, Aider, Codex, OpenCode, or a custom command
 - `git` available on `PATH`
 - `git worktree` support when `runtime.useWorktree` is enabled (opt-in isolation); `runtime.worktreeSetupCommand` can provision worktree-local build state (e.g. `npm install`)

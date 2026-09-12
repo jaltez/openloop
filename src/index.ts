@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { hideBin } from "yargs/helpers";
 import yargs from "yargs/yargs";
 import { registerDaemonCommands } from "./cli/commands/service.js";
@@ -24,10 +26,33 @@ function shouldLaunchTUI(): boolean {
   return process.stdout.isTTY === true && args.length === 0;
 }
 
+async function launchTUI(): Promise<void> {
+  if (process.versions.bun) {
+    const { launchTUI: launch } = await import("./tui/index.js");
+    await launch(version);
+    return;
+  }
+  // @opentui/core loads its native core through bun:ffi, so the interactive
+  // TUI can only run under Bun. When the CLI was started with Node, re-exec
+  // the same entrypoint under bun; if bun is not installed, fall back to a
+  // clear message instead of a module-resolution crash.
+  const child = spawn("bun", [fileURLToPath(import.meta.url)], { stdio: "inherit" });
+  child.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code !== "ENOENT") {
+      throw error;
+    }
+    console.error("The interactive TUI requires Bun (https://bun.sh).");
+    console.error("Install Bun, or use `openloop watch` for a live dashboard and `openloop --help` for commands.");
+    process.exitCode = 1;
+  });
+  child.on("exit", (code, signal) => {
+    process.exitCode = signal !== null ? 1 : (code ?? 0);
+  });
+}
+
 async function main(): Promise<void> {
   if (shouldLaunchTUI()) {
-    const { launchTUI } = await import("./tui/index.js");
-    await launchTUI(version);
+    await launchTUI();
     return;
   }
 

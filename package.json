@@ -1,6 +1,6 @@
 {
   "name": "openloop",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Global CLI and service for unattended Pi-driven development across linked repositories.",
   "author": "Javier Altez",
   "license": "MIT",

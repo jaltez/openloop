@@ -18,10 +18,12 @@ const requiredPackageEntries = [
 
 const forbiddenPackageEntries = ["AGENTS.md", "BLUEPRINT.md"];
 
-runStep("Typecheck", ["run", "check"]);
-runStep("Test suite", ["run", "test"]);
-runStep("Build", ["run", "build"]);
-runStep("Built CLI smoke test", ["dist/index.js", "--version"]);
+runStep("Typecheck", ["bun", ["run", "check"]]);
+runStep("Test suite", ["bun", ["run", "test"]]);
+runStep("Build", ["bun", ["run", "build"]]);
+runStep("Built CLI smoke test (bun)", ["bun", ["dist/index.js", "--version"]]);
+runStep("Built CLI smoke test (node)", ["node", ["dist/index.js", "--version"]]);
+
 
 const packResult = inspectPackContents();
 const packageEntries = new Set(packResult.files.map((entry) => entry.path));
@@ -45,9 +47,9 @@ if (forbiddenEntries.length > 0) {
 
 console.log(`Release verification passed for ${packResult.name}@${packResult.version}.`);
 
-function runStep(label, args) {
+function runStep(label, [command, args]) {
   console.log(`\n==> ${label}`);
-  execFileSync("bun", args, {
+  execFileSync(command, args, {
     stdio: "inherit",
   });
 }
