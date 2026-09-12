@@ -7,7 +7,7 @@ function makeConfig(overrides?: Partial<ProjectConfig["validation"]>): ProjectCo
     version: 1,
     project: { alias: null, repoRoot: null, initializedAt: null },
     pi: { model: null, promptFiles: [] },
-    runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
     validation: { lintCommand: null, testCommand: null, typecheckCommand: null, ...overrides },
     risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
   };

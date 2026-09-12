@@ -1,8 +1,10 @@
 import type { Argv, ArgumentsCamelCase } from "yargs";
 import { getProject } from "../../core/project-registry.js";
-import { assertPiOnPath, runPi } from "../../core/pi.js";
+import { assertProviderAvailable, runPi } from "../../core/pi.js";
 import { buildPrompt, determineWorkerRole, runProjectIteration, selectNextTask } from "../../core/scheduler.js";
 import { loadTaskLedger } from "../../core/task-ledger.js";
+import { loadProjectConfig } from "../../core/project-config.js";
+import { loadGlobalConfig } from "../../core/global-config.js";
 
 type RunArgs = ArgumentsCamelCase<{
   project: string;
@@ -29,17 +31,24 @@ export function registerRunCommands(cli: Argv): void {
         .option("prompt", { type: "string", demandOption: true })
         .option("verbose", { type: "boolean", default: false, describe: "Print prompt to stderr before execution" }),
     async (args: RunArgs) => {
-      assertPiOnPath();
+      const project = await getProject(String(args.project));
+      const [projectConfig, globalConfig] = await Promise.all([loadProjectConfig(project.path), loadGlobalConfig()]);
+      assertProviderAvailable(projectConfig, globalConfig.defaultProvider ?? null);
       if (args.verbose) {
         process.stderr.write(`[prompt]\n${String(args.prompt)}\n[/prompt]\n`);
       }
-      const project = await getProject(String(args.project));
-      const code = await runPi({
+      const result = await runPi({
         project,
         prompt: String(args.prompt),
         model: args.model ? String(args.model) : undefined,
       });
-      process.exitCode = code;
+      if (result.stdout) {
+        process.stdout.write(result.stdout);
+      }
+      if (result.stderr) {
+        process.stderr.write(result.stderr);
+      }
+      process.exitCode = result.exitCode;
     },
   );
 
@@ -68,7 +77,8 @@ export function registerRunCommands(cli: Argv): void {
         return;
       }
 
-      assertPiOnPath();
+      const [projectConfig, globalConfig] = await Promise.all([loadProjectConfig(project.path), loadGlobalConfig()]);
+      assertProviderAvailable(projectConfig, globalConfig.defaultProvider ?? null);
       const result = await runProjectIteration(project, {
         modelOverride: args.model ? String(args.model) : undefined,
       });

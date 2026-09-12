@@ -20,7 +20,7 @@ function writeProjectConfig(projectRoot: string, model: string | null): Promise<
       version: 1,
       project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
       pi: { model, promptFiles: [] },
-      runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+      runtime: { useWorktree: false, branchPrefix: "openloop/" },
       validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
       risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
     }, null, 2),

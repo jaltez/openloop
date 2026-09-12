@@ -24,6 +24,11 @@ export async function initializeProjectFromTemplates(repoRoot: string, project: 
 
   await copyTree(templatesRoot, project.path, { overwrite: options?.force ?? false });
 
+  // Non-Pi providers (claude, codex, …) read AGENTS.md at the repo root.
+  // Materialize the openloop conventions there: create when absent, otherwise
+  // merge a clearly fenced section so the project's own instructions survive.
+  await materializeAgentsMd(project.path);
+
   const templateProjectConfigPath = path.join(templatesRoot, ".openloop", "project.json");
   const projectConfigPath = path.join(project.path, ".openloop", "project.json");
   const templateProjectConfig = await readJsonFile<Record<string, unknown>>(templateProjectConfigPath, {});
@@ -63,4 +68,61 @@ function mergeJsonObjects(base: Record<string, unknown>, override: Record<string
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const OPENLOOP_AGENTS_SECTION_START = "<!-- openloop:start -->";
+const OPENLOOP_AGENTS_SECTION_END = "<!-- openloop:end -->";
+
+// Conventions for non-Pi providers, mirroring the openloop skill: same control
+// plane files, workflow, and runtime-managed-file boundaries.
+function openloopAgentsSection(): string {
+  return [
+    OPENLOOP_AGENTS_SECTION_START,
+    "",
+    "## Openloop",
+    "",
+    "This repository is linked to the Openloop control plane. Before planning or changing code, read:",
+    "",
+    "1. `.openloop/tasks.json` — task ledger with status, risk, scope, and acceptance criteria",
+    "2. `.openloop/policy.yaml` — scope rules (`allowGlobs`, `denyGlobs`, `highRiskAreas`), risk classes, and promotion modes",
+    "3. `.openloop/project.json` — validation commands and runtime settings",
+    "4. Relevant spec under `.openloop/specs/` if one exists for the current task",
+    "",
+    "Workflow: implement with minimal, focused changes within the task's declared",
+    "scope; run the project's validation commands (lint, test, typecheck) as",
+    "configured in `project.json`; stop on validation failure.",
+    "",
+    "Do not modify runtime-managed files directly: `.openloop/tasks.json`,",
+    "`.openloop/runs/`, `.openloop/promotions/`, `.openloop/promotion-results/`.",
+    "",
+    OPENLOOP_AGENTS_SECTION_END,
+    "",
+  ].join("\n");
+}
+
+async function materializeAgentsMd(projectPath: string): Promise<void> {
+  const agentsMdPath = path.join(projectPath, "AGENTS.md");
+  if (!(await fileExists(agentsMdPath))) {
+    await fs.writeFile(agentsMdPath, openloopAgentsSection(), "utf8");
+    return;
+  }
+
+  const existing = await fs.readFile(agentsMdPath, "utf8");
+  const startIndex = existing.indexOf(OPENLOOP_AGENTS_SECTION_START);
+  const endIndex = existing.indexOf(OPENLOOP_AGENTS_SECTION_END);
+  let merged = existing;
+  if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
+    // Replace any previous openloop block in place.
+    merged = `${existing.slice(0, startIndex)}${openloopAgentsSection()}${existing.slice(endIndex + OPENLOOP_AGENTS_SECTION_END.length)}`;
+  } else if (startIndex !== -1) {
+    // Asymmetric markers (start without end): discard everything from the
+    // dangling start marker onward — the openloop block is replaced wholesale.
+    merged = `${existing.slice(0, startIndex).trimEnd()}\n\n${openloopAgentsSection()}`;
+  } else if (endIndex !== -1) {
+    // Orphaned end marker: drop it and append the canonical section.
+    merged = `${existing.slice(0, endIndex)}${openloopAgentsSection()}${existing.slice(endIndex + OPENLOOP_AGENTS_SECTION_END.length)}`;
+  } else {
+    merged = `${existing.trimEnd()}\n\n${openloopAgentsSection()}`;
+  }
+  await fs.writeFile(agentsMdPath, merged, "utf8");
 }

@@ -4,7 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { expect, test, vi } from "vitest";
 import { determineWorkerRole, runProjectIteration, selectNextTask } from "../../src/core/scheduler.js";
-import type { LinkedProject, ProjectConfig, TaskLedger } from "../../src/core/types.js";
+import type { LinkedProject, ProjectConfig, ProjectTask, TaskLedger } from "../../src/core/types.js";
+import { fakeAgentRun, initGitRepo } from "../helpers/factories.js";
 
 test("determineWorkerRole maps planner, implementer, improver, and healer roles", () => {
   expect(determineWorkerRole({
@@ -184,6 +185,213 @@ test("selectNextTask falls back to ready medium-risk tasks when no low-risk task
   expect(selection.mode).toBe("implement");
 });
 
+test("selectNextTask promotes medium-risk tasks that aged past 24h over fresher low-risk work", () => {
+  const now = new Date("2026-03-10T12:00:00.000Z");
+  const fresh = new Date("2026-03-10T11:00:00.000Z").toISOString();
+  const stale = new Date("2026-03-09T08:00:00.000Z").toISOString();
+  const ledger: TaskLedger = {
+    version: 1,
+    updatedAt: now.toISOString(),
+    tasks: [
+      {
+        id: "fresh-low",
+        title: "Fresh low-risk",
+        kind: "feature",
+        status: "ready",
+        risk: "low-risk",
+        source: { type: "human", ref: "test" },
+        specId: null,
+        branch: null,
+        owner: null,
+        acceptanceCriteria: [],
+        attempts: 0,
+        lastFailureSignature: null,
+        promotion: "pull-request",
+        notes: [],
+        createdAt: fresh,
+        updatedAt: fresh,
+      },
+      {
+        id: "stale-medium",
+        title: "Stale medium-risk",
+        kind: "feature",
+        status: "ready",
+        risk: "medium-risk",
+        source: { type: "human", ref: "test" },
+        specId: null,
+        branch: null,
+        owner: null,
+        acceptanceCriteria: [],
+        attempts: 0,
+        lastFailureSignature: null,
+        promotion: "pull-request",
+        notes: [],
+        createdAt: stale,
+        updatedAt: stale,
+      },
+    ],
+  };
+
+  const selection = selectNextTask(ledger, now);
+
+  expect(selection.task?.id).toBe("stale-medium");
+  expect(selection.mode).toBe("implement");
+  expect(selection.reason).toContain("aged past 24h");
+});
+
+test("selectNextTask keeps low-risk priority when medium-risk work is fresh", () => {
+  const now = new Date("2026-03-10T12:00:00.000Z");
+  const recent = new Date("2026-03-10T11:30:00.000Z").toISOString();
+  const task = (id: string, risk: "low-risk" | "medium-risk"): ProjectTask => ({
+    id,
+    title: id,
+    kind: "feature",
+    status: "ready",
+    risk,
+    source: { type: "human", ref: "test" },
+    specId: null,
+    branch: null,
+    owner: null,
+    acceptanceCriteria: [],
+    attempts: 0,
+    lastFailureSignature: null,
+    promotion: "pull-request",
+    notes: [],
+    createdAt: recent,
+    updatedAt: recent,
+  });
+  const ledger: TaskLedger = {
+    version: 1,
+    updatedAt: recent,
+    tasks: [task("fresh-medium", "medium-risk"), task("fresh-low", "low-risk")],
+  };
+
+  const selection = selectNextTask(ledger, now);
+
+  expect(selection.task?.id).toBe("fresh-low");
+  expect(selection.reason).toContain("low-risk");
+});
+
+test("selectNextTask skips ready tasks with unsatisfied dependsOn and names the blocker", () => {
+  const now = new Date("2026-03-10T12:00:00.000Z");
+  const recent = new Date("2026-03-10T11:00:00.000Z").toISOString();
+  const task = (id: string, extra?: Partial<ProjectTask>): ProjectTask => ({
+    id,
+    title: id,
+    kind: "feature",
+    status: "ready",
+    risk: "low-risk",
+    source: { type: "human", ref: "test" },
+    specId: null,
+    branch: null,
+    owner: null,
+    acceptanceCriteria: [],
+    attempts: 0,
+    lastFailureSignature: null,
+    promotion: "pull-request",
+    notes: [],
+    createdAt: recent,
+    updatedAt: recent,
+    ...extra,
+  });
+  const ledger: TaskLedger = {
+    version: 1,
+    updatedAt: recent,
+    tasks: [
+      task("blocked-a", { dependsOn: ["missing-dep"] }),
+      task("blocked-b", { dependsOn: ["still-ready"] }),
+      task("still-ready"),
+    ],
+  };
+
+  const selection = selectNextTask(ledger, now);
+
+  expect(selection.task?.id).toBe("still-ready");
+  expect(selection.mode).toBe("implement");
+
+  // With every ready task blocked, the idle reason names the blockers.
+  const allBlocked: TaskLedger = {
+    version: 1,
+    updatedAt: recent,
+    tasks: [task("blocked-a", { dependsOn: ["missing-dep"] })],
+  };
+  const blockedSelection = selectNextTask(allBlocked, now);
+  expect(blockedSelection.task).toBeNull();
+  expect(blockedSelection.reason).toContain("unsatisfied dependsOn: missing-dep");
+});
+
+test("selectNextTask treats promoted dependencies as satisfied", () => {
+  const now = new Date("2026-03-10T12:00:00.000Z");
+  const recent = new Date("2026-03-10T11:00:00.000Z").toISOString();
+  const task = (id: string, status: ProjectTask["status"], extra?: Partial<ProjectTask>): ProjectTask => ({
+    id,
+    title: id,
+    kind: "feature",
+    status,
+    risk: "low-risk",
+    source: { type: "human", ref: "test" },
+    specId: null,
+    branch: null,
+    owner: null,
+    acceptanceCriteria: [],
+    attempts: 0,
+    lastFailureSignature: null,
+    promotion: "pull-request",
+    notes: [],
+    createdAt: recent,
+    updatedAt: recent,
+    ...extra,
+  });
+  const ledger: TaskLedger = {
+    version: 1,
+    updatedAt: recent,
+    tasks: [
+      task("dependent", "ready", { dependsOn: ["promoted-dep"] }),
+      task("promoted-dep", "promoted"),
+    ],
+  };
+
+  const selection = selectNextTask(ledger, now);
+
+  expect(selection.task?.id).toBe("dependent");
+});
+
+test("selectNextTask never schedules cross-project dependsOn and names it in the idle reason", () => {
+  const now = new Date("2026-03-10T12:00:00.000Z");
+  const recent = new Date("2026-03-10T11:00:00.000Z").toISOString();
+  const task: ProjectTask = {
+    id: "cross-dep",
+    title: "cross-dep",
+    kind: "feature",
+    status: "ready",
+    risk: "low-risk",
+    source: { type: "human", ref: "test" },
+    specId: null,
+    branch: null,
+    owner: null,
+    acceptanceCriteria: [],
+    attempts: 0,
+    lastFailureSignature: null,
+    promotion: "pull-request",
+    notes: [],
+    createdAt: recent,
+    updatedAt: recent,
+    dependsOn: ["other-project:task-9"],
+  };
+  const ledger: TaskLedger = { version: 1, updatedAt: recent, tasks: [task] };
+
+  const first = selectNextTask(ledger, now);
+  expect(first.task).toBeNull();
+  expect(first.reason).toContain("other-project:task-9");
+  expect(first.reason).toContain("cross-project");
+
+  const second = selectNextTask(ledger, now);
+  expect(second.task).toBeNull();
+
+  // Blocking is surfaced, not silently dropped.
+  expect(second.reason).toContain("other-project:task-9");
+});
+
 test("runProjectIteration executes ready medium-risk tasks and queues manual review", async () => {
   const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-scheduler-medium-ready-"));
   await fs.mkdir(path.join(projectRoot, ".openloop"), { recursive: true });
@@ -192,7 +400,7 @@ test("runProjectIteration executes ready medium-risk tasks and queues manual rev
     version: 1,
     project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
     pi: { model: null, promptFiles: [] },
-    runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
     validation: { lintCommand: "npm run lint", testCommand: null, typecheckCommand: null },
     risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
   };
@@ -235,7 +443,7 @@ test("runProjectIteration executes ready medium-risk tasks and queues manual rev
   };
 
   const result = await runProjectIteration(project, {
-    piRunner: async () => 0,
+    piRunner: async () => fakeAgentRun(),
     validationRunner: async () => 0,
   });
 
@@ -254,7 +462,7 @@ test("runProjectIteration moves proposed medium-risk tasks to awaiting-approval 
     version: 1,
     project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
     pi: { model: "anthropic/project-model", promptFiles: [] },
-    runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
     validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
     risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
   };
@@ -296,7 +504,7 @@ test("runProjectIteration moves proposed medium-risk tasks to awaiting-approval 
   };
 
   const result = await runProjectIteration(project, {
-    piRunner: async () => 0,
+    piRunner: async () => fakeAgentRun(),
   });
 
   expect(result.mode).toBe("plan");
@@ -314,7 +522,7 @@ test("runProjectIteration auto-generates a validation discovery task for idle pr
     version: 1,
     project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
     pi: { model: null, promptFiles: [] },
-    runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
     validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
     risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
   };
@@ -332,7 +540,7 @@ test("runProjectIteration auto-generates a validation discovery task for idle pr
   };
 
   const result = await runProjectIteration(project, {
-    piRunner: async () => 0,
+    piRunner: async () => fakeAgentRun(),
   });
 
   expect(result.mode).toBe("plan");
@@ -354,7 +562,7 @@ test("runProjectIteration auto-generates a scope proposal task when validation e
     version: 1,
     project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
     pi: { model: null, promptFiles: [] },
-    runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
     validation: { lintCommand: "npm run lint", testCommand: "npm test", typecheckCommand: "npm run typecheck" },
     risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
   };
@@ -372,7 +580,7 @@ test("runProjectIteration auto-generates a scope proposal task when validation e
   };
 
   const result = await runProjectIteration(project, {
-    piRunner: async () => 0,
+    piRunner: async () => fakeAgentRun(),
   });
 
   expect(result.mode).toBe("plan");
@@ -393,7 +601,7 @@ test("runProjectIteration auto-generates a targeted test-command task when valid
     version: 1,
     project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
     pi: { model: null, promptFiles: [] },
-    runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
     validation: { lintCommand: "npm run lint", testCommand: null, typecheckCommand: "npm run typecheck" },
     risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
   };
@@ -422,7 +630,7 @@ test("runProjectIteration auto-generates a targeted test-command task when valid
   };
 
   const result = await runProjectIteration(project, {
-    piRunner: async () => 0,
+    piRunner: async () => fakeAgentRun(),
   });
 
   expect(result.mode).toBe("plan");
@@ -442,7 +650,7 @@ test("runProjectIteration blocks tasks that exceed max attempts before execution
     version: 1,
     project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
     pi: { model: null, promptFiles: [] },
-    runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
     validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
     risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
   };
@@ -483,7 +691,7 @@ test("runProjectIteration blocks tasks that exceed max attempts before execution
     updatedAt: new Date().toISOString(),
   };
 
-  const piRunner = vi.fn(async () => 0);
+  const piRunner = vi.fn(async () => fakeAgentRun());
   const result = await runProjectIteration(project, {
     piRunner,
     maxAttemptsPerTask: 3,
@@ -505,9 +713,10 @@ test("runProjectIteration allows localized deterministic test self-healing tasks
     version: 1,
     project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
     pi: { model: null, promptFiles: [] },
-    runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
     validation: { lintCommand: null, testCommand: "npm test", typecheckCommand: null },
     risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
+    verification: { enabled: false },
   };
   await fs.writeFile(path.join(projectRoot, ".openloop", "project.json"), `${JSON.stringify(projectConfig, null, 2)}\n`, "utf8");
   await fs.writeFile(
@@ -557,7 +766,7 @@ test("runProjectIteration allows localized deterministic test self-healing tasks
     updatedAt: new Date().toISOString(),
   };
 
-  const piRunner = vi.fn(async () => 0);
+  const piRunner = vi.fn(async () => fakeAgentRun());
   const result = await runProjectIteration(project, {
     piRunner,
     validationRunner: async () => 0,
@@ -581,7 +790,7 @@ test("runProjectIteration blocks unsupported self-healing task kinds without inv
     version: 1,
     project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
     pi: { model: null, promptFiles: [] },
-    runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
     validation: { lintCommand: null, testCommand: "npm test", typecheckCommand: null },
     risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
   };
@@ -633,7 +842,7 @@ test("runProjectIteration blocks unsupported self-healing task kinds without inv
     updatedAt: new Date().toISOString(),
   };
 
-  const piRunner = vi.fn(async () => 0);
+  const piRunner = vi.fn(async () => fakeAgentRun());
   const result = await runProjectIteration(project, {
     piRunner,
   });
@@ -656,7 +865,7 @@ test("runProjectIteration blocks tasks that target denied policy paths", async (
     version: 1,
     project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
     pi: { model: null, promptFiles: [] },
-    runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
     validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
     risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
   };
@@ -711,7 +920,7 @@ test("runProjectIteration blocks tasks that target denied policy paths", async (
     updatedAt: new Date().toISOString(),
   };
 
-  const piRunner = vi.fn(async () => 0);
+  const piRunner = vi.fn(async () => fakeAgentRun());
   const result = await runProjectIteration(project, { piRunner });
 
   expect(piRunner).not.toHaveBeenCalled();
@@ -730,7 +939,7 @@ test("runProjectIteration escalates high-risk policy areas before promotion deci
     version: 1,
     project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
     pi: { model: null, promptFiles: [] },
-    runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
     validation: { lintCommand: "npm run lint", testCommand: null, typecheckCommand: null },
     risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
   };
@@ -790,7 +999,7 @@ test("runProjectIteration escalates high-risk policy areas before promotion deci
   };
 
   const result = await runProjectIteration(project, {
-    piRunner: async () => 0,
+    piRunner: async () => fakeAgentRun(),
     validationRunner: async () => 0,
   });
 
@@ -811,7 +1020,7 @@ test("runProjectIteration aborts when useWorktree is enabled but worktree creati
     version: 1,
     project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
     pi: { model: null, promptFiles: [] },
-    runtime: { autoCommit: true, useWorktree: true, branchPrefix: "openloop/" },
+    runtime: { useWorktree: true, branchPrefix: "openloop/" },
     validation: { lintCommand: "npm run lint", testCommand: null, typecheckCommand: null },
     risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
   };
@@ -853,7 +1062,7 @@ test("runProjectIteration aborts when useWorktree is enabled but worktree creati
     updatedAt: new Date().toISOString(),
   };
 
-  const piRunner = vi.fn(async () => 0);
+  const piRunner = vi.fn(async () => fakeAgentRun());
 
   await expect(
     runProjectIteration(project, {
@@ -887,7 +1096,7 @@ test("runProjectIteration downgrades auto-merge when review detects a hardcoded 
     version: 1,
     project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
     pi: { model: null, promptFiles: [] },
-    runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
     review: { enabled: true },
     validation: { lintCommand: "npm run lint", testCommand: null, typecheckCommand: null },
     risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
@@ -933,7 +1142,7 @@ test("runProjectIteration downgrades auto-merge when review detects a hardcoded 
   // Mock runner simulates the agent writing a hardcoded AWS key into a tracked file.
   const piRunner = async () => {
     await fs.writeFile(path.join(projectRoot, "init.txt"), "AWS_KEY=AKIAIOSFODNN7EXAMPLE\n");
-    return 0;
+    return fakeAgentRun();
   };
 
   const result = await runProjectIteration(project, {
@@ -945,5 +1154,262 @@ test("runProjectIteration downgrades auto-merge when review detects a hardcoded 
   // detection catches what validation structurally cannot, downgrading to manual-review.
   expect(result.taskStatus).toBe("done");
   expect(result.promotionDecision).toBe("manual-review");
+  expect(result.promotionAction).toBe("queue-review");
   expect(result.reviewFindings?.some((f) => f.rule.includes("secret-detection"))).toBe(true);
+
+  // Queued promotions produce a human-approval packet with full provenance.
+  expect(result.approvalPacketPath).toBe(path.join(projectRoot, ".openloop", "approvals", "secret-task.json"));
+  const packet = JSON.parse(await fs.readFile(result.approvalPacketPath!, "utf8"));
+  expect(packet.taskId).toBe("secret-task");
+  expect(packet.risk).toBe("low-risk");
+  expect(packet.costSource).toBe("estimated");
+  expect(packet.reviewFindings.some((f: { rule: string }) => f.rule.includes("secret-detection"))).toBe(true);
+  expect(packet.diffStat).toEqual(expect.arrayContaining([{ file: "init.txt", added: 1, removed: 1 }]));
+  expect(await fs.stat(packet.runSummaryPath)).toBeDefined();
+  // The promotion artifact references the packet.
+  const artifact = JSON.parse(await fs.readFile(result.promotionArtifactPath!, "utf8"));
+  expect(artifact.approvalPacketPath).toBe(result.approvalPacketPath);
+});
+
+test("runProjectIteration downgrades auto-merge when reviewer output is malformed", async () => {
+  const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-scheduler-malformed-review-"));
+  await fs.mkdir(path.join(projectRoot, ".openloop"), { recursive: true });
+
+  execFileSync("git", ["init"], { cwd: projectRoot });
+  execFileSync("git", ["config", "user.email", "test@test.com"], { cwd: projectRoot });
+  execFileSync("git", ["config", "user.name", "Test"], { cwd: projectRoot });
+  await fs.writeFile(path.join(projectRoot, "init.txt"), "init\n");
+  execFileSync("git", ["add", "."], { cwd: projectRoot });
+  execFileSync("git", ["commit", "-m", "init"], { cwd: projectRoot });
+
+  const projectConfig: ProjectConfig = {
+    version: 1,
+    project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
+    pi: { model: null, promptFiles: [] },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
+    review: { enabled: true },
+    validation: { lintCommand: null, testCommand: "true", typecheckCommand: null },
+    risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
+  };
+  await fs.writeFile(path.join(projectRoot, ".openloop", "project.json"), `${JSON.stringify(projectConfig, null, 2)}\n`, "utf8");
+  await fs.writeFile(path.join(projectRoot, ".openloop", "policy.yaml"), "version: 1\n", "utf8");
+
+  const ledger: TaskLedger = {
+    version: 1,
+    updatedAt: new Date().toISOString(),
+    tasks: [
+      {
+        id: "malformed-review-task",
+        title: "Add config",
+        kind: "feature",
+        status: "ready",
+        risk: "low-risk",
+        source: { type: "human", ref: "test" },
+        specId: null,
+        branch: null,
+        owner: null,
+        acceptanceCriteria: ["Add config"],
+        attempts: 0,
+        lastFailureSignature: null,
+        promotion: "auto-merge",
+        notes: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ],
+  };
+  await fs.writeFile(path.join(projectRoot, ".openloop", "tasks.json"), `${JSON.stringify(ledger, null, 2)}\n`, "utf8");
+
+  const project: LinkedProject = {
+    alias: "demo",
+    path: projectRoot,
+    defaultBranch: null,
+    initialized: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  const piRunner = async () => {
+    await fs.writeFile(path.join(projectRoot, "init.txt"), "changed\n");
+    return fakeAgentRun();
+  };
+
+  // The reviewer writes an unparseable file: fail closed, not "no findings".
+  const reviewerRunner = async () => {
+    await fs.mkdir(path.join(projectRoot, ".openloop", "reviews"), { recursive: true });
+    await fs.writeFile(path.join(projectRoot, ".openloop", "reviews", "malformed-review-task.json"), "{ this is not json", "utf8");
+    return 0;
+  };
+
+  const result = await runProjectIteration(project, {
+    piRunner,
+    validationRunner: async () => 0,
+    reviewerRunner,
+  });
+
+  expect(result.taskStatus).toBe("done");
+  expect(result.promotionDecision).toBe("manual-review");
+  expect(result.promotionAction).toBe("queue-review");
+  const persisted = JSON.parse(await fs.readFile(path.join(projectRoot, ".openloop", "tasks.json"), "utf8")) as TaskLedger;
+  expect(persisted.tasks[0]?.notes?.some((note) => note.includes("Reviewer output malformed"))).toBe(true);
+});
+
+test("runProjectIteration executes the agent and validations inside the worktree in worktree mode", async () => {
+  const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-scheduler-worktree-ok-"));
+  await initGitRepo(projectRoot);
+  await fs.mkdir(path.join(projectRoot, ".openloop"), { recursive: true });
+
+  const projectConfig: ProjectConfig = {
+    version: 1,
+    project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
+    pi: { model: null, promptFiles: [] },
+    runtime: { useWorktree: true, branchPrefix: "openloop/" },
+    validation: { lintCommand: null, testCommand: "test -f touched-by-agent.txt", typecheckCommand: null },
+    risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
+  };
+  await fs.writeFile(path.join(projectRoot, ".openloop", "project.json"), `${JSON.stringify(projectConfig, null, 2)}\n`, "utf8");
+  await fs.writeFile(path.join(projectRoot, ".openloop", "policy.yaml"), "version: 1\n", "utf8");
+
+  const ledger: TaskLedger = {
+    version: 1,
+    updatedAt: new Date().toISOString(),
+    tasks: [
+      {
+        id: "worktree-happy",
+        title: "Isolated task",
+        kind: "feature",
+        status: "ready",
+        risk: "low-risk",
+        source: { type: "human", ref: "test" },
+        specId: null,
+        branch: null,
+        owner: null,
+        acceptanceCriteria: ["Do the thing"],
+        attempts: 0,
+        lastFailureSignature: null,
+        promotion: "pull-request",
+        notes: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ],
+  };
+  await fs.writeFile(path.join(projectRoot, ".openloop", "tasks.json"), `${JSON.stringify(ledger, null, 2)}\n`, "utf8");
+
+  const project: LinkedProject = {
+    alias: "demo",
+    path: projectRoot,
+    defaultBranch: null,
+    initialized: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  const worktreePath = path.join(projectRoot, ".openloop", "worktrees", "worktree-happy");
+
+  // The agent writes its file wherever it is told to run — the worktree.
+  const piRunner = async (options: { project: LinkedProject }) => {
+    await fs.writeFile(path.join(options.project.path, "touched-by-agent.txt"), "agent output\n");
+    return fakeAgentRun({ stdout: "agent transcript output\n", usage: { costUsd: 0.42 } });
+  };
+
+  // Run the real test command in the path validation receives: pre-fix this
+  // executed on the main tree where touched-by-agent.txt does not exist.
+  const validationRunner = vi.fn(async (projectPath: string, command: string) => {
+    try {
+      execFileSync("sh", ["-c", command], { cwd: projectPath, stdio: "ignore" });
+      return 0;
+    } catch {
+      return 1;
+    }
+  });
+
+  const result = await runProjectIteration(project, { piRunner, validationRunner });
+
+  expect(result.taskStatus).toBe("done");
+  expect(result.validation).toEqual([
+    { name: "test", command: "test -f touched-by-agent.txt", exitCode: 0 },
+  ]);
+  expect(validationRunner).toHaveBeenCalledTimes(1);
+  expect(validationRunner.mock.calls[0]?.[0]).toBe(worktreePath);
+
+  // Measured provider cost flows through to the scheduler result.
+  expect(result.costUsd).toBe(0.42);
+  expect(result.costSource).toBe("measured");
+
+  // The agent transcript is persisted to the control-plane runs directory.
+  const runsDir = path.join(projectRoot, ".openloop", "runs");
+  const transcripts = (await fs.readdir(runsDir)).filter((name) => name.endsWith(".transcript.log"));
+  expect(transcripts).toHaveLength(1);
+  const transcript = await fs.readFile(path.join(runsDir, transcripts[0]!), "utf8");
+  expect(transcript).toContain("agent transcript output");
+
+  // The worktree is cleaned up after the run.
+  await expect(fs.stat(worktreePath)).rejects.toThrow();
+});
+
+test("runProjectIteration fails closed when the worktree setup command fails", async () => {
+  const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-scheduler-worktree-setup-"));
+  await initGitRepo(projectRoot);
+  await fs.mkdir(path.join(projectRoot, ".openloop"), { recursive: true });
+
+  const projectConfig: ProjectConfig = {
+    version: 1,
+    project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
+    pi: { model: null, promptFiles: [] },
+    runtime: { useWorktree: true, branchPrefix: "openloop/", worktreeSetupCommand: "exit 3" },
+    validation: { lintCommand: null, testCommand: "true", typecheckCommand: null },
+    risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
+  };
+  await fs.writeFile(path.join(projectRoot, ".openloop", "project.json"), `${JSON.stringify(projectConfig, null, 2)}\n`, "utf8");
+  await fs.writeFile(path.join(projectRoot, ".openloop", "policy.yaml"), "version: 1\n", "utf8");
+
+  const ledger: TaskLedger = {
+    version: 1,
+    updatedAt: new Date().toISOString(),
+    tasks: [
+      {
+        id: "setup-fail-task",
+        title: "Isolated task",
+        kind: "feature",
+        status: "ready",
+        risk: "low-risk",
+        source: { type: "human", ref: "test" },
+        specId: null,
+        branch: null,
+        owner: null,
+        acceptanceCriteria: ["Do the thing"],
+        attempts: 0,
+        lastFailureSignature: null,
+        promotion: "pull-request",
+        notes: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ],
+  };
+  await fs.writeFile(path.join(projectRoot, ".openloop", "tasks.json"), `${JSON.stringify(ledger, null, 2)}\n`, "utf8");
+
+  const project: LinkedProject = {
+    alias: "demo",
+    path: projectRoot,
+    defaultBranch: null,
+    initialized: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  const piRunner = vi.fn(async () => fakeAgentRun());
+  const validationRunner = vi.fn(async () => 0);
+
+  await expect(
+    runProjectIteration(project, { piRunner, validationRunner }),
+  ).rejects.toThrow(/Worktree setup command failed: exit 3/);
+
+  expect(piRunner).not.toHaveBeenCalled();
+  expect(validationRunner).not.toHaveBeenCalled();
+
+  const persisted = JSON.parse(await fs.readFile(path.join(projectRoot, ".openloop", "tasks.json"), "utf8")) as TaskLedger;
+  expect(persisted.tasks[0]?.attempts).toBe(1);
+  expect(persisted.tasks[0]?.status).toBe("ready");
 });

@@ -121,13 +121,23 @@ function createContinuousImprovementTask(
   };
 }
 
-export function buildPrompt(task: ProjectTask, mode: "implement" | "plan", role: WorkerRole, specContent?: string | null): string {
+export function buildPrompt(
+  task: ProjectTask,
+  mode: "implement" | "plan",
+  role: WorkerRole,
+  specContent?: string | null,
+  options?: { providerIsPi?: boolean },
+): string {
+  const providerIsPi = options?.providerIsPi ?? true;
   const header = mode === "implement"
     ? isSupportedSelfHealingTask(task.kind)
       ? `Repair the following ${describeSelfHealingTask(task.kind)} with the smallest viable change.`
       : "Implement the following task."
     : "Plan the following task and prepare it for implementation.";
   const lines = [
+    // Pi loads openloop conventions from its system-prompt files; every other
+    // provider only sees AGENTS.md — point it there explicitly.
+    ...(providerIsPi ? [] : ["Read AGENTS.md and .openloop/policy.yaml before making changes."]),
     header,
     `Task ID: ${task.id}`,
     `Title: ${task.title}`,
@@ -179,4 +189,32 @@ export async function detectAndSetSpecId(projectPath: string, task: ProjectTask)
   } catch {
     // no spec file written by Pi — that's OK
   }
+}
+
+/**
+ * Verifier prompt: the implementer's work is judged by a separate role that
+ * must not touch code. Output is a JSON array (one object per acceptance
+ * criterion) written to the ABSOLUTE control-plane path — the execution tree
+ * (worktree) has no `.openloop/` directory to write to.
+ */
+export function buildVerifierPrompt(task: ProjectTask, specContent: string | null, reviewsDirAbs: string): string {
+  const verificationsPath = path.join(path.dirname(reviewsDirAbs), "verifications", `${task.id}.json`);
+  return [
+    "You are the verification role for an AI implementation run.",
+    "Do NOT modify any code files. Only inspect the current state of the repository and report verdicts.",
+    "",
+    `Task: ${task.title} (${task.id})`,
+    "",
+    "## Acceptance Criteria",
+    ...task.acceptanceCriteria.map((criterion, index) => `${index + 1}. ${criterion}`),
+    ...(specContent ? ["", "## Spec", specContent] : []),
+    "",
+    "## Output",
+    `Create the directory containing \`${verificationsPath}\` if needed and write a JSON ARRAY to that exact absolute path:`,
+    "```json",
+    '[ { "index": 1, "criterion": "the criterion text", "verdict": "pass" | "fail" | "needs-human", "evidence": "what you observed" } ]',
+    "```",
+    "One object per criterion, index starting at 1, in criterion order.",
+    'verdict "pass" = criterion satisfied; "fail" = not satisfied; "needs-human" = cannot be determined automatically.',
+  ].join("\n");
 }

@@ -1,6 +1,7 @@
 import type { Argv, ArgumentsCamelCase } from "yargs";
 import { getTaskInspection } from "../../core/task-inspection.js";
-import { addTask, listTasks, loadTaskLedger, saveTaskLedger, summarizeTasks, updateTask, removeTask } from "../../core/task-ledger.js";
+import { listApprovalPackets, readApprovalPacket } from "../../core/approval-packets.js";
+import { addTask, listTasks, summarizeTasks, updateTask, removeTask, withTaskLedger } from "../../core/task-ledger.js";
 import { getProject } from "../../core/project-registry.js";
 import { resolveOutputFormat, printTable } from "../../core/table.js";
 import type { ProjectTask } from "../../core/types.js";
@@ -12,6 +13,7 @@ type AddTaskArgs = ArgumentsCamelCase<{
   kind: string;
   risk: string;
   scope?: string[];
+  "depends-on"?: string[];
 }>;
 
 type ShowTaskArgs = ArgumentsCamelCase<{
@@ -50,7 +52,8 @@ export function registerTaskCommands(cli: Argv): void {
                 default: "medium-risk",
                 choices: ["low-risk", "medium-risk", "high-risk"] as const,
               })
-              .option("scope", { type: "array", string: true, describe: "Relative scope paths for policy enforcement" }),
+              .option("scope", { type: "array", string: true, describe: "Relative scope paths for policy enforcement" })
+              .option("depends-on", { type: "array", string: true, describe: "Task ids (or alias:taskId) this task depends on" }),
           async (args: AddTaskArgs) => {
             const project = await getProject(String(args.project));
             const now = new Date().toISOString();
@@ -103,6 +106,9 @@ export function registerTaskCommands(cli: Argv): void {
               attempts: 0,
               lastFailureSignature: null,
               promotion: "pull-request",
+              dependsOn: (args.dependsOn && args.dependsOn.length > 0)
+                ? [...new Set(args.dependsOn.map((value) => String(value)))]
+                : undefined,
               notes: ref ? ["Created by openloop task add --from-ref."] : [],
               createdAt: now,
               updatedAt: now,
@@ -222,19 +228,20 @@ export function registerTaskCommands(cli: Argv): void {
             command.option("project", { type: "string", alias: "p", demandOption: true }),
           async (args: ArgumentsCamelCase<{ project: string }>) => {
             const project = await getProject(String(args.project));
-            const ledger = await loadTaskLedger(project.path);
-            const stuck = ledger.tasks.filter((task) => task.status === "in_progress");
-            if (stuck.length === 0) {
+            const recovered = await withTaskLedger(project.path, (ledger) =>
+              ledger.tasks.filter((task) => {
+                if (task.status !== "in_progress") return false;
+                task.status = "ready";
+                task.notes = [...(task.notes ?? []), "Manually recovered via 'task recover'."];
+                task.updatedAt = new Date().toISOString();
+                return true;
+              }),
+            );
+            if (recovered.length === 0) {
               console.log(`No in_progress tasks found in ${project.alias}.`);
               return;
             }
-            for (const task of stuck) {
-              task.status = "ready";
-              task.notes = [...(task.notes ?? []), "Manually recovered via 'task recover'."];
-              task.updatedAt = new Date().toISOString();
-            }
-            await saveTaskLedger(project.path, ledger);
-            console.log(`Recovered ${stuck.length} task(s) in ${project.alias}: ${stuck.map((t) => t.id).join(", ")}`);
+            console.log(`Recovered ${recovered.length} task(s) in ${project.alias}: ${recovered.map((t) => t.id).join(", ")}`);
           },
         )
         .command(
@@ -246,23 +253,81 @@ export function registerTaskCommands(cli: Argv): void {
               .option("task", { type: "string", demandOption: true }),
           async (args) => {
             const project = await getProject(String(args.project));
-            const ledger = await loadTaskLedger(project.path);
-            const task = ledger.tasks.find((t) => t.id === String(args.task));
-            if (!task) {
-              console.error(`Task ${String(args.task)} not found in ${project.alias}.`);
+            let approvedId: string | null = null;
+            try {
+              approvedId = await withTaskLedger(project.path, (ledger) => {
+                const task = ledger.tasks.find((t) => t.id === String(args.task));
+                if (!task) {
+                  throw new Error(`Task ${String(args.task)} not found in ${project.alias}.`);
+                }
+                if (task.status !== "awaiting-approval") {
+                  throw new Error(`Task ${task.id} is not awaiting approval (current status: ${task.status}).`);
+                }
+                task.status = "ready";
+                task.notes = [...(task.notes ?? []), "Approved via 'task approve'."];
+                task.updatedAt = new Date().toISOString();
+                return task.id;
+              });
+            } catch (error) {
+              console.error(error instanceof Error ? error.message : String(error));
               process.exitCode = 1;
               return;
             }
-            if (task.status !== "awaiting-approval") {
-              console.error(`Task ${task.id} is not awaiting approval (current status: ${task.status}).`);
+            console.log(`Approved task ${approvedId} in ${project.alias} — now ready for implementation.`);
+          },
+        )
+        .demandCommand(),
+  );
+}
+
+export function registerApprovalCommands(cli: Argv): void {
+  cli.command(
+    "approval <command>",
+    "Inspect human-approval packets for pending promotions",
+    (approvalCli: Argv) =>
+      approvalCli
+        .command(
+          "list",
+          "List approval packets for a linked project",
+          (command: Argv) =>
+            command
+              .option("project", { type: "string", alias: "p", demandOption: true })
+              .option("format", { type: "string", choices: ["table", "json"] as const }),
+          async (args: ArgumentsCamelCase<{ project: string; format?: string }>) => {
+            const project = await getProject(String(args.project));
+            const packets = await listApprovalPackets(project.path);
+            const fmt = resolveOutputFormat(args.format);
+            if (fmt === "table") {
+              printTable(packets.map(({ packet }) => ({
+                taskId: packet.taskId,
+                risk: packet.risk,
+                attempts: packet.attempts,
+                costUsd: packet.costUsd,
+                costSource: packet.costSource,
+                branch: packet.branch ?? "-",
+                title: packet.title.slice(0, 40),
+              })));
+            } else {
+              console.log(JSON.stringify(packets.map(({ packet }) => packet), null, 2));
+            }
+          },
+        )
+        .command(
+          "show",
+          "Show the approval packet for a task",
+          (command: Argv) =>
+            command
+              .option("project", { type: "string", alias: "p", demandOption: true })
+              .option("task", { type: "string", demandOption: true }),
+          async (args: ArgumentsCamelCase<{ project: string; task: string }>) => {
+            const project = await getProject(String(args.project));
+            const packet = await readApprovalPacket(project.path, String(args.task));
+            if (!packet) {
+              console.error(`No approval packet for task ${String(args.task)} in ${project.alias}.`);
               process.exitCode = 1;
               return;
             }
-            task.status = "ready";
-            task.notes = [...(task.notes ?? []), "Approved via 'task approve'."];
-            task.updatedAt = new Date().toISOString();
-            await saveTaskLedger(project.path, ledger);
-            console.log(`Approved task ${task.id} in ${project.alias} — now ready for implementation.`);
+            console.log(JSON.stringify(packet, null, 2));
           },
         )
         .demandCommand(),

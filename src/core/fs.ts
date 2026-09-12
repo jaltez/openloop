@@ -36,7 +36,60 @@ export async function readJsonFile<T>(filePath: string, fallback: T): Promise<T>
 
 export async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
   await ensureDir(path.dirname(filePath));
-  await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  const payload = `${JSON.stringify(value, null, 2)}\n`;
+  // Atomic write: serialize to a sibling temp file, then rename over the
+  // target — concurrent readers never observe torn or partial JSON.
+  const tempPath = `${filePath}.${process.pid}.${Math.random().toString(36).slice(2, 10)}.tmp`;
+  try {
+    await fs.writeFile(tempPath, payload, "utf8");
+    await fs.rename(tempPath, filePath);
+  } catch (error) {
+    await fs.rm(tempPath, { force: true }).catch(() => {});
+    throw error;
+  } finally {
+    // Opportunistic sweep: a crash between the temp write and the rename
+    // orphans `*.tmp` files; clean up any older than an hour.
+    await sweepStaleTempFiles(filePath);
+  }
+}
+
+async function sweepStaleTempFiles(filePath: string): Promise<void> {
+  const dir = path.dirname(filePath);
+  const targetPrefix = `${path.basename(filePath)}.`;
+  const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => null);
+  if (!entries) {
+    return;
+  }
+  const cutoff = Date.now() - 60 * 60 * 1000;
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.startsWith(targetPrefix) || !entry.name.endsWith(".tmp")) {
+      continue;
+    }
+    try {
+      const stat = await fs.stat(path.join(dir, entry.name));
+      if (stat.mtimeMs < cutoff) {
+        await fs.rm(path.join(dir, entry.name), { force: true }).catch(() => {});
+      }
+    } catch {
+      // entry vanished — nothing to sweep
+    }
+  }
+}
+
+/**
+ * Rotate a log file once it exceeds maxBytes: current becomes `.1`, existing
+ * `.N` shift up, and the oldest (`.<keep>`) is dropped. Non-fatal on failure.
+ */
+export async function rotateLogFile(logPath: string, maxBytes: number, keep: number): Promise<void> {
+  const stat = await fs.stat(logPath).catch(() => null);
+  if (!stat || stat.size < maxBytes) {
+    return;
+  }
+
+  for (let index = keep - 1; index >= 1; index--) {
+    await fs.rename(`${logPath}.${index}`, `${logPath}.${index + 1}`).catch(() => {});
+  }
+  await fs.rename(logPath, `${logPath}.1`).catch(() => {});
 }
 
 export async function copyTree(sourceDir: string, targetDir: string, options: CopyTreeOptions = {}): Promise<void> {

@@ -6,7 +6,8 @@ import { createDefaultDaemonState, pauseDaemon, resumeDaemon } from "../../core/
 import { startWorkerLoop } from "../../daemon/worker.js";
 import { fileExists, readJsonFile } from "../../core/fs.js";
 import { daemonLogPath, daemonPidPath, daemonStatePath } from "../../core/paths.js";
-import { assertPiOnPath } from "../../core/pi.js";
+import { assertProviderAvailable } from "../../core/pi.js";
+import { loadGlobalConfig } from "../../core/global-config.js";
 import type { DaemonState } from "../../core/types.js";
 
 export interface DaemonProcessInspection {
@@ -21,7 +22,7 @@ export function registerDaemonCommands(cli: Argv): void {
     (serviceCli: Argv) =>
       serviceCli
         .command("start", "Start the daemon", () => {}, async () => {
-          assertPiOnPath();
+          await assertDefaultProviderAvailable();
           const inspection = await inspectDaemonProcess();
           if (inspection.state === "running") {
             console.log("Daemon appears to be running already.");
@@ -78,7 +79,7 @@ export function registerDaemonCommands(cli: Argv): void {
           console.log(JSON.stringify(state, null, 2));
         })
         .command("restart", "Restart the daemon", () => {}, async () => {
-          assertPiOnPath();
+          await assertDefaultProviderAvailable();
           await stopIfRunning();
           const child = spawn(process.execPath, [process.argv[1], "daemon", "worker"], {
             detached: true,
@@ -103,7 +104,7 @@ export function registerDaemonCommands(cli: Argv): void {
           console.log(JSON.stringify({ paused: state.paused, pausedAt: state.pausedAt }, null, 2));
         })
         .command("run", "Run the daemon in the foreground (for debugging or process managers)", () => {}, async () => {
-          assertPiOnPath();
+          await assertDefaultProviderAvailable();
           const inspection = await inspectDaemonProcess();
           if (inspection.state === "running") {
             throw new Error("Daemon appears to be running already. Stop it first with 'service stop'.");
@@ -213,6 +214,14 @@ async function isLikelyOpenloopDaemon(pid: number): Promise<boolean> {
 
 async function clearStaleDaemonPidFile(): Promise<void> {
   await fs.rm(daemonPidPath(), { force: true });
+}
+
+// The daemon runs agents per project; the service commands gate on the
+// resolved DEFAULT provider binary being present (per-project providers are
+// checked by the scheduler's runner at dispatch time).
+async function assertDefaultProviderAvailable(): Promise<void> {
+  const config = await loadGlobalConfig();
+  assertProviderAvailable(null, config.defaultProvider ?? null);
 }
 
 async function pollForDaemonReady(timeoutMs: number): Promise<boolean> {

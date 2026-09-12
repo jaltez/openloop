@@ -25,6 +25,8 @@ test("writes run summaries into the target project's control plane", async () =>
     attemptNumber: 1,
     dirtyTreeDetected: false,
     budgetSnapshotUsd: 0,
+    costUsd: null,
+    costSource: null,
   });
 
   const content = await fs.readFile(filePath, "utf8");

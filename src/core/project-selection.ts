@@ -1,5 +1,6 @@
 import { loadGlobalConfig } from "./global-config.js";
 import { listProjects } from "./project-registry.js";
+import { loadDaemonState } from "./daemon-state.js";
 import { loadTaskLedger, summarizeQueue } from "./task-ledger.js";
 import type { LinkedProject } from "./types.js";
 
@@ -62,7 +63,22 @@ export async function selectNextProject(appHomeOverride?: string): Promise<Linke
     return sorted[0]?.project ?? null;
   }
 
-  // Default: "round-robin" — rotate alphabetically by alias.
-  eligible.sort((left, right) => left.project.alias.localeCompare(right.project.alias));
-  return eligible[0]?.project ?? null;
+  // Default: "round-robin" — the eligible project that has waited longest
+  // (oldest lastIterationAt) runs next; ties break alphabetically by alias.
+  const daemonState = await loadDaemonState(appHomeOverride).catch(() => null);
+  const lastIterationByAlias = new Map<string, string | null>(
+    (daemonState?.projects ?? []).map((state) => [state.alias, state.lastIterationAt]),
+  );
+  const sorted = [...eligible].sort((left, right) => {
+    const leftAt = lastIterationByAlias.get(left.project.alias) ?? null;
+    const rightAt = lastIterationByAlias.get(right.project.alias) ?? null;
+    if (leftAt === null && rightAt === null) {
+      return left.project.alias.localeCompare(right.project.alias);
+    }
+    if (leftAt === null) return -1; // never ran — goes first
+    if (rightAt === null) return 1;
+    const order = leftAt.localeCompare(rightAt);
+    return order !== 0 ? order : left.project.alias.localeCompare(right.project.alias);
+  });
+  return sorted[0]?.project ?? null;
 }

@@ -20,6 +20,7 @@ export interface LifecycleHookPayload {
   promotionAction?: string | null;
   budgetSnapshotUsd?: number | null;
   validation?: ValidationSummary[];
+  approvalPacketPath?: string | null;
   [key: string]: unknown;
 }
 

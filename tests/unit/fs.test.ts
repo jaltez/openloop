@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it, beforeEach } from "vitest";
-import { readJsonFile, writeJsonFile } from "../../src/core/fs.js";
+import { readJsonFile, rotateLogFile, writeJsonFile } from "../../src/core/fs.js";
 import { createTempDir } from "../helpers/factories.js";
 
 describe("readJsonFile", () => {
@@ -49,5 +49,35 @@ describe("writeJsonFile", () => {
     await writeJsonFile(filePath, { nested: true });
     const result = await readJsonFile(filePath, {});
     expect(result).toEqual({ nested: true });
+  });
+});
+
+describe("rotateLogFile", () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await createTempDir();
+  });
+
+  it("leaves small files untouched", async () => {
+    const logPath = path.join(tmpDir, "events.jsonl");
+    await fs.writeFile(logPath, "small\n", "utf8");
+    await rotateLogFile(logPath, 1024, 3);
+    expect(await fs.readFile(logPath, "utf8")).toBe("small\n");
+    await expect(fs.stat(`${logPath}.1`)).rejects.toThrow();
+  });
+
+  it("renames oversized files to .1 and shifts existing backups", async () => {
+    const logPath = path.join(tmpDir, "events.jsonl");
+    await fs.writeFile(`${logPath}.1`, "older\n", "utf8");
+    await fs.writeFile(`${logPath}.2`, "oldest\n", "utf8");
+    await fs.writeFile(logPath, "x".repeat(11), "utf8");
+
+    await rotateLogFile(logPath, 10, 3);
+
+    await expect(fs.stat(logPath)).rejects.toThrow();
+    expect(await fs.readFile(`${logPath}.1`, "utf8")).toBe("x".repeat(11));
+    expect(await fs.readFile(`${logPath}.2`, "utf8")).toBe("older\n");
+    expect(await fs.readFile(`${logPath}.3`, "utf8")).toBe("oldest\n");
   });
 });

@@ -15,6 +15,7 @@ const DEFAULT_GLOBAL_CONFIG: GlobalConfig = {
     maxAttemptsPerTask: 3,
     noProgressRepeatLimit: 2,
     tickIntervalSeconds: 5,
+    maxPendingReviewsPerProject: 3,
     projectSelectionStrategy: "round-robin" as const,
   },
   notifications: {
@@ -42,6 +43,7 @@ export async function loadGlobalConfig(appHomeOverride?: string): Promise<Global
       maxAttemptsPerTask: config.runtime?.maxAttemptsPerTask ?? DEFAULT_GLOBAL_CONFIG.runtime.maxAttemptsPerTask,
       noProgressRepeatLimit: config.runtime?.noProgressRepeatLimit ?? DEFAULT_GLOBAL_CONFIG.runtime.noProgressRepeatLimit,
       tickIntervalSeconds: config.runtime?.tickIntervalSeconds ?? DEFAULT_GLOBAL_CONFIG.runtime.tickIntervalSeconds,
+      maxPendingReviewsPerProject: config.runtime?.maxPendingReviewsPerProject ?? DEFAULT_GLOBAL_CONFIG.runtime.maxPendingReviewsPerProject,
       projectSelectionStrategy: config.runtime?.projectSelectionStrategy ?? DEFAULT_GLOBAL_CONFIG.runtime.projectSelectionStrategy,
     },
     notifications: {

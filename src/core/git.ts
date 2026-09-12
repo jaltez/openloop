@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import fs from "node:fs/promises";
+import path from "node:path";
 
 export interface GitWorkingTreeState {
   currentBranch: string | null;
@@ -54,6 +56,10 @@ export async function checkoutBranch(projectPath: string, branchName: string): P
 
 export async function mergeFastForward(projectPath: string, branchName: string): Promise<void> {
   await runGit(projectPath, ["merge", "--ff-only", branchName]);
+}
+
+export async function deleteBranch(projectPath: string, branchName: string): Promise<void> {
+  await runGit(projectPath, ["branch", "-D", branchName]);
 }
 
 export async function getBranchHead(projectPath: string, branchName: string): Promise<string> {
@@ -120,8 +126,12 @@ export interface DiffStatEntry {
 export async function getGitDiffStat(projectPath: string, base?: string | null, head?: string | null): Promise<DiffStatEntry[] | null> {
   try {
     const baseRef = base ?? "HEAD~1";
-    const headRef = head ?? "HEAD";
-    const result = await runGit(projectPath, ["diff", "--numstat", baseRef, headRef]);
+    // head === null (explicit) diffs base against the working tree, capturing
+    // uncommitted agent edits; a string head compares two refs.
+    const args = head === null
+      ? ["diff", "--numstat", baseRef]
+      : ["diff", "--numstat", baseRef, head ?? "HEAD"];
+    const result = await runGit(projectPath, args);
     const entries: DiffStatEntry[] = [];
     for (const line of result.stdout.trim().split("\n")) {
       if (!line) continue;
@@ -131,9 +141,29 @@ export async function getGitDiffStat(projectPath: string, base?: string | null, 
       const removed = parts[1] === "-" ? 0 : parseInt(parts[1]!, 10);
       entries.push({ file: parts[2]!, added, removed });
     }
+
+    // Working-tree mode: `git diff` only sees tracked files. Agent-created
+    // files must be visible to the human reviewer too.
+    if (head === null) {
+      const untracked = await runGit(projectPath, ["ls-files", "--others", "--exclude-standard"]);
+      for (const file of untracked.stdout.trim().split("\n")) {
+        if (!file) continue;
+        const lineCount = await countUntrackedFileLines(projectPath, file);
+        entries.push({ file, added: lineCount, removed: 0 });
+      }
+    }
     return entries;
   } catch {
     return null;
+  }
+}
+
+async function countUntrackedFileLines(projectPath: string, file: string): Promise<number> {
+  try {
+    const content = await fs.readFile(path.join(projectPath, file), "utf8");
+    return content.split("\n").length - (content.endsWith("\n") ? 1 : 0);
+  } catch {
+    return 0;
   }
 }
 

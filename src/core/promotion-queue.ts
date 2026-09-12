@@ -6,7 +6,7 @@ import { fileExists, readJsonFile, writeJsonFile } from "./fs.js";
 import { checkoutBranch, checkoutHandoffBranch, ensureCleanGitRepo, getBranchHead, getGitWorkingTreeState, getMergeBase, mergeFastForward } from "./git.js";
 import { loadProjectConfig } from "./project-config.js";
 import { listPromotionResultArtifacts, readPromotionResultArtifact, writePromotionResultArtifact } from "./promotion-artifacts.js";
-import { loadTaskLedger, saveTaskLedger } from "./task-ledger.js";
+import { loadTaskLedger, withTaskLedger } from "./task-ledger.js";
 import type { PromotionArtifact, PromotionArtifactStatus, ProjectTask, PromotionResultArtifact } from "./types.js";
 import { getConfiguredValidationNames } from "./validation-utils.js";
 
@@ -238,15 +238,15 @@ export async function downgradePendingAutoMergePromotionToReview(
   match.artifact.note = note;
   await writeJsonFile(match.artifactPath, match.artifact);
 
-  const ledger = await loadTaskLedger(projectPath);
-  const task = ledger.tasks.find((candidate) => candidate.id === taskId);
-  if (task?.lastRun && task.lastRun.promotionArtifactPath === match.artifactPath) {
-    task.lastRun.promotionDecision = "manual-review";
-    task.lastRun.promotionAction = "queue-review";
-    task.notes = [...(task.notes ?? []), `Promotion artifact downgraded to review: ${note}`];
-    task.updatedAt = new Date().toISOString();
-    await saveTaskLedger(projectPath, ledger);
-  }
+  await withTaskLedger(projectPath, (ledger) => {
+    const task = ledger.tasks.find((candidate) => candidate.id === taskId);
+    if (task?.lastRun && task.lastRun.promotionArtifactPath === match.artifactPath) {
+      task.lastRun.promotionDecision = "manual-review";
+      task.lastRun.promotionAction = "queue-review";
+      task.notes = [...(task.notes ?? []), `Promotion artifact downgraded to review: ${note}`];
+      task.updatedAt = new Date().toISOString();
+    }
+  });
 
   return true;
 }
@@ -330,24 +330,24 @@ async function syncTaskPromotionState(
   branchName?: string,
   resultArtifactPath?: string,
 ): Promise<void> {
-  const ledger = await loadTaskLedger(projectPath);
-  const task = ledger.tasks.find((candidate) => candidate.id === taskId);
-  if (!task?.lastRun || task.lastRun.promotionArtifactPath !== artifactPath) {
-    return;
-  }
+  await withTaskLedger(projectPath, (ledger) => {
+    const task = ledger.tasks.find((candidate) => candidate.id === taskId);
+    if (!task?.lastRun || task.lastRun.promotionArtifactPath !== artifactPath) {
+      return;
+    }
 
-  task.lastRun.promotionArtifactState = status;
-  task.lastRun.promotionResultArtifactPath = resultArtifactPath ?? task.lastRun.promotionResultArtifactPath ?? null;
-  if (branchName) {
-    task.branch = branchName;
-  }
-  if (status === "applied" && task.lastRun.promotionAction === "queue-auto-merge") {
-    task.status = "promoted";
-    task.promotedAt = new Date().toISOString();
-  }
-  task.notes = [...(task.notes ?? []), `Promotion artifact ${status}${note ? `: ${note}` : "."}`];
-  task.updatedAt = new Date().toISOString();
-  await saveTaskLedger(projectPath, ledger);
+    task.lastRun.promotionArtifactState = status;
+    task.lastRun.promotionResultArtifactPath = resultArtifactPath ?? task.lastRun.promotionResultArtifactPath ?? null;
+    if (branchName) {
+      task.branch = branchName;
+    }
+    if (status === "applied" && task.lastRun.promotionAction === "queue-auto-merge") {
+      task.status = "promoted";
+      task.promotedAt = new Date().toISOString();
+    }
+    task.notes = [...(task.notes ?? []), `Promotion artifact ${status}${note ? `: ${note}` : "."}`];
+    task.updatedAt = new Date().toISOString();
+  });
 }
 
 async function writePromotionResult(

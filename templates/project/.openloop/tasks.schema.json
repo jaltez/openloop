@@ -33,6 +33,12 @@
             "type": ["string", "null"],
             "format": "date-time"
           },
+          "dependsOn": {
+            "type": ["array", "null"],
+            "items": {
+              "type": "string"
+            }
+          },
           "lastRun": {
             "type": "object",
             "required": [

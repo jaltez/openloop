@@ -4,6 +4,7 @@ import path from "node:path";
 import { expect, test } from "vitest";
 import { runProjectIteration } from "../../src/core/scheduler.js";
 import type { LinkedProject, ProjectConfig, TaskLedger } from "../../src/core/types.js";
+import { fakeAgentRun } from "../helpers/factories.js";
 
 test("runProjectIteration marks implement task done when validations pass", async () => {
   const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-validate-pass-"));
@@ -13,9 +14,10 @@ test("runProjectIteration marks implement task done when validations pass", asyn
     version: 1,
     project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
     pi: { model: null, promptFiles: [] },
-    runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
     validation: { lintCommand: "lint", testCommand: "test", typecheckCommand: null },
     risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
+    verification: { enabled: false },
   };
   await fs.writeFile(path.join(projectRoot, ".openloop", "project.json"), `${JSON.stringify(config, null, 2)}\n`, "utf8");
   await fs.writeFile(
@@ -76,7 +78,7 @@ test("runProjectIteration marks implement task done when validations pass", asyn
   };
 
   const result = await runProjectIteration(project, {
-    piRunner: async () => 0,
+    piRunner: async () => fakeAgentRun(),
     validationRunner: async () => 0,
   });
 
@@ -105,7 +107,7 @@ test("runProjectIteration marks implement task failed when validations fail", as
     version: 1,
     project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
     pi: { model: null, promptFiles: [] },
-    runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
     validation: { lintCommand: "lint", testCommand: "test", typecheckCommand: null },
     risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
   };
@@ -169,7 +171,7 @@ test("runProjectIteration marks implement task failed when validations fail", as
 
   let runCount = 0;
   const result = await runProjectIteration(project, {
-    piRunner: async () => 0,
+    piRunner: async () => fakeAgentRun(),
     validationRunner: async () => {
       runCount += 1;
       return runCount === 1 ? 1 : 0;
@@ -197,7 +199,7 @@ test("runProjectIteration downgrades promotion when policy disallows auto-merge"
     version: 1,
     project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
     pi: { model: null, promptFiles: [] },
-    runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
     validation: { lintCommand: "lint", testCommand: null, typecheckCommand: null },
     risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
   };
@@ -260,7 +262,7 @@ test("runProjectIteration downgrades promotion when policy disallows auto-merge"
   };
 
   const result = await runProjectIteration(project, {
-    piRunner: async () => 0,
+    piRunner: async () => fakeAgentRun(),
     validationRunner: async () => 0,
   });
 
@@ -281,7 +283,7 @@ test("runProjectIteration downgrades auto-merge when no validation commands are 
     version: 1,
     project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
     pi: { model: null, promptFiles: [] },
-    runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
     validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
     risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
   };
@@ -344,7 +346,7 @@ test("runProjectIteration downgrades auto-merge when no validation commands are 
   };
 
   const result = await runProjectIteration(project, {
-    piRunner: async () => 0,
+    piRunner: async () => fakeAgentRun(),
   });
 
   expect(result.promotionDecision).toBe("manual-review");
@@ -364,7 +366,7 @@ test("runProjectIteration stops with timeout when Pi exceeds the configured run 
     version: 1,
     project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
     pi: { model: null, promptFiles: [] },
-    runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
     validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
     risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
   };
@@ -410,7 +412,7 @@ test("runProjectIteration stops with timeout when Pi exceeds the configured run 
     timeoutMs: 10,
     piRunner: async () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
-      return 0;
+      return fakeAgentRun();
     },
   })).rejects.toThrow("timeout");
 
@@ -428,7 +430,7 @@ test("runProjectIteration blocks repeated no-progress failures", async () => {
     version: 1,
     project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
     pi: { model: null, promptFiles: [] },
-    runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
     validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
     risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
   };
@@ -486,7 +488,7 @@ test("runProjectIteration blocks repeated no-progress failures", async () => {
 
   const result = await runProjectIteration(project, {
     noProgressRepeatLimit: 2,
-    piRunner: async () => 1,
+    piRunner: async () => fakeAgentRun({ exitCode: 1 }),
   });
 
   expect(result.stoppedBy).toBe("no-progress");

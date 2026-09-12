@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import type { LinkedProject, ProjectConfig, ProjectTask, TaskLedger } from "../../src/core/types.js";
+import type { AgentRunResult, LinkedProject, ProjectConfig, ProjectTask, TaskLedger } from "../../src/core/types.js";
 
 export async function createTempDir(prefix = "openloop-test-"): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), prefix));
@@ -53,13 +53,17 @@ export function makeProjectConfigJson(overrides?: Partial<ProjectConfig>): strin
     version: 1,
     project: { alias: null, repoRoot: null, initializedAt: null },
     pi: { model: null, promptFiles: [] },
-    runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
     review: { enabled: false },
     validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
     risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
     ...overrides,
   };
   return JSON.stringify(config, null, 2);
+}
+
+export function fakeAgentRun(overrides?: Partial<AgentRunResult>): AgentRunResult {
+  return { exitCode: 0, stdout: "", stderr: "", ...overrides };
 }
 
 export async function initGitRepo(dir: string): Promise<void> {

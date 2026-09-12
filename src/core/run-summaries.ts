@@ -3,9 +3,14 @@ import path from "node:path";
 import { ensureDir } from "./fs.js";
 import type { SchedulerResult } from "./types.js";
 
-export async function writeRunSummary(projectPath: string, summary: SchedulerResult): Promise<string> {
+export async function writeRunSummary(projectPath: string, summary: SchedulerResult, filePath?: string): Promise<string> {
   const runsDir = path.join(projectPath, ".openloop", "runs");
   await ensureDir(runsDir);
+  if (!filePath) {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const taskId = summary.taskId ?? "idle";
+    filePath = path.join(runsDir, `${timestamp}-${taskId}.md`);
+  }
   const validation = summary.validation ?? [];
   const promotionDecision = summary.promotionDecision ?? "none";
   const promotionAction = summary.promotionAction ?? "none";
@@ -15,10 +20,8 @@ export async function writeRunSummary(projectPath: string, summary: SchedulerRes
   const attemptNumber = summary.attemptNumber ?? "none";
   const dirtyTreeDetected = String(summary.dirtyTreeDetected ?? false);
   const budgetSnapshotUsd = summary.budgetSnapshotUsd ?? "none";
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const taskId = summary.taskId ?? "idle";
-  const filename = `${timestamp}-${taskId}.md`;
-  const filePath = path.join(runsDir, filename);
+  const costUsd = summary.costUsd ?? "none";
+  const costSource = summary.costSource ?? "none";
   const content = [
     `# Run Summary`,
     "",
@@ -40,6 +43,9 @@ export async function writeRunSummary(projectPath: string, summary: SchedulerRes
     `- dirtyTreeDetected: ${dirtyTreeDetected}`,
     `- budgetSnapshotUsd: ${budgetSnapshotUsd}`,
     `- validationCount: ${validation.length}`,
+    `- approvalPacketPath: ${summary.approvalPacketPath ?? "none"}`,
+    `- costUsd: ${costUsd}`,
+    `- costSource: ${costSource}`,
     `- createdAt: ${new Date().toISOString()}`,
     "",
     `## Validation`,

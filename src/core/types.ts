@@ -12,6 +12,7 @@ export interface GlobalConfig {
     maxAttemptsPerTask: number;
     noProgressRepeatLimit: number;
     tickIntervalSeconds?: number;
+    maxPendingReviewsPerProject?: number;
     projectSelectionStrategy?: "round-robin" | "priority" | "focus";
   };
   notifications?: {
@@ -79,6 +80,20 @@ export interface DesktopChannelConfig {
 
 export type NotificationChannelConfig = WebhookChannelConfig | DesktopChannelConfig;
 
+export interface AgentUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  costUsd?: number;
+}
+
+export interface AgentRunResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  usage?: AgentUsage;
+}
+
 export interface ProjectConfig {
   version: 1;
   project: {
@@ -93,12 +108,13 @@ export interface ProjectConfig {
   agent?: {
     type: "pi" | "claude" | "aider" | "codex" | "opencode" | "custom";
     command: string | null;
+    extraArgs?: string[];
   };
   runtime: {
-    autoCommit: boolean;
     useWorktree: boolean;
     branchPrefix: string;
     prCommand?: string | null;
+    worktreeSetupCommand?: string | null;
   };
   validation: {
     lintCommand: string | null;
@@ -111,11 +127,16 @@ export interface ProjectConfig {
   };
   issueSource?: IssueSourceConfig | null;
   hooks?: LifecycleHookConfig[];
+  schedule?: ProjectSchedule[];
+  /** schedule id -> ISO minute of last fire (daemon-maintained). */
+  scheduleState?: Record<string, string>;
   review?: {
     enabled: boolean;
   };
+  verification?: {
+    enabled: boolean;
+  };
 }
-
 export interface LinkedProject {
   alias: string;
   path: string;
@@ -163,14 +184,22 @@ export interface DaemonState {
   budgetBlocked: boolean;
   currentRun: DaemonCurrentRunState | null;
   projects: DaemonProjectState[];
+  lastDigestDate?: string | null;
 }
 
 export type RunStoppedBy = "none" | "timeout" | "budget" | "pause" | "no-progress";
 
 export type WorkerRole = "sdd-planner" | "implementer" | "repo-improver" | "ci-healer";
 
+export interface ProjectSchedule {
+  id: string;
+  cron: string;
+  title: string;
+  prompt?: string;
+}
+
 export interface TaskSource {
-  type: "human" | "issue" | "discovery" | "ci" | "spec";
+  type: "human" | "issue" | "discovery" | "ci" | "spec" | "schedule";
   ref: string;
 }
 
@@ -209,6 +238,9 @@ export interface ProjectTask {
   lastFailureSignature: string | null;
   promotion: "auto-merge" | "pull-request" | "manual-only";
   promotedAt?: string | null;
+  /** Task ids that must be promoted/done/cancelled first; `alias:taskId`
+   *  cross-project refs are reserved (never satisfied in-project). */
+  dependsOn?: string[];
   estimatedCostUsd?: number;
   notes?: string[];
   lastRun?: TaskRunSummary;
@@ -240,6 +272,8 @@ export interface ReviewFinding {
 export interface ReviewResult {
   findings: ReviewFinding[];
   hasBlocking: boolean;
+  /** True when the LLM reviewer wrote a file that cannot be parsed. */
+  malformed?: boolean;
 }
 
 export interface SchedulerResult {
@@ -264,6 +298,9 @@ export interface SchedulerResult {
   budgetSnapshotUsd: number | null;
   reviewFindings?: ReviewFinding[];
   runSummaryPath?: string | null;
+  costUsd: number | null;
+  costSource: "measured" | "estimated" | null;
+  approvalPacketPath?: string | null;
 }
 
 export interface ValidationSummary {
@@ -302,9 +339,16 @@ export interface PromotionArtifact {
   validation: ValidationSummary[];
   piExitCode: number | null;
   outcome: TaskRunSummary["outcome"];
+  approvalPacketPath?: string | null;
   status: PromotionArtifactStatus;
   processedAt: string | null;
   note: string | null;
+}
+
+export interface PromotionCheckRollupEntry {
+  name: string | null;
+  status: string | null;
+  conclusion: string | null;
 }
 
 export interface PromotionResultArtifact {
@@ -315,11 +359,15 @@ export interface PromotionResultArtifact {
   sourcePromotionArtifactPath: string;
   sourcePromotionAction: SchedulerResult["promotionAction"];
   sourcePromotionDecision: SchedulerResult["promotionDecision"];
-  result: "applied" | "rejected";
+  result: "applied" | "rejected" | "refreshed";
   branch: string | null;
   baseBranch: string | null;
   note: string | null;
   prUrl?: string | null;
+  /** Present on `refreshed` results: live PR state from `gh pr view`. */
+  state?: string | null;
+  /** Present on `refreshed` results: live check rollup from `gh pr view`. */
+  checks?: PromotionCheckRollupEntry[];
 }
 
 export interface ProjectPolicy {

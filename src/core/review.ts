@@ -109,7 +109,7 @@ export function extractChangedFiles(patch: string): string[] {
 // only deterministic findings apply.
 // ---------------------------------------------------------------------------
 
-export function buildReviewPrompt(task: ProjectTask, diffPatch: string): string {
+export function buildReviewPrompt(task: ProjectTask, diffPatch: string, reviewsDirAbs: string): string {
   const maxDiffChars = 20_000;
   const truncatedDiff = diffPatch.length > maxDiffChars
     ? `${diffPatch.slice(0, maxDiffChars)}\n\n... (diff truncated, ${diffPatch.length - maxDiffChars} chars omitted)`
@@ -135,7 +135,7 @@ export function buildReviewPrompt(task: ProjectTask, diffPatch: string): string 
     "- Missing error handling for new code paths",
     "",
     `## Output`,
-    `Write your review as JSON to \`.openloop/reviews/${task.id}.json\` with exactly this schema:`,
+    `Write your review as JSON to \`${path.join(reviewsDirAbs, `${task.id}.json`)}\` (absolute path) with exactly this schema:`,
     "```json",
     '{',
     '  "verdict": "approve" | "request-changes",',
@@ -158,10 +158,15 @@ interface AgentReviewFile {
 
 /**
  * Read and parse the LLM reviewer's output file.
- * Returns null if the file is missing or malformed (fail-open for the bonus layer).
+ * Returns null when the file is missing (the opt-in reviewer simply didn't
+ * produce output — not a failure) and `{ findings, malformed }` when it wrote
+ * something unreadable (a failure the caller must treat conservatively).
  */
-async function readAgentReview(projectPath: string, taskId: string): Promise<ReviewFinding[] | null> {
-  const reviewPath = path.join(projectPath, ".openloop", "reviews", `${taskId}.json`);
+async function readAgentReview(
+  controlPlanePath: string,
+  taskId: string,
+): Promise<{ findings: ReviewFinding[]; malformed: boolean } | null> {
+  const reviewPath = path.join(controlPlanePath, ".openloop", "reviews", `${taskId}.json`);
   if (!(await fileExists(reviewPath))) {
     return null;
   }
@@ -169,7 +174,7 @@ async function readAgentReview(projectPath: string, taskId: string): Promise<Rev
   try {
     const data = await readJsonFile<AgentReviewFile>(reviewPath, { verdict: "approve" });
     if (data.verdict !== "request-changes" || !Array.isArray(data.findings)) {
-      return [];
+      return { findings: [], malformed: false };
     }
 
     const findings: ReviewFinding[] = [];
@@ -180,9 +185,11 @@ async function readAgentReview(projectPath: string, taskId: string): Promise<Rev
       const severity = rawSeverity === "block" ? "block" : rawSeverity === "warn" ? "warn" : "info";
       findings.push({ rule: "agent-review", severity, message });
     }
-    return findings;
+    return { findings, malformed: false };
   } catch {
-    return null;
+    // File exists but cannot be parsed: the reviewer wrote something we can't
+    // judge — fail closed rather than pretend there were no findings.
+    return { findings: [], malformed: true };
   }
 }
 
@@ -191,7 +198,10 @@ async function readAgentReview(projectPath: string, taskId: string): Promise<Rev
 // ---------------------------------------------------------------------------
 
 export interface RunReviewOptions {
-  projectPath: string;
+  /** Main repo tree — control-plane files (.openloop/reviews, policy) live here. */
+  controlPlanePath: string;
+  /** Tree the agent edited — worktree when runtime.useWorktree, else main tree. */
+  executionPath: string;
   task: ProjectTask;
   projectConfig: ProjectConfig;
   projectPolicy: ProjectPolicy;
@@ -205,10 +215,10 @@ export interface RunReviewOptions {
  * provided. Never throws — review failures degrade gracefully to deterministic-only.
  */
 export async function runReview(options: RunReviewOptions): Promise<ReviewResult> {
-  const { projectPath, task, projectPolicy } = options;
+  const { controlPlanePath, executionPath, task, projectPolicy } = options;
   const findings: ReviewFinding[] = [];
 
-  const diffPatch = await getDiffPatch(projectPath).catch(() => null);
+  const diffPatch = await getDiffPatch(executionPath).catch(() => null);
   const changedFiles = diffPatch ? extractChangedFiles(diffPatch) : [];
 
   findings.push(...checkScopeDrift(changedFiles, task, projectPolicy));
@@ -217,21 +227,29 @@ export async function runReview(options: RunReviewOptions): Promise<ReviewResult
   }
 
   if (options.reviewerRunner && diffPatch) {
-    await ensureDir(path.join(projectPath, ".openloop", "reviews")).catch(() => {});
-    const prompt = buildReviewPrompt(task, diffPatch);
+    await ensureDir(path.join(controlPlanePath, ".openloop", "reviews")).catch(() => {});
+    const prompt = buildReviewPrompt(task, diffPatch, path.join(controlPlanePath, ".openloop", "reviews"));
     try {
       await options.reviewerRunner(prompt);
     } catch {
       // Agent review failure is non-fatal — deterministic checks are the spine.
     }
-    const agentFindings = await readAgentReview(projectPath, task.id);
+    const agentFindings = await readAgentReview(controlPlanePath, task.id);
     if (agentFindings) {
-      findings.push(...agentFindings);
+      findings.push(...agentFindings.findings);
+      if (agentFindings.malformed) {
+        return {
+          findings,
+          hasBlocking: findings.some((f) => f.severity === "block"),
+          malformed: true,
+        };
+      }
     }
   }
 
   return {
     findings,
     hasBlocking: findings.some((f) => f.severity === "block"),
+    malformed: false,
   };
 }

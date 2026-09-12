@@ -14,8 +14,8 @@
     ]
   },
   "runtime": {
-    "autoCommit": true,
     "useWorktree": false,
+    "worktreeSetupCommand": null,
     "branchPrefix": "openloop/"
   },
   "validation": {
@@ -29,5 +29,8 @@
   },
   "review": {
     "enabled": false
+  },
+  "verification": {
+    "enabled": true
   }
 }

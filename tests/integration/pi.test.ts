@@ -33,8 +33,8 @@ test("runPi returns exit code 0 on success", async () => {
   await makeFakePi(dir, "exit 0");
   process.env.PATH = `${dir}:${origPath}`;
 
-  const code = await runPi({ prompt: "hello", project: fakeProject(dir) });
-  expect(code).toBe(0);
+  const result = await runPi({ prompt: "hello", project: fakeProject(dir) });
+  expect(result.exitCode).toBe(0);
 });
 
 test("runPi returns non-zero exit code on failure", async () => {
@@ -42,8 +42,8 @@ test("runPi returns non-zero exit code on failure", async () => {
   await makeFakePi(dir, "exit 42");
   process.env.PATH = `${dir}:${origPath}`;
 
-  const code = await runPi({ prompt: "hello", project: fakeProject(dir) });
-  expect(code).toBe(42);
+  const result = await runPi({ prompt: "hello", project: fakeProject(dir) });
+  expect(result.exitCode).toBe(42);
 });
 
 test("runPi rejects with RunTimeoutError when timeout fires", async () => {

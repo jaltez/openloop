@@ -110,13 +110,13 @@ test("runAgent dispatches to the configured provider binary", async () => {
       project: { alias: "test", repoRoot: dir, initializedAt: null },
       pi: { model: null, promptFiles: [] },
       agent: { type: "claude", command: null },
-      runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+      runtime: { useWorktree: false, branchPrefix: "openloop/" },
       validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
       risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
     };
 
-    const code = await runAgent({ prompt: "hello", project }, config);
-    expect(code).toBe(0);
+    const result = await runAgent({ prompt: "hello", project }, config);
+    expect(result.exitCode).toBe(0);
   } finally {
     process.env.PATH = origPath;
   }
@@ -148,14 +148,14 @@ test("runAgent uses defaultProvider when project has no agent config", async () 
       version: 1,
       project: { alias: "test", repoRoot: dir, initializedAt: null },
       pi: { model: null, promptFiles: [] },
-      runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+      runtime: { useWorktree: false, branchPrefix: "openloop/" },
       validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
       risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
     };
 
     // Pass "aider" as the default provider
-    const code = await runAgent({ prompt: "hello", project }, config, "aider");
-    expect(code).toBe(0);
+    const result = await runAgent({ prompt: "hello", project }, config, "aider");
+    expect(result.exitCode).toBe(0);
   } finally {
     process.env.PATH = origPath;
   }
@@ -170,7 +170,7 @@ test("runAgent dispatches custom provider with OPENLOOP_PROMPT env", async () =>
     project: { alias: "test", repoRoot: dir, initializedAt: null },
     pi: { model: null, promptFiles: [] },
     agent: { type: "custom", command: "echo" },
-    runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
     validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
     risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
   };
@@ -184,9 +184,100 @@ test("runAgent dispatches custom provider with OPENLOOP_PROMPT env", async () =>
     updatedAt: new Date().toISOString(),
   };
 
-  const code = await runAgent({ prompt: "hello world", project }, config);
-  expect(code).toBe(0);
+  const result = await runAgent({ prompt: "hello world", project }, config);
+  expect(result.exitCode).toBe(0);
 });
+
+test("claude provider parses usage and cost from JSON stdout", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-provider-claude-"));
+  tempDirs.push(dir);
+
+  // Stub claude emitting a --output-format json result with usage/cost fields.
+  const fakeBin = path.join(dir, "claude");
+  await fs.writeFile(
+    fakeBin,
+    '#!/bin/sh\necho \'{"type":"result","total_cost_usd":0.42,"usage":{"input_tokens":10,"output_tokens":5}}\'\n',
+    "utf8",
+  );
+  await fs.chmod(fakeBin, 0o755);
+
+  const origPath = process.env.PATH;
+  process.env.PATH = `${dir}:${origPath}`;
+  try {
+    const result = await runAgent(
+      { prompt: "hello", project: fakeProject(dir) },
+      { ...baseProjectConfig(dir), agent: { type: "claude", command: null } },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.usage).toEqual({ inputTokens: 10, outputTokens: 5, costUsd: 0.42 });
+  } finally {
+    process.env.PATH = origPath;
+  }
+});
+
+test("provider emitting garbage stdout reports no usage", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-provider-garbage-"));
+  tempDirs.push(dir);
+
+  const fakeBin = path.join(dir, "claude");
+  await fs.writeFile(fakeBin, "#!/bin/sh\necho 'not json at all'\n", "utf8");
+  await fs.chmod(fakeBin, 0o755);
+
+  const origPath = process.env.PATH;
+  process.env.PATH = `${dir}:${origPath}`;
+  try {
+    const result = await runAgent(
+      { prompt: "hello", project: fakeProject(dir) },
+      { ...baseProjectConfig(dir), agent: { type: "claude", command: null } },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.usage).toBeUndefined();
+    expect(result.stdout).toContain("not json at all");
+  } finally {
+    process.env.PATH = origPath;
+  }
+});
+
+test("custom provider captures output written after the direct child exits", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-provider-drain-"));
+  tempDirs.push(dir);
+
+  // The backgrounded subshell keeps the stdout pipe open after `true` exits;
+  // settling on 'exit' would truncate the late line.
+  const config: ProjectConfig = {
+    ...baseProjectConfig(dir),
+    agent: { type: "custom", command: "(sleep 0.2; echo late-line) & true" },
+  };
+
+  const result = await runAgent({ prompt: "hello", project: fakeProject(dir) }, config);
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toContain("late-line");
+}, 15_000);
+
+function fakeProject(dir: string): LinkedProject {
+  return {
+    alias: "test",
+    path: dir,
+    defaultBranch: null,
+    initialized: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function baseProjectConfig(dir: string): ProjectConfig {
+  return {
+    version: 1,
+    project: { alias: "test", repoRoot: dir, initializedAt: null },
+    pi: { model: null, promptFiles: [] },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
+    validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
+    risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
+  };
+}
 
 // --- CLI commands ---
 
@@ -229,7 +320,7 @@ test("config project-set-agent persists project agent config", async () => {
       version: 1,
       project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
       pi: { model: null, promptFiles: [] },
-      runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+      runtime: { useWorktree: false, branchPrefix: "openloop/" },
       validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
       risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
     }, null, 2),

@@ -18,7 +18,6 @@ export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
     command: null,
   },
   runtime: {
-    autoCommit: true,
     useWorktree: false,
     branchPrefix: "openloop/",
     prCommand: null,
@@ -33,6 +32,7 @@ export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
     requirePolicyForAutoMerge: true,
   },
   review: { enabled: false },
+  verification: { enabled: true },
 };
 
 export async function loadProjectConfig(projectPath: string): Promise<ProjectConfig> {

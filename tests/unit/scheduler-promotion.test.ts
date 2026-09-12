@@ -48,7 +48,7 @@ function makeProjectConfig(overrides?: Partial<ProjectConfig>): ProjectConfig {
     version: 1,
     project: { alias: null, repoRoot: null, initializedAt: null },
     pi: { model: null, promptFiles: [] },
-    runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
     validation: { lintCommand: "npm run lint", testCommand: "npm test", typecheckCommand: null },
     risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
     ...overrides,

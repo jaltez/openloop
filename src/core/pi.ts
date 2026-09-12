@@ -1,7 +1,5 @@
-import { spawn, execFileSync } from "node:child_process";
-import { RunTimeoutError } from "./timeout.js";
 import { resolveProvider, type AgentRunOptions } from "./providers.js";
-import type { LinkedProject, ProjectConfig } from "./types.js";
+import type { AgentRunResult, LinkedProject, ProjectConfig } from "./types.js";
 
 export interface PiRunOptions {
   prompt: string;
@@ -10,27 +8,38 @@ export interface PiRunOptions {
   timeoutMs?: number;
 }
 
-export function assertPiOnPath(): void {
-  try {
-    execFileSync("which", ["pi"], { stdio: "ignore" });
-  } catch {
-    throw new Error(
-      `'pi' binary not found on PATH. Install Pi from https://pi.dev and ensure it is in your PATH.`,
-    );
+/**
+ * Gate a command on the availability of the resolved provider's binary.
+ * Replaces the Pi-only gate: whichever agent the project config resolves to
+ * (claude, codex, custom, …) must be on PATH before the command proceeds.
+ */
+export function assertProviderAvailable(projectConfig: ProjectConfig | null, defaultProvider?: string | null): void {
+  const provider = resolveProvider(
+    projectConfig?.agent?.type ?? undefined,
+    projectConfig?.agent?.command ?? null,
+    defaultProvider ?? undefined,
+  );
+  if (!provider.checkAvailable()) {
+    throw new Error(`'${provider.name}' binary not found on PATH`);
   }
 }
 
-export async function runPi(options: PiRunOptions): Promise<number> {
-  const args = ["-p", options.prompt];
-  if (options.model) {
-    args.push("--model", options.model);
-  }
-
-  return spawnAgent("pi", args, options.project.path, options.timeoutMs);
+export async function runPi(options: PiRunOptions): Promise<AgentRunResult> {
+  return resolveProvider("pi", null).run({
+    prompt: options.prompt,
+    model: options.model,
+    projectPath: options.project.path,
+    projectAlias: options.project.alias,
+    timeoutMs: options.timeoutMs,
+  });
 }
 
 // D6 / A1: Model-agnostic agent runner dispatching to the configured provider.
-export async function runAgent(options: PiRunOptions, projectConfig?: ProjectConfig, defaultProvider?: string): Promise<number> {
+export async function runAgent(
+  options: PiRunOptions,
+  projectConfig?: ProjectConfig,
+  defaultProvider?: string,
+): Promise<AgentRunResult> {
   const agentType = projectConfig?.agent?.type ?? undefined;
   const customCommand = projectConfig?.agent?.command ?? null;
   const provider = resolveProvider(agentType, customCommand, defaultProvider);
@@ -39,52 +48,10 @@ export async function runAgent(options: PiRunOptions, projectConfig?: ProjectCon
     prompt: options.prompt,
     model: options.model,
     projectPath: options.project.path,
+    projectAlias: options.project.alias,
     timeoutMs: options.timeoutMs,
+    extraArgs: projectConfig?.agent?.extraArgs,
   };
 
   return provider.run(runOptions);
-}
-
-function spawnAgent(
-  binary: string,
-  args: string[],
-  cwd: string,
-  timeoutMs?: number,
-): Promise<number> {
-  return new Promise<number>((resolve, reject) => {
-    const child = spawn(binary, args, { cwd, stdio: "inherit" });
-    setupAgentProcess(child, timeoutMs, resolve, reject);
-  });
-}
-
-function setupAgentProcess(
-  child: ReturnType<typeof spawn>,
-  timeoutMs: number | undefined,
-  resolve: (code: number) => void,
-  reject: (err: Error) => void,
-): void {
-  let timeout: NodeJS.Timeout | undefined;
-  let settled = false;
-
-  if (timeoutMs !== undefined) {
-    timeout = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      child.kill("SIGTERM");
-      reject(new RunTimeoutError(`Agent run exceeded timeout of ${timeoutMs}ms.`));
-    }, timeoutMs);
-  }
-
-  child.on("error", (error) => {
-    if (settled) return;
-    settled = true;
-    if (timeout) clearTimeout(timeout);
-    reject(error);
-  });
-  child.on("exit", (code) => {
-    if (settled) return;
-    settled = true;
-    if (timeout) clearTimeout(timeout);
-    resolve(code ?? 1);
-  });
 }

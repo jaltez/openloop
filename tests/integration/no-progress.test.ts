@@ -4,6 +4,7 @@ import path from "node:path";
 import { expect, test } from "vitest";
 import { runProjectIteration } from "../../src/core/scheduler.js";
 import type { LinkedProject, ProjectConfig, TaskLedger } from "../../src/core/types.js";
+import { fakeAgentRun } from "../helpers/factories.js";
 
 test("no-progress detection appends notes across repeated iterations with same failure", async () => {
   const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-noprogress-"));
@@ -13,7 +14,7 @@ test("no-progress detection appends notes across repeated iterations with same f
     version: 1,
     project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
     pi: { model: null, promptFiles: [] },
-    runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
     validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
     risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
   };
@@ -55,7 +56,7 @@ test("no-progress detection appends notes across repeated iterations with same f
   // First iteration: piRunner returns nonzero to simulate Pi failure with same error each time.
   // The git state doesn't change between runs (no actual code changes), so no-progress via "diff-unchanged" fires.
   let result = await runProjectIteration(project, {
-    piRunner: async () => 1,
+    piRunner: async () => fakeAgentRun({ exitCode: 1 }),
     noProgressRepeatLimit: 3,
   });
 
@@ -68,7 +69,7 @@ test("no-progress detection appends notes across repeated iterations with same f
 
   // Second iteration
   result = await runProjectIteration(project, {
-    piRunner: async () => 1,
+    piRunner: async () => fakeAgentRun({ exitCode: 1 }),
     noProgressRepeatLimit: 3,
   });
 
@@ -80,7 +81,7 @@ test("no-progress detection appends notes across repeated iterations with same f
 
   // Third iteration — should trigger the no-progress block (limit=3)
   result = await runProjectIteration(project, {
-    piRunner: async () => 1,
+    piRunner: async () => fakeAgentRun({ exitCode: 1 }),
     noProgressRepeatLimit: 3,
   });
 

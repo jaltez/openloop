@@ -1,11 +1,17 @@
-import { spawn, execFileSync } from "node:child_process";
+import { spawn, execFileSync, type ChildProcess } from "node:child_process";
+import { registerActiveRun } from "./active-runs.js";
 import { RunTimeoutError } from "./timeout.js";
+import type { AgentRunResult, AgentUsage } from "./types.js";
 
 export interface AgentRunOptions {
   prompt: string;
   model?: string;
   projectPath: string;
+  /** Alias of the project this run belongs to (active-run registry). */
+  projectAlias?: string | null;
   timeoutMs?: number;
+  /** Extra CLI flags appended verbatim (agent.extraArgs escape hatch). */
+  extraArgs?: string[];
 }
 
 export interface AgentProvider {
@@ -15,8 +21,8 @@ export interface AgentProvider {
   label: string;
   /** Check whether the provider's binary is available. */
   checkAvailable(): boolean;
-  /** Execute a prompt and return the process exit code. */
-  run(options: AgentRunOptions): Promise<number>;
+  /** Execute a prompt and return the captured run result (stdout/stderr/usage). */
+  run(options: AgentRunOptions): Promise<AgentRunResult>;
 }
 
 // ---------------------------------------------------------------------------
@@ -32,40 +38,163 @@ function binaryExists(name: string): boolean {
   }
 }
 
+interface RawRunResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
 function spawnAndWait(
   binary: string,
   args: string[],
   cwd: string,
-  timeoutMs?: number,
-  env?: Record<string, string | undefined>,
-): Promise<number> {
-  return new Promise<number>((resolve, reject) => {
-    const child = spawn(binary, args, { cwd, env: env ?? process.env, stdio: "inherit" });
-    let timeout: NodeJS.Timeout | undefined;
-    let settled = false;
-
-    if (timeoutMs !== undefined) {
-      timeout = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        child.kill("SIGTERM");
-        reject(new RunTimeoutError(`Agent run exceeded timeout of ${timeoutMs}ms.`));
-      }, timeoutMs);
-    }
-
-    child.on("error", (error) => {
-      if (settled) return;
-      settled = true;
-      if (timeout) clearTimeout(timeout);
-      reject(error);
-    });
-    child.on("exit", (code) => {
-      if (settled) return;
-      settled = true;
-      if (timeout) clearTimeout(timeout);
-      resolve(code ?? 1);
-    });
+  options?: {
+    timeoutMs?: number;
+    env?: Record<string, string | undefined>;
+    projectAlias?: string | null;
+  },
+): Promise<RawRunResult> {
+  const { promise, resolve, reject } = Promise.withResolvers<RawRunResult>();
+  // detached: the agent gets its own process group so a timeout kill reaches
+  // the whole subprocess tree, not just the launcher binary.
+  const child = spawn(binary, args, {
+    cwd,
+    env: options?.env ?? process.env,
+    stdio: ["ignore", "pipe", "pipe"],
+    detached: true,
   });
+  let stdout = "";
+  let stderr = "";
+  let settled = false;
+  let timeout: NodeJS.Timeout | undefined;
+
+  // Rolling capture capped at 4 MiB per stream: keeps usage-JSON tails and
+  // transcript slices intact while bounding memory for chatty agents.
+  const captureLimit = 4 * 1024 * 1024;
+  const append = (target: "stdout" | "stderr", text: string): void => {
+    if (target === "stdout") {
+      stdout += text;
+      if (stdout.length > captureLimit) stdout = stdout.slice(stdout.length - captureLimit);
+    } else {
+      stderr += text;
+      if (stderr.length > captureLimit) stderr = stderr.slice(stderr.length - captureLimit);
+    }
+  };
+  child.stdout?.on("data", (chunk: Buffer | string) => {
+    append("stdout", String(chunk));
+  });
+  child.stderr?.on("data", (chunk: Buffer | string) => {
+    append("stderr", String(chunk));
+  });
+
+  const unregister = options?.projectAlias
+    ? registerActiveRun(options.projectAlias, () => killProcessGroup(child, "SIGTERM"))
+    : null;
+
+  const finish = (settle: () => void) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timeout);
+    unregister?.();
+    settle();
+  };
+
+  if (options?.timeoutMs !== undefined) {
+    timeout = setTimeout(() => {
+      finish(() => {
+        killProcessGroup(child, "SIGTERM");
+        // Escalate after a grace period; ESRCH for already-dead groups is fine.
+        const escalation = setTimeout(() => killProcessGroup(child, "SIGKILL"), 5000);
+        escalation.unref();
+        reject(new RunTimeoutError(`Agent run exceeded timeout of ${options.timeoutMs}ms.`));
+      });
+    }, options.timeoutMs);
+  }
+
+  child.on("error", (error) => finish(() => reject(error)));
+  // Settle on 'close', not 'exit': grandchildren of a shell-wrapped custom
+  // command may still hold the stdout pipe when the direct child exits, and
+  // 'exit'-time settling truncates their output (and the usage JSON tail).
+  child.on("close", (code) => finish(() => resolve({ exitCode: code ?? 1, stdout, stderr })));
+
+  return promise;
+}
+
+function killProcessGroup(child: ChildProcess, signal: "SIGTERM" | "SIGKILL" = "SIGTERM"): void {
+  try {
+    process.kill(-child.pid!, signal);
+  } catch {
+    try {
+      child.kill(signal);
+    } catch {
+      // Process group and leader both gone — nothing to kill.
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Usage parsing — best-effort by design. A provider whose output cannot be
+// parsed simply reports no usage and the run cost falls back to the estimate.
+// ---------------------------------------------------------------------------
+
+function toNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function extractUsage(obj: unknown): AgentUsage | undefined {
+  if (!obj || typeof obj !== "object") {
+    return undefined;
+  }
+  const record = obj as Record<string, unknown>;
+  const nested = record.usage && typeof record.usage === "object"
+    ? (record.usage as Record<string, unknown>)
+    : {};
+  const usage: AgentUsage = {
+    inputTokens: toNumber(nested.input_tokens) ?? toNumber(nested.inputTokens),
+    outputTokens: toNumber(nested.output_tokens) ?? toNumber(nested.outputTokens),
+    totalTokens: toNumber(nested.total_tokens) ?? toNumber(nested.totalTokens) ?? toNumber(record.total_tokens),
+    costUsd: toNumber(record.total_cost_usd) ?? toNumber(record.cost_usd)
+      ?? toNumber(nested.total_cost_usd) ?? toNumber(nested.cost_usd),
+  };
+  const defined = Object.entries(usage).filter(([, value]) => value !== undefined);
+  if (defined.length === 0) {
+    return undefined;
+  }
+  return Object.fromEntries(defined) as AgentUsage;
+}
+
+/** claude --output-format json prints a single JSON object on stdout. */
+function parseClaudeUsage(stdout: string): AgentUsage | undefined {
+  return extractUsage(JSON.parse(stdout));
+}
+
+/** pi/codex print usage (if at all) in the last JSON line of stdout. */
+function parseLastLineUsage(stdout: string): AgentUsage | undefined {
+  const lines = stdout.trim().split("\n");
+  const last = lines[lines.length - 1];
+  if (!last) {
+    return undefined;
+  }
+  return extractUsage(JSON.parse(last));
+}
+
+async function withUsage(
+  raw: Promise<RawRunResult>,
+  parse: (stdout: string) => AgentUsage | undefined,
+): Promise<AgentRunResult> {
+  const result = await raw;
+  try {
+    const usage = parse(result.stdout);
+    return usage ? { ...result, usage } : result;
+  } catch {
+    return result; // Malformed output is non-fatal — cost falls back to estimated.
+  }
+}
+
+function appendExtraArgs(args: string[], extraArgs?: string[]): void {
+  if (extraArgs && extraArgs.length > 0) {
+    args.push(...extraArgs);
+  }
 }
 
 const piProvider: AgentProvider = {
@@ -75,7 +204,11 @@ const piProvider: AgentProvider = {
   run(options) {
     const args = ["-p", options.prompt];
     if (options.model) args.push("--model", options.model);
-    return spawnAndWait("pi", args, options.projectPath, options.timeoutMs);
+    appendExtraArgs(args, options.extraArgs);
+    return withUsage(
+      spawnAndWait("pi", args, options.projectPath, { timeoutMs: options.timeoutMs, projectAlias: options.projectAlias }),
+      parseLastLineUsage,
+    );
   },
 };
 
@@ -84,9 +217,16 @@ const claudeProvider: AgentProvider = {
   label: "Claude Code",
   checkAvailable: () => binaryExists("claude"),
   run(options) {
-    const args = ["-p", options.prompt];
+    // Headless defaults: JSON stdout for usage/cost parsing, acceptEdits so
+    // unattended runs can modify files. Stronger bypass modes stay opt-in via
+    // agent.extraArgs.
+    const args = ["-p", options.prompt, "--output-format", "json", "--permission-mode", "acceptEdits"];
     if (options.model) args.push("--model", options.model);
-    return spawnAndWait("claude", args, options.projectPath, options.timeoutMs);
+    appendExtraArgs(args, options.extraArgs);
+    return withUsage(
+      spawnAndWait("claude", args, options.projectPath, { timeoutMs: options.timeoutMs, projectAlias: options.projectAlias }),
+      parseClaudeUsage,
+    );
   },
 };
 
@@ -97,7 +237,8 @@ const aiderProvider: AgentProvider = {
   run(options) {
     const args = ["--message", options.prompt, "--yes"];
     if (options.model) args.push("--model", options.model);
-    return spawnAndWait("aider", args, options.projectPath, options.timeoutMs);
+    appendExtraArgs(args, options.extraArgs);
+    return spawnAndWait("aider", args, options.projectPath, { timeoutMs: options.timeoutMs, projectAlias: options.projectAlias });
   },
 };
 
@@ -106,9 +247,13 @@ const codexProvider: AgentProvider = {
   label: "OpenAI Codex",
   checkAvailable: () => binaryExists("codex"),
   run(options) {
-    const args = ["-q", options.prompt];
+    const args = ["exec", "--json", options.prompt];
     if (options.model) args.push("--model", options.model);
-    return spawnAndWait("codex", args, options.projectPath, options.timeoutMs);
+    appendExtraArgs(args, options.extraArgs);
+    return withUsage(
+      spawnAndWait("codex", args, options.projectPath, { timeoutMs: options.timeoutMs, projectAlias: options.projectAlias }),
+      parseLastLineUsage,
+    );
   },
 };
 
@@ -119,9 +264,19 @@ const opencodeProvider: AgentProvider = {
   run(options) {
     const args = ["run", options.prompt];
     if (options.model) args.push("--model", options.model);
-    return spawnAndWait("opencode", args, options.projectPath, options.timeoutMs);
+    appendExtraArgs(args, options.extraArgs);
+    return spawnAndWait("opencode", args, options.projectPath, { timeoutMs: options.timeoutMs, projectAlias: options.projectAlias });
   },
 };
+
+// ---------------------------------------------------------------------------
+// Custom command provider (instantiated per-project)
+// ---------------------------------------------------------------------------
+
+/** POSIX single-quote: safe verbatim argument passing into `sh -c` strings. */
+function shellQuotePosix(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
 
 // ---------------------------------------------------------------------------
 // Custom command provider (instantiated per-project)
@@ -133,10 +288,18 @@ export function createCustomProvider(command: string): AgentProvider {
     label: `Custom (${command})`,
     checkAvailable: () => true,
     run(options) {
-      return spawnAndWait("sh", ["-c", `${command} "$OPENLOOP_PROMPT"`], options.projectPath, options.timeoutMs, {
-        ...process.env,
-        OPENLOOP_PROMPT: options.prompt,
-        OPENLOOP_MODEL: options.model ?? "",
+      let shellCommand = `${command} "$OPENLOOP_PROMPT"`;
+      if (options.extraArgs && options.extraArgs.length > 0) {
+        shellCommand += ` ${options.extraArgs.map(shellQuotePosix).join(" ")}`;
+      }
+      return spawnAndWait("sh", ["-c", shellCommand], options.projectPath, {
+        timeoutMs: options.timeoutMs,
+        projectAlias: options.projectAlias,
+        env: {
+          ...process.env,
+          OPENLOOP_PROMPT: options.prompt,
+          OPENLOOP_MODEL: options.model ?? "",
+        },
       });
     },
   };

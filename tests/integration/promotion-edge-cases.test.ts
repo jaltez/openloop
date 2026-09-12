@@ -15,7 +15,7 @@ function makeProjectConfig(): string {
     version: 1,
     project: { alias: "demo", repoRoot: "/tmp", initializedAt: null },
     pi: { model: null, promptFiles: [] },
-    runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
     validation: { lintCommand: "echo lint", testCommand: null, typecheckCommand: null },
     risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
   }, null, 2);
@@ -195,7 +195,7 @@ test("auto-merge rejects when no validation commands are configured", async () =
     version: 1,
     project: { alias: "demo", repoRoot: "/tmp", initializedAt: null },
     pi: { model: null, promptFiles: [] },
-    runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
     validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
     risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
   }, null, 2);

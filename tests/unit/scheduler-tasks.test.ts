@@ -38,6 +38,19 @@ describe("buildPrompt", () => {
     expect(prompt).toContain("Source: human / test");
   });
 
+  it("prepends AGENTS.md/policy guidance for non-Pi providers only", () => {
+    const task = makeTask({ id: "t2", title: "Add validation" });
+    const nonPi = buildPrompt(task, "implement", "implementer", null, { providerIsPi: false });
+    expect(nonPi.startsWith("Read AGENTS.md and .openloop/policy.yaml before making changes.")).toBe(true);
+
+    const piPrompt = buildPrompt(task, "implement", "implementer", null, { providerIsPi: true });
+    expect(piPrompt).not.toContain("Read AGENTS.md and .openloop/policy.yaml");
+
+    // Default is Pi (system-prompt files carry the conventions).
+    const defaultPrompt = buildPrompt(task, "implement", "implementer");
+    expect(defaultPrompt).not.toContain("Read AGENTS.md and .openloop/policy.yaml");
+  });
+
   it("uses plan-mode header for plan tasks", () => {
     const task = makeTask({ id: "t2" });
     const prompt = buildPrompt(task, "plan", "sdd-planner");

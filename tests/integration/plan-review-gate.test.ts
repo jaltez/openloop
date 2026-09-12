@@ -8,6 +8,7 @@ import { registerTaskCommands } from "../../src/cli/commands/task.js";
 import { runProjectIteration } from "../../src/core/scheduler.js";
 import { loadTaskLedger } from "../../src/core/task-ledger.js";
 import type { LinkedProject, ProjectConfig, TaskLedger } from "../../src/core/types.js";
+import { fakeAgentRun } from "../helpers/factories.js";
 
 const tempDirs: string[] = [];
 const originalOpenloopHome = process.env.OPENLOOP_HOME;
@@ -34,7 +35,7 @@ test("plan run gates medium-risk tasks to awaiting-approval", async () => {
     version: 1,
     project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
     pi: { model: null, promptFiles: [] },
-    runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
     validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
     risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
   };
@@ -73,7 +74,7 @@ test("plan run gates medium-risk tasks to awaiting-approval", async () => {
     updatedAt: new Date().toISOString(),
   };
 
-  const result = await runProjectIteration(project, { piRunner: async () => 0 });
+  const result = await runProjectIteration(project, { piRunner: async () => fakeAgentRun() });
 
   expect(result.mode).toBe("plan");
   expect(result.taskStatus).toBe("awaiting-approval");
@@ -92,7 +93,7 @@ test("plan run gates high-risk tasks to awaiting-approval", async () => {
     version: 1,
     project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
     pi: { model: null, promptFiles: [] },
-    runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
     validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
     risk: { defaultUnknownAreaClassification: "high-risk", requirePolicyForAutoMerge: true },
   };
@@ -131,7 +132,7 @@ test("plan run gates high-risk tasks to awaiting-approval", async () => {
     updatedAt: new Date().toISOString(),
   };
 
-  const result = await runProjectIteration(project, { piRunner: async () => 0 });
+  const result = await runProjectIteration(project, { piRunner: async () => fakeAgentRun() });
 
   expect(result.mode).toBe("plan");
   expect(result.taskStatus).toBe("awaiting-approval");
@@ -146,7 +147,7 @@ test("plan run lets low-risk tasks go straight to ready", async () => {
     version: 1,
     project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
     pi: { model: null, promptFiles: [] },
-    runtime: { autoCommit: true, useWorktree: false, branchPrefix: "openloop/" },
+    runtime: { useWorktree: false, branchPrefix: "openloop/" },
     validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
     risk: { defaultUnknownAreaClassification: "low-risk", requirePolicyForAutoMerge: true },
   };
@@ -185,7 +186,7 @@ test("plan run lets low-risk tasks go straight to ready", async () => {
     updatedAt: new Date().toISOString(),
   };
 
-  const result = await runProjectIteration(project, { piRunner: async () => 0 });
+  const result = await runProjectIteration(project, { piRunner: async () => fakeAgentRun() });
 
   expect(result.mode).toBe("plan");
   expect(result.taskStatus).toBe("ready");

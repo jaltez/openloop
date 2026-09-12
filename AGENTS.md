@@ -50,7 +50,7 @@ Those templates define `.openloop/`, `.agents/skills/openloop/SKILL.md`, and `.p
 
 - Never rewrite unrelated user changes in a linked project.
 - Allow dirty repositories, but do not overwrite foreign modifications.
-- In V1, use isolated branches; do not assume `git worktree` support exists.
+- Runs may use an isolated git worktree (opt-in via `runtime.useWorktree`); worktree support is required when enabled.
 
 ## Decision Style
 

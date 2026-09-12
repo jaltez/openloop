@@ -8,15 +8,16 @@ import { registerProjectCommands } from "./cli/commands/project.js";
 import { registerPromotionCommands } from "./cli/commands/promotion.js";
 import { registerRunCommands } from "./cli/commands/run.js";
 import { registerRuntimeCommands } from "./cli/commands/runtime.js";
-import { registerTaskCommands } from "./cli/commands/task.js";
+import { registerApprovalCommands, registerTaskCommands } from "./cli/commands/task.js";
 import { registerStatusCommand } from "./cli/commands/status.js";
 import { registerEventsCommand } from "./cli/commands/events.js";
 import { registerWatchCommand } from "./cli/commands/watch.js";
 import { registerDoctorCommand } from "./cli/commands/doctor.js";
 import { registerSetupCommand } from "./cli/commands/setup.js";
-import { registerReportCommand } from "./cli/commands/report.js";
+import { registerDigestCommand, registerReportCommand } from "./cli/commands/report.js";
 import { registerIssueCommands } from "./cli/commands/issue.js";
 import { registerDashboardCommands } from "./cli/commands/dashboard.js";
+import { registerMcpCommand } from "./cli/commands/mcp.js";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../package.json") as { version: string };
@@ -49,14 +50,17 @@ async function main(): Promise<void> {
   registerRunCommands(cli);
   registerRuntimeCommands(cli);
   registerTaskCommands(cli);
+  registerApprovalCommands(cli);
   registerStatusCommand(cli);
   registerEventsCommand(cli);
   registerWatchCommand(cli);
   registerDoctorCommand(cli);
-  registerSetupCommand(cli);
   registerReportCommand(cli);
+  registerDigestCommand(cli);
+  registerSetupCommand(cli);
   registerIssueCommands(cli);
   registerDashboardCommands(cli);
+  registerMcpCommand(cli);
 
   await cli.parseAsync();
 }

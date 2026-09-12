@@ -145,7 +145,7 @@ export default function ProjectsView(props: ProjectsViewProps) {
         {/* Right: detail */}
         <box flexDirection="column" width="60%" borderStyle="rounded" borderColor={colors.border} padding={1}>
           <Show when={selected()} fallback={<text fg={colors.textDim}>Select a project to view details</text>}>
-            {(p) => (
+            {(p: Accessor<LinkedProject>) => (
               <>
                 <text fg={colors.accent}><b>{p().alias}</b></text>
                 <text fg={colors.textDim}>Path:        <Span fg={colors.text}>{p().path}</Span></text>

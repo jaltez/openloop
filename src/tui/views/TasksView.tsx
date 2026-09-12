@@ -182,7 +182,7 @@ export default function TasksView(props: TasksViewProps) {
         {/* Right: detail */}
         <box flexDirection="column" width="50%" borderStyle="rounded" borderColor={colors.border} padding={1}>
           <Show when={selected()} fallback={<text fg={colors.textDim}>Select a task</text>}>
-            {(t) => (
+            {(t: Accessor<ProjectTask>) => (
               <scrollbox height="100%">
                 <box flexDirection="column" gap={0}>
                   <text fg={colors.accent}><b>{t().title}</b></text>

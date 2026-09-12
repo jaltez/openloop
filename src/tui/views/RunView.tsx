@@ -48,13 +48,19 @@ export default function RunView(props: RunViewProps) {
     appendOutput(`> Prompt: ${p.slice(0, 80)}${p.length > 80 ? "..." : ""}`);
 
     try {
-      const code = await runPi({
+      const result = await runPi({
         prompt: p,
         model: model() || undefined,
         project,
       });
-      setExitCode(code);
-      appendOutput(`> Exit code: ${code}`);
+      if (result.stdout.trim()) {
+        appendOutput(result.stdout.trimEnd());
+      }
+      if (result.stderr.trim()) {
+        appendOutput(`[stderr] ${result.stderr.trimEnd()}`);
+      }
+      setExitCode(result.exitCode);
+      appendOutput(`> Exit code: ${result.exitCode}`);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       appendOutput(`> Error: ${msg}`);
