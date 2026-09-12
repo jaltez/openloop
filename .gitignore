@@ -46,3 +46,4 @@ Thumbs.db
 
 # Internal planning tools
 .opencode/
+.zcode/
