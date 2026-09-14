@@ -27,17 +27,20 @@ test("merges missing runtime fields from older global config files", async () =>
   const appHome = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-home-"));
   tempHomes.push(appHome);
 
-  await saveGlobalConfig({
-    version: 1,
-    model: "demo/model",
-    activeProjectAlias: null,
-    budgets: { dailyCostUsd: 10 },
-    runtime: {
-      runTimeoutSeconds: 1800,
-      maxAttemptsPerTask: 3,
-      noProgressRepeatLimit: 2,
+  await saveGlobalConfig(
+    {
+      version: 1,
+      model: "demo/model",
+      activeProjectAlias: null,
+      budgets: { dailyCostUsd: 10 },
+      runtime: {
+        runTimeoutSeconds: 1800,
+        maxAttemptsPerTask: 3,
+        noProgressRepeatLimit: 2,
+      },
     },
-  }, appHome);
+    appHome,
+  );
 
   await fs.writeFile(
     path.join(appHome, "config.json"),

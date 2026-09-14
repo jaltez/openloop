@@ -50,5 +50,8 @@ function nextNoProgressCount(notes: string[], key: string): number {
 }
 
 function sanitizeObservationKey(value: string): string {
-  return value.replace(/[^a-z0-9-]+/gi, "-").replace(/^-|-$/g, "").toLowerCase();
+  return value
+    .replace(/[^a-z0-9-]+/gi, "-")
+    .replace(/^-|-$/g, "")
+    .toLowerCase();
 }

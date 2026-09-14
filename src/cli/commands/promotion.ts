@@ -1,7 +1,15 @@
 import type { Argv, ArgumentsCamelCase } from "yargs";
 import { spawn } from "node:child_process";
 import { getProject } from "../../core/project-registry.js";
-import { applyPromotionArtifact, dryRunPromotionApply, getPromotionDetail, getPromotionHistory, listPromotionArtifacts, listPromotionArtifactsForTask, updatePromotionArtifact } from "../../core/promotion-queue.js";
+import {
+  applyPromotionArtifact,
+  dryRunPromotionApply,
+  getPromotionDetail,
+  getPromotionHistory,
+  listPromotionArtifacts,
+  listPromotionArtifactsForTask,
+  updatePromotionArtifact,
+} from "../../core/promotion-queue.js";
 import { listPromotionResultArtifacts, writePromotionResultArtifact } from "../../core/promotion-artifacts.js";
 import { withTaskLedger } from "../../core/task-ledger.js";
 import { runLifecycleHooks } from "../../core/hooks.js";
@@ -35,110 +43,133 @@ type PromotionHistoryArgs = ArgumentsCamelCase<{
 }>;
 
 export function registerPromotionCommands(cli: Argv): void {
-  cli.command(
-    "promotion <command>",
-    "Inspect or resolve promotion artifacts",
-    (promotionCli: Argv) =>
-      promotionCli
-        .command(
-          "list",
-          "List promotion artifacts for a linked project",
-          (command: Argv) =>
-            command
-              .option("project", { type: "string", alias: "p", demandOption: true })
-              .option("task", { type: "string" })
-              .option("status", { choices: ["pending", "applied", "rejected"] as const })
-              .option("format", { type: "string", choices: ["table", "json"] as const }),
-          async (args: PromotionListArgs) => {
-            const project = await getProject(String(args.project));
-            const artifacts = args.task
-              ? await listPromotionArtifactsForTask(project.path, String(args.task))
-              : await listPromotionArtifacts(project.path);
-            const filtered = args.status ? artifacts.filter((item) => item.artifact.status === args.status) : artifacts;
-            const fmt = resolveOutputFormat(args.format);
-            if (fmt === "table") {
-              printTable(filtered.map((item) => ({
+  cli.command("promotion <command>", "Inspect or resolve promotion artifacts", (promotionCli: Argv) =>
+    promotionCli
+      .command(
+        "list",
+        "List promotion artifacts for a linked project",
+        (command: Argv) =>
+          command
+            .option("project", { type: "string", alias: "p", demandOption: true })
+            .option("task", { type: "string" })
+            .option("status", { choices: ["pending", "applied", "rejected"] as const })
+            .option("format", { type: "string", choices: ["table", "json"] as const }),
+        async (args: PromotionListArgs) => {
+          const project = await getProject(String(args.project));
+          const artifacts = args.task
+            ? await listPromotionArtifactsForTask(project.path, String(args.task))
+            : await listPromotionArtifacts(project.path);
+          const filtered = args.status ? artifacts.filter((item) => item.artifact.status === args.status) : artifacts;
+          const fmt = resolveOutputFormat(args.format);
+          if (fmt === "table") {
+            printTable(
+              filtered.map((item) => ({
                 taskId: item.artifact.taskId,
                 decision: item.artifact.decision,
                 action: item.artifact.action,
                 status: item.artifact.status,
-              })));
-            } else {
-              console.log(
-                JSON.stringify(
-                  filtered.map((item) => ({
-                    taskId: item.artifact.taskId,
-                    decision: item.artifact.decision,
-                    action: item.artifact.action,
-                    status: item.artifact.status,
-                    path: item.artifactPath,
-                  })),
-                  null,
-                  2,
-                ),
-              );
-            }
-          },
-        )
-        .command(
-          "show",
-          "Show promotion artifact details for a task",
-          (command: Argv) => command.option("project", { type: "string", alias: "p", demandOption: true }).option("task", { type: "string", demandOption: true }),
-          async (args: PromotionShowArgs) => {
-            const project = await getProject(String(args.project));
-            const detail = await getPromotionDetail(project.path, String(args.task));
-            console.log(JSON.stringify(detail, null, 2));
-          },
-        )
-        .command(
-          "history",
-          "Show promotion artifact history for a task",
-          (command: Argv) => command.option("project", { type: "string", alias: "p", demandOption: true }).option("task", { type: "string", demandOption: true }),
-          async (args: PromotionHistoryArgs) => {
-            const project = await getProject(String(args.project));
-            const history = await getPromotionHistory(project.path, String(args.task));
-            console.log(JSON.stringify(history, null, 2));
-          },
-        )
-        .command(
-          "apply",
-          "Apply a pending promotion locally when supported",
-          (command: Argv) =>
-            command
-              .option("project", { type: "string", alias: "p", demandOption: true })
-              .option("task", { type: "string", demandOption: true })
-              .option("note", { type: "string" })
-              .option("dry-run", { type: "boolean", default: false, describe: "Preview what would happen without executing" }),
-          async (args: PromotionUpdateArgs) => {
-            const project = await getProject(String(args.project));
-            if (args.dryRun) {
-              const preview = await dryRunPromotionApply(project.path, String(args.task));
-              console.log(JSON.stringify(preview, null, 2));
-              return;
-            }
-            const item = await applyPromotionArtifact(project.path, String(args.task), args.note ? String(args.note) : undefined);
-            console.log(JSON.stringify({ taskId: item.artifact.taskId, status: item.artifact.status, path: item.artifactPath, note: item.artifact.note }, null, 2));
-          },
-        )
-        .command(
-          "reject",
-          "Mark a pending promotion as rejected",
-          (command: Argv) => command.option("project", { type: "string", alias: "p", demandOption: true }).option("task", { type: "string", demandOption: true }).option("note", { type: "string" }),
-          async (args: PromotionUpdateArgs) => {
-            const project = await getProject(String(args.project));
-            const item = await updatePromotionArtifact(project.path, String(args.task), "rejected", args.note ? String(args.note) : undefined);
-            console.log(JSON.stringify({ taskId: item.artifact.taskId, status: item.artifact.status, path: item.artifactPath }, null, 2));
-          },
-        )
-        .command(
-          "refresh",
-          "Refresh promotion status from the PR (requires gh; no daemon polling in this release)",
-          (command: Argv) => command.option("project", { type: "string", alias: "p", demandOption: true }).option("task", { type: "string", demandOption: true }),
-          async (args: PromotionRefreshArgs) => {
-            await refreshPromotion(args);
-          },
-        )
-        .demandCommand(),
+              })),
+            );
+          } else {
+            console.log(
+              JSON.stringify(
+                filtered.map((item) => ({
+                  taskId: item.artifact.taskId,
+                  decision: item.artifact.decision,
+                  action: item.artifact.action,
+                  status: item.artifact.status,
+                  path: item.artifactPath,
+                })),
+                null,
+                2,
+              ),
+            );
+          }
+        },
+      )
+      .command(
+        "show",
+        "Show promotion artifact details for a task",
+        (command: Argv) =>
+          command
+            .option("project", { type: "string", alias: "p", demandOption: true })
+            .option("task", { type: "string", demandOption: true }),
+        async (args: PromotionShowArgs) => {
+          const project = await getProject(String(args.project));
+          const detail = await getPromotionDetail(project.path, String(args.task));
+          console.log(JSON.stringify(detail, null, 2));
+        },
+      )
+      .command(
+        "history",
+        "Show promotion artifact history for a task",
+        (command: Argv) =>
+          command
+            .option("project", { type: "string", alias: "p", demandOption: true })
+            .option("task", { type: "string", demandOption: true }),
+        async (args: PromotionHistoryArgs) => {
+          const project = await getProject(String(args.project));
+          const history = await getPromotionHistory(project.path, String(args.task));
+          console.log(JSON.stringify(history, null, 2));
+        },
+      )
+      .command(
+        "apply",
+        "Apply a pending promotion locally when supported",
+        (command: Argv) =>
+          command
+            .option("project", { type: "string", alias: "p", demandOption: true })
+            .option("task", { type: "string", demandOption: true })
+            .option("note", { type: "string" })
+            .option("dry-run", { type: "boolean", default: false, describe: "Preview what would happen without executing" }),
+        async (args: PromotionUpdateArgs) => {
+          const project = await getProject(String(args.project));
+          if (args.dryRun) {
+            const preview = await dryRunPromotionApply(project.path, String(args.task));
+            console.log(JSON.stringify(preview, null, 2));
+            return;
+          }
+          const item = await applyPromotionArtifact(project.path, String(args.task), args.note ? String(args.note) : undefined);
+          console.log(
+            JSON.stringify(
+              { taskId: item.artifact.taskId, status: item.artifact.status, path: item.artifactPath, note: item.artifact.note },
+              null,
+              2,
+            ),
+          );
+        },
+      )
+      .command(
+        "reject",
+        "Mark a pending promotion as rejected",
+        (command: Argv) =>
+          command
+            .option("project", { type: "string", alias: "p", demandOption: true })
+            .option("task", { type: "string", demandOption: true })
+            .option("note", { type: "string" }),
+        async (args: PromotionUpdateArgs) => {
+          const project = await getProject(String(args.project));
+          const item = await updatePromotionArtifact(
+            project.path,
+            String(args.task),
+            "rejected",
+            args.note ? String(args.note) : undefined,
+          );
+          console.log(JSON.stringify({ taskId: item.artifact.taskId, status: item.artifact.status, path: item.artifactPath }, null, 2));
+        },
+      )
+      .command(
+        "refresh",
+        "Refresh promotion status from the PR (requires gh; no daemon polling in this release)",
+        (command: Argv) =>
+          command
+            .option("project", { type: "string", alias: "p", demandOption: true })
+            .option("task", { type: "string", demandOption: true }),
+        async (args: PromotionRefreshArgs) => {
+          await refreshPromotion(args);
+        },
+      )
+      .demandCommand(),
   );
 }
 
@@ -195,15 +226,11 @@ export async function refreshPromotion(args: PromotionRefreshArgs): Promise<void
         // gh mixes CheckRun entries (name + conclusion) with legacy
         // StatusContext entries (context + state). Normalize both into one
         // shape: a StatusContext's state acts as the conclusion.
-        const name = typeof entry.name === "string" ? entry.name
-          : typeof entry.context === "string" ? entry.context
-            : null;
+        const name = typeof entry.name === "string" ? entry.name : typeof entry.context === "string" ? entry.context : null;
         return {
           name,
           status: typeof entry.status === "string" ? entry.status : null,
-          conclusion: typeof entry.conclusion === "string" ? entry.conclusion
-            : typeof entry.state === "string" ? entry.state
-              : null,
+          conclusion: typeof entry.conclusion === "string" ? entry.conclusion : typeof entry.state === "string" ? entry.state : null,
         };
       });
     }

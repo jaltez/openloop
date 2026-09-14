@@ -60,11 +60,13 @@ async function buildSnapshot(): Promise<DashboardSnapshot> {
           updatedAt: t.updatedAt,
           estimatedCostUsd: t.estimatedCostUsd,
           attempts: t.attempts,
-          lastRun: t.lastRun ? {
-            outcome: t.lastRun.outcome,
-            validation: t.lastRun.validation,
-            promotionAction: t.lastRun.promotionAction,
-          } : null,
+          lastRun: t.lastRun
+            ? {
+                outcome: t.lastRun.outcome,
+                validation: t.lastRun.validation,
+                promotionAction: t.lastRun.promotionAction,
+              }
+            : null,
         })),
       };
     }),
@@ -84,20 +86,17 @@ async function buildSnapshot(): Promise<DashboardSnapshot> {
 }
 
 function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 function renderDashboardHtml(snapshot: DashboardSnapshot): string {
   const daemon = snapshot.daemon;
   const budget = snapshot.budget;
 
-  const projectRows = snapshot.projects.map((p) => {
-    const s = p.taskSummary;
-    return `<tr>
+  const projectRows = snapshot.projects
+    .map((p) => {
+      const s = p.taskSummary;
+      return `<tr>
       <td><strong>${escapeHtml(p.alias)}</strong></td>
       <td>${p.initialized ? "✅" : "❌"}</td>
       <td>${s.total}</td>
@@ -106,14 +105,16 @@ function renderDashboardHtml(snapshot: DashboardSnapshot): string {
       <td>${s.byStatus.done + s.byStatus.promoted}</td>
       <td>${s.byStatus.blocked + s.byStatus.failed}</td>
     </tr>`;
-  }).join("\n");
+    })
+    .join("\n");
 
-  const taskRows = snapshot.projects.flatMap((p) =>
-    p.tasks.slice(0, 20).map((t) => {
-      const validationHtml = t.lastRun
-        ? t.lastRun.validation.map((v) => `${v.exitCode === 0 ? "✅" : "❌"} ${escapeHtml(v.name)}`).join(" ")
-        : "--";
-      return `<tr>
+  const taskRows = snapshot.projects
+    .flatMap((p) =>
+      p.tasks.slice(0, 20).map((t) => {
+        const validationHtml = t.lastRun
+          ? t.lastRun.validation.map((v) => `${v.exitCode === 0 ? "✅" : "❌"} ${escapeHtml(v.name)}`).join(" ")
+          : "--";
+        return `<tr>
       <td>${escapeHtml(p.alias)}</td>
       <td>${escapeHtml(t.id)}</td>
       <td><span class="badge badge-${t.status}">${escapeHtml(t.status)}</span></td>
@@ -125,26 +126,42 @@ function renderDashboardHtml(snapshot: DashboardSnapshot): string {
       <td>${validationHtml}</td>
       <td>${escapeHtml(t.updatedAt.slice(0, 19).replace("T", " "))}</td>
     </tr>`;
-    }),
-  ).join("\n");
+      }),
+    )
+    .join("\n");
 
-  const eventRows = snapshot.recentEvents.slice(-30).reverse().map((e) => `<tr>
+  const eventRows = snapshot.recentEvents
+    .slice(-30)
+    .reverse()
+    .map(
+      (e) => `<tr>
     <td>${escapeHtml(e.ts.slice(11, 19))}</td>
     <td>${escapeHtml(e.event)}</td>
     <td>${escapeHtml(e.project ?? "--")}</td>
     <td>${escapeHtml(e.taskId ?? "--")}</td>
     <td>${e.exitCode != null ? String(e.exitCode) : "--"}</td>
-  </tr>`).join("\n");
+  </tr>`,
+    )
+    .join("\n");
 
-  const daemonStatus = daemon.paused ? "⏸ Paused" : (daemon.pid > 0 ? `🟢 Running (PID ${daemon.pid})` : "⚫ Stopped");
+  const daemonStatus = daemon.paused ? "⏸ Paused" : daemon.pid > 0 ? `🟢 Running (PID ${daemon.pid})` : "⚫ Stopped";
 
   // Build run history from tasks with lastRun data
-  const runHistoryRows = snapshot.projects.flatMap((p) =>
-    p.tasks.filter((t) => t.lastRun).map((t) => {
-      const lr = t.lastRun!;
-      const outcomeEmoji: Record<string, string> = { completed: "✅", "validation-failed": "⚠️", "pi-failed": "❌", error: "💥", planned: "📝" };
-      const validationCells = lr.validation.map((v) => `${v.exitCode === 0 ? "✅" : "❌"} ${escapeHtml(v.name)}`).join(" ") || "--";
-      return `<tr>
+  const runHistoryRows = snapshot.projects
+    .flatMap((p) =>
+      p.tasks
+        .filter((t) => t.lastRun)
+        .map((t) => {
+          const lr = t.lastRun!;
+          const outcomeEmoji: Record<string, string> = {
+            completed: "✅",
+            "validation-failed": "⚠️",
+            "pi-failed": "❌",
+            error: "💥",
+            planned: "📝",
+          };
+          const validationCells = lr.validation.map((v) => `${v.exitCode === 0 ? "✅" : "❌"} ${escapeHtml(v.name)}`).join(" ") || "--";
+          return `<tr>
         <td>${escapeHtml(p.alias)}</td>
         <td>${escapeHtml(t.id)}</td>
         <td>${outcomeEmoji[lr.outcome] ?? "ℹ️"} ${escapeHtml(lr.outcome)}</td>
@@ -153,8 +170,9 @@ function renderDashboardHtml(snapshot: DashboardSnapshot): string {
         <td>${escapeHtml(lr.promotionAction)}</td>
         <td>${escapeHtml(t.updatedAt.slice(0, 19).replace("T", " "))}</td>
       </tr>`;
-    }),
-  ).join("\n");
+        }),
+    )
+    .join("\n");
 
   const budgetPct = budget.limit > 0 ? Math.min(100, (budget.spent / budget.limit) * 100).toFixed(1) : "0";
   const currentRun = daemon.currentRun;
@@ -245,7 +263,7 @@ function renderDashboardHtml(snapshot: DashboardSnapshot): string {
 <h2>Projects</h2>
 <table>
   <thead><tr><th>Alias</th><th>Init</th><th>Total</th><th>Ready</th><th>Active</th><th>Done</th><th>Issues</th></tr></thead>
-  <tbody>${projectRows || "<tr><td colspan=\"7\">No projects linked</td></tr>"}</tbody>
+  <tbody>${projectRows || '<tr><td colspan="7">No projects linked</td></tr>'}</tbody>
 </table>
 </div>
 
@@ -253,7 +271,7 @@ function renderDashboardHtml(snapshot: DashboardSnapshot): string {
 <h2>Tasks</h2>
 <table>
   <thead><tr><th>Project</th><th>ID</th><th>Status</th><th>Risk</th><th>Kind</th><th>Title</th><th>Cost</th><th>Att.</th><th>Validation</th><th>Updated</th></tr></thead>
-  <tbody>${taskRows || "<tr><td colspan=\"10\">No tasks</td></tr>"}</tbody>
+  <tbody>${taskRows || '<tr><td colspan="10">No tasks</td></tr>'}</tbody>
 </table>
 </div>
 
@@ -261,7 +279,7 @@ function renderDashboardHtml(snapshot: DashboardSnapshot): string {
 <h2>Run History &amp; Validation Results</h2>
 <table>
   <thead><tr><th>Project</th><th>Task</th><th>Outcome</th><th>Attempts</th><th>Validation</th><th>Promotion</th><th>Updated</th></tr></thead>
-  <tbody>${runHistoryRows || "<tr><td colspan=\"7\">No run history</td></tr>"}</tbody>
+  <tbody>${runHistoryRows || '<tr><td colspan="7">No run history</td></tr>'}</tbody>
 </table>
 </div>
 
@@ -269,7 +287,7 @@ function renderDashboardHtml(snapshot: DashboardSnapshot): string {
 <h2>Recent Events</h2>
 <table>
   <thead><tr><th>Time</th><th>Event</th><th>Project</th><th>Task</th><th>Exit</th></tr></thead>
-  <tbody>${eventRows || "<tr><td colspan=\"5\">No events</td></tr>"}</tbody>
+  <tbody>${eventRows || '<tr><td colspan="5">No events</td></tr>'}</tbody>
 </table>
 </div>
 

@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { getSelfHealingBlock, determineWorkerRole, isSupportedSelfHealingTask, isSelfHealingTask, describeSelfHealingTask } from "../../src/core/scheduler/self-healing.js";
+import {
+  getSelfHealingBlock,
+  determineWorkerRole,
+  isSupportedSelfHealingTask,
+  isSelfHealingTask,
+  describeSelfHealingTask,
+} from "../../src/core/scheduler/self-healing.js";
 import type { ProjectPolicy, ProjectTask } from "../../src/core/types.js";
 
 function makePolicy(overrides?: Partial<ProjectPolicy>): ProjectPolicy {

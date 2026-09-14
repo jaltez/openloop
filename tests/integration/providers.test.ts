@@ -375,14 +375,18 @@ test("config project-set-agent persists project agent config", async () => {
   await fs.mkdir(path.join(projectRoot, ".openloop"), { recursive: true });
   await fs.writeFile(
     path.join(projectRoot, ".openloop", "project.json"),
-    JSON.stringify({
-      version: 1,
-      project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
-      pi: { model: null, promptFiles: [] },
-      runtime: { useWorktree: false, branchPrefix: "openloop/" },
-      validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
-      risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
-    }, null, 2),
+    JSON.stringify(
+      {
+        version: 1,
+        project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
+        pi: { model: null, promptFiles: [] },
+        runtime: { useWorktree: false, branchPrefix: "openloop/" },
+        validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
+        risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
+      },
+      null,
+      2,
+    ),
     "utf8",
   );
 
@@ -403,14 +407,18 @@ test("config project-set-agent accepts ka and omp", async () => {
   await fs.mkdir(path.join(projectRoot, ".openloop"), { recursive: true });
   await fs.writeFile(
     path.join(projectRoot, ".openloop", "project.json"),
-    JSON.stringify({
-      version: 1,
-      project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
-      pi: { model: null, promptFiles: [] },
-      runtime: { useWorktree: false, branchPrefix: "openloop/" },
-      validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
-      risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
-    }, null, 2),
+    JSON.stringify(
+      {
+        version: 1,
+        project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
+        pi: { model: null, promptFiles: [] },
+        runtime: { useWorktree: false, branchPrefix: "openloop/" },
+        validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
+        risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
+      },
+      null,
+      2,
+    ),
     "utf8",
   );
 
@@ -422,9 +430,13 @@ test("config project-set-agent accepts ka and omp", async () => {
 });
 
 async function runCli(args: string[]): Promise<void> {
-  const cli = yargs().scriptName("openloop").strict().exitProcess(false).fail((message, error) => {
-    throw error ?? new Error(message);
-  });
+  const cli = yargs()
+    .scriptName("openloop")
+    .strict()
+    .exitProcess(false)
+    .fail((message, error) => {
+      throw error ?? new Error(message);
+    });
 
   registerConfigCommands(cli);
   registerProjectCommands(cli);

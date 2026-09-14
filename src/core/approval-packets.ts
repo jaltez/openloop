@@ -42,11 +42,7 @@ export function approvalPacketPath(controlPlanePath: string, taskId: string): st
   return path.join(controlPlanePath, ".openloop", "approvals", `${taskId}.json`);
 }
 
-export async function writeApprovalPacket(
-  controlPlanePath: string,
-  task: ProjectTask,
-  data: ApprovalPacketData,
-): Promise<string> {
+export async function writeApprovalPacket(controlPlanePath: string, task: ProjectTask, data: ApprovalPacketData): Promise<string> {
   const filePath = approvalPacketPath(controlPlanePath, task.id);
   await ensureDir(path.dirname(filePath));
   const packet: ApprovalPacket = {
@@ -79,9 +75,7 @@ export async function readApprovalPacket(controlPlanePath: string, taskId: strin
   return readJsonFile<ApprovalPacket>(filePath, null as never);
 }
 
-export async function listApprovalPackets(
-  controlPlanePath: string,
-): Promise<Array<{ packetPath: string; packet: ApprovalPacket }>> {
+export async function listApprovalPackets(controlPlanePath: string): Promise<Array<{ packetPath: string; packet: ApprovalPacket }>> {
   const approvalsDir = path.join(controlPlanePath, ".openloop", "approvals");
   if (!(await fileExists(approvalsDir))) {
     return [];

@@ -37,13 +37,13 @@ const basePolicy: ProjectPolicy = {
 // --- checkSecrets ---
 
 test("checkSecrets detects AWS access key IDs in added lines", () => {
-  const diff = "+const key = \"AKIAIOSFODNN7EXAMPLE\";\n-const old = \"nothing\";";
+  const diff = '+const key = "AKIAIOSFODNN7EXAMPLE";\n-const old = "nothing";';
   const findings = checkSecrets(diff);
   expect(findings.some((f) => f.rule === "secret-detection:aws-access-key-id" && f.severity === "block")).toBe(true);
 });
 
 test("checkSecrets detects GitHub tokens in added lines", () => {
-  const diff = "+token = \"ghp_1234567890abcdefghijklmnopqrstuvwxyz\";";
+  const diff = '+token = "ghp_1234567890abcdefghijklmnopqrstuvwxyz";';
   const findings = checkSecrets(diff);
   expect(findings.some((f) => f.rule === "secret-detection:github-token")).toBe(true);
 });
@@ -55,13 +55,13 @@ test("checkSecrets detects private key blocks", () => {
 });
 
 test("checkSecrets ignores deletion lines", () => {
-  const diff = "-const key = \"AKIAIOSFODNN7EXAMPLE\";";
+  const diff = '-const key = "AKIAIOSFODNN7EXAMPLE";';
   const findings = checkSecrets(diff);
   expect(findings).toHaveLength(0);
 });
 
 test("checkSecrets returns empty for clean diffs", () => {
-  const diff = "+const greeting = \"hello world\";\n+export default greeting;";
+  const diff = '+const greeting = "hello world";\n+export default greeting;';
   const findings = checkSecrets(diff);
   expect(findings).toHaveLength(0);
 });

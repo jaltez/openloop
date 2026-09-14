@@ -22,11 +22,15 @@ test("merges into existing project.json without losing pre-existing fields", asy
   await fs.mkdir(path.join(targetRoot, ".openloop"), { recursive: true });
   await fs.writeFile(
     path.join(targetRoot, ".openloop", "project.json"),
-    JSON.stringify({
-      version: 1,
-      customField: "should-survive",
-      pi: { model: "anthropic/sonnet", promptFiles: [] },
-    }, null, 2),
+    JSON.stringify(
+      {
+        version: 1,
+        customField: "should-survive",
+        pi: { model: "anthropic/sonnet", promptFiles: [] },
+      },
+      null,
+      2,
+    ),
     "utf8",
   );
 
@@ -85,7 +89,11 @@ test("does not overwrite existing agent skill customizations during init", async
   await fs.mkdir(path.join(repoRoot, "templates", "project", ".openloop"), { recursive: true });
   await fs.writeFile(path.join(repoRoot, "templates", "project", ".openloop", "project.json"), "{}\n", "utf8");
   await fs.mkdir(path.join(repoRoot, "templates", "project", ".agents", "skills", "openloop"), { recursive: true });
-  await fs.writeFile(path.join(repoRoot, "templates", "project", ".agents", "skills", "openloop", "SKILL.md"), "# Template Skill\n", "utf8");
+  await fs.writeFile(
+    path.join(repoRoot, "templates", "project", ".agents", "skills", "openloop", "SKILL.md"),
+    "# Template Skill\n",
+    "utf8",
+  );
 
   await fs.mkdir(path.join(targetRoot, ".agents", "skills", "openloop"), { recursive: true });
   await fs.writeFile(path.join(targetRoot, ".agents", "skills", "openloop", "SKILL.md"), "# Existing Skill\n", "utf8");
@@ -120,11 +128,15 @@ test("preserves existing task ledger entries instead of overwriting with templat
   await fs.mkdir(path.join(targetRoot, ".openloop"), { recursive: true });
   await fs.writeFile(
     path.join(targetRoot, ".openloop", "tasks.json"),
-    JSON.stringify({
-      version: 1,
-      updatedAt: "2024-01-01T00:00:00.000Z",
-      tasks: [{ id: "keep-me", title: "Existing task" }],
-    }, null, 2),
+    JSON.stringify(
+      {
+        version: 1,
+        updatedAt: "2024-01-01T00:00:00.000Z",
+        tasks: [{ id: "keep-me", title: "Existing task" }],
+      },
+      null,
+      2,
+    ),
     "utf8",
   );
 

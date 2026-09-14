@@ -92,7 +92,9 @@ export async function runDoctorChecks(appHomeOverride?: string): Promise<CheckRe
   try {
     const tempConfig = await loadGlobalConfig(appHomeOverride);
     defaultProviderName = tempConfig.defaultProvider ?? "pi";
-  } catch { /* will be caught later */ }
+  } catch {
+    /* will be caught later */
+  }
   const defaultProv = getProvider(defaultProviderName);
   if (defaultProv) {
     if (defaultProv.checkAvailable()) {
@@ -105,7 +107,9 @@ export async function runDoctorChecks(appHomeOverride?: string): Promise<CheckRe
   }
 
   // 1c. List available providers
-  const availableProviders = listAllProviders().filter((p) => p.checkAvailable()).map((p) => p.name);
+  const availableProviders = listAllProviders()
+    .filter((p) => p.checkAvailable())
+    .map((p) => p.name);
   if (availableProviders.length > 0) {
     results.push({ label: "Available providers", status: "ok", detail: availableProviders.join(", ") });
   } else {
@@ -120,7 +124,11 @@ export async function runDoctorChecks(appHomeOverride?: string): Promise<CheckRe
   try {
     const config = await loadGlobalConfig(appHomeOverride);
     if (config.budgets.dailyCostUsd <= 0) {
-      results.push({ label: "Budget ceiling", status: "warn", detail: `dailyCostUsd is ${config.budgets.dailyCostUsd} — daemon will be budget-blocked immediately` });
+      results.push({
+        label: "Budget ceiling",
+        status: "warn",
+        detail: `dailyCostUsd is ${config.budgets.dailyCostUsd} — daemon will be budget-blocked immediately`,
+      });
     } else {
       results.push({ label: "Budget ceiling", status: "ok", detail: `$${config.budgets.dailyCostUsd}/day` });
     }
@@ -153,7 +161,11 @@ export async function runDoctorChecks(appHomeOverride?: string): Promise<CheckRe
           continue;
         }
         if (!project.initialized) {
-          results.push({ label: `Project "${project.alias}"`, status: "warn", detail: "Not initialized. Run 'openloop project init <alias>'." });
+          results.push({
+            label: `Project "${project.alias}"`,
+            status: "warn",
+            detail: "Not initialized. Run 'openloop project init <alias>'.",
+          });
           continue;
         }
         try {
@@ -163,12 +175,20 @@ export async function runDoctorChecks(appHomeOverride?: string): Promise<CheckRe
           if (projectAgent !== "custom") {
             const projProvider = getProvider(projectAgent);
             if (projProvider && !projProvider.checkAvailable()) {
-              results.push({ label: `${project.alias}: agent provider`, status: "warn", detail: `'${projectAgent}' binary not found on PATH` });
+              results.push({
+                label: `${project.alias}: agent provider`,
+                status: "warn",
+                detail: `'${projectAgent}' binary not found on PATH`,
+              });
             }
           }
           results.push(...(await checkProjectValidation(project.alias, projectConfig)));
         } catch (err) {
-          results.push({ label: `Project "${project.alias}" config`, status: "fail", detail: err instanceof Error ? err.message : String(err) });
+          results.push({
+            label: `Project "${project.alias}" config`,
+            status: "fail",
+            detail: err instanceof Error ? err.message : String(err),
+          });
         }
       }
     }

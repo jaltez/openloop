@@ -16,10 +16,7 @@ export interface NotificationPayload {
  * Fire notifications through all configured channels.
  * Shell-command hooks (legacy) are handled separately in the worker.
  */
-export async function fireNotifications(
-  config: GlobalConfig,
-  payload: NotificationPayload,
-): Promise<void> {
+export async function fireNotifications(config: GlobalConfig, payload: NotificationPayload): Promise<void> {
   const channels: NotificationChannelConfig[] = config.notificationChannels ?? [];
   const promises: Promise<void>[] = [];
 

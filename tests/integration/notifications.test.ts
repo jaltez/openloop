@@ -28,9 +28,7 @@ test("fireNotifications skips channels that don't match the event", async () => 
     activeProjectAlias: null,
     budgets: { dailyCostUsd: 25 },
     runtime: { runTimeoutSeconds: 1800, maxAttemptsPerTask: 3, noProgressRepeatLimit: 2 },
-    notificationChannels: [
-      { type: "desktop", events: ["task-failed"] },
-    ],
+    notificationChannels: [{ type: "desktop", events: ["task-failed"] }],
   } as GlobalConfig;
 
   // "task-complete" should not match the channel's "task-failed" filter
@@ -52,9 +50,7 @@ test("fireNotifications fires for matching event", async () => {
     activeProjectAlias: null,
     budgets: { dailyCostUsd: 25 },
     runtime: { runTimeoutSeconds: 1800, maxAttemptsPerTask: 3, noProgressRepeatLimit: 2 },
-    notificationChannels: [
-      { type: "desktop", events: ["task-complete"] },
-    ],
+    notificationChannels: [{ type: "desktop", events: ["task-complete"] }],
   } as GlobalConfig;
 
   // Desktop notification will try to call notify-send, which may or may not exist.
@@ -75,9 +71,7 @@ test("fireNotifications fires for wildcard event filter", async () => {
     activeProjectAlias: null,
     budgets: { dailyCostUsd: 25 },
     runtime: { runTimeoutSeconds: 1800, maxAttemptsPerTask: 3, noProgressRepeatLimit: 2 },
-    notificationChannels: [
-      { type: "desktop", events: ["*"] },
-    ],
+    notificationChannels: [{ type: "desktop", events: ["*"] }],
   } as GlobalConfig;
 
   await fireNotifications(config, {

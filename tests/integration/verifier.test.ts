@@ -163,10 +163,7 @@ test("stale verdicts from a previous attempt are not replayed against a retry", 
     validationRunner: async () => 0,
     noProgressRepeatLimit: 10,
     verifierRunner: async () => {
-      await writeVerdicts(
-        projectRoot,
-        JSON.stringify([{ index: 1, criterion: "Criterion one", verdict: "fail", evidence: "broken" }]),
-      );
+      await writeVerdicts(projectRoot, JSON.stringify([{ index: 1, criterion: "Criterion one", verdict: "fail", evidence: "broken" }]));
       return 0;
     },
   });

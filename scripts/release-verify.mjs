@@ -24,7 +24,6 @@ runStep("Build", ["bun", ["run", "build"]]);
 runStep("Built CLI smoke test (bun)", ["bun", ["dist/index.js", "--version"]]);
 runStep("Built CLI smoke test (node)", ["node", ["dist/index.js", "--version"]]);
 
-
 const packResult = inspectPackContents();
 const packageEntries = new Set(packResult.files.map((entry) => entry.path));
 const missingEntries = requiredPackageEntries.filter((entry) => !packageEntries.has(entry));

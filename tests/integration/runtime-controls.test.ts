@@ -32,7 +32,11 @@ test("enqueue creates a proposed feature task from a ref", async () => {
 
   await runCli(["project", "add", "demo", projectRoot]);
   await fs.mkdir(path.join(projectRoot, ".openloop"), { recursive: true });
-  await fs.writeFile(path.join(projectRoot, ".openloop", "tasks.json"), `${JSON.stringify({ version: 1, updatedAt: new Date().toISOString(), tasks: [] }, null, 2)}\n`, "utf8");
+  await fs.writeFile(
+    path.join(projectRoot, ".openloop", "tasks.json"),
+    `${JSON.stringify({ version: 1, updatedAt: new Date().toISOString(), tasks: [] }, null, 2)}\n`,
+    "utf8",
+  );
 
   await runCli(["enqueue", "--project", "demo", "--ref", "ISSUE-123"]);
 
@@ -86,29 +90,33 @@ test("pause preserves pauseRequestedAt on current run and resume clears it", asy
   await fs.mkdir(path.join(appHome, "run"), { recursive: true });
   await fs.writeFile(
     path.join(appHome, "run", "daemon-state.json"),
-    `${JSON.stringify({
-      version: 1,
-      startedAt: new Date().toISOString(),
-      pid: 123,
-      activeProject: "demo",
-      paused: false,
-      pausedAt: null,
-      totalBudgetSpentUsd: 0,
-      budgetDate: "2026-03-09",
-      budgetSpentUsd: 0,
-      budgetBlocked: false,
-      currentRun: {
-        projectAlias: "demo",
-        taskId: "task-1",
-        mode: "implement",
-        role: "implementer",
+    `${JSON.stringify(
+      {
+        version: 1,
         startedAt: new Date().toISOString(),
-        deadlineAt: new Date().toISOString(),
-        attemptNumber: 1,
-        pauseRequestedAt: null,
+        pid: 123,
+        activeProject: "demo",
+        paused: false,
+        pausedAt: null,
+        totalBudgetSpentUsd: 0,
+        budgetDate: "2026-03-09",
+        budgetSpentUsd: 0,
+        budgetBlocked: false,
+        currentRun: {
+          projectAlias: "demo",
+          taskId: "task-1",
+          mode: "implement",
+          role: "implementer",
+          startedAt: new Date().toISOString(),
+          deadlineAt: new Date().toISOString(),
+          attemptNumber: 1,
+          pauseRequestedAt: null,
+        },
+        projects: [],
       },
-      projects: [],
-    }, null, 2)}\n`,
+      null,
+      2,
+    )}\n`,
     "utf8",
   );
 
@@ -150,9 +158,13 @@ test("service stop refuses to signal a live non-openloop process", async () => {
 });
 
 async function runCli(args: string[]): Promise<void> {
-  const cli = yargs().scriptName("openloop").strict().exitProcess(false).fail((message, error) => {
-    throw error ?? new Error(message);
-  });
+  const cli = yargs()
+    .scriptName("openloop")
+    .strict()
+    .exitProcess(false)
+    .fail((message, error) => {
+      throw error ?? new Error(message);
+    });
 
   registerProjectCommands(cli);
   registerDaemonCommands(cli);

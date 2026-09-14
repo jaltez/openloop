@@ -5,7 +5,11 @@ import { detectValidationCommands } from "./stack-detection.js";
 import { templateRoot } from "./paths.js";
 import type { LinkedProject } from "./types.js";
 
-export async function initializeProjectFromTemplates(repoRoot: string, project: LinkedProject, options?: { force?: boolean }): Promise<void> {
+export async function initializeProjectFromTemplates(
+  repoRoot: string,
+  project: LinkedProject,
+  options?: { force?: boolean },
+): Promise<void> {
   const templatesRoot = templateRoot(repoRoot);
   const openloopDir = path.join(project.path, ".openloop");
 

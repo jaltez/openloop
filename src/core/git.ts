@@ -92,11 +92,7 @@ export async function worktreeExists(projectPath: string, worktreePath: string):
   }
 }
 
-export async function addWorktree(
-  projectPath: string,
-  worktreePath: string,
-  branchName: string,
-): Promise<void> {
+export async function addWorktree(projectPath: string, worktreePath: string, branchName: string): Promise<void> {
   const exists = await branchExists(projectPath, branchName);
   if (exists) {
     await runGit(projectPath, ["worktree", "add", worktreePath, branchName]);
@@ -128,9 +124,7 @@ export async function getGitDiffStat(projectPath: string, base?: string | null, 
     const baseRef = base ?? "HEAD~1";
     // head === null (explicit) diffs base against the working tree, capturing
     // uncommitted agent edits; a string head compares two refs.
-    const args = head === null
-      ? ["diff", "--numstat", baseRef]
-      : ["diff", "--numstat", baseRef, head ?? "HEAD"];
+    const args = head === null ? ["diff", "--numstat", baseRef] : ["diff", "--numstat", baseRef, head ?? "HEAD"];
     const result = await runGit(projectPath, args);
     const entries: DiffStatEntry[] = [];
     for (const line of result.stdout.trim().split("\n")) {

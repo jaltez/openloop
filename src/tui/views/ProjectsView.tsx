@@ -93,24 +93,16 @@ export default function ProjectsView(props: ProjectsViewProps) {
 
       <Show when={mode() === "add"}>
         <box borderStyle="rounded" borderColor={colors.accent} padding={1} flexDirection="column" gap={1} width={50}>
-          <text fg={colors.accent}><b>Add Project</b></text>
+          <text fg={colors.accent}>
+            <b>Add Project</b>
+          </text>
           <box flexDirection="row" gap={1}>
             <text fg={colors.textDim}>{"Alias:".padEnd(8)}</text>
-            <input
-              placeholder="my-project"
-              width={30}
-              onInput={(v: string) => setAddAlias(v)}
-              focused={true}
-            />
+            <input placeholder="my-project" width={30} onInput={(v: string) => setAddAlias(v)} focused={true} />
           </box>
           <box flexDirection="row" gap={1}>
             <text fg={colors.textDim}>{"Path:".padEnd(8)}</text>
-            <input
-              placeholder="/path/to/repo"
-              width={30}
-              onInput={(v: string) => setAddPath(v)}
-              onSubmit={() => void addSubmit()}
-            />
+            <input placeholder="/path/to/repo" width={30} onInput={(v: string) => setAddPath(v)} onSubmit={() => void addSubmit()} />
           </box>
           <text fg={colors.textDim}>Enter to submit │ Esc to cancel</text>
         </box>
@@ -119,7 +111,11 @@ export default function ProjectsView(props: ProjectsViewProps) {
       <box flexDirection="row" flexGrow={1} gap={2}>
         {/* Left: project list */}
         <box flexDirection="column" width="40%">
-          <text fg={colors.accent}><b>{"ALIAS".padEnd(16)}  {"INIT".padEnd(6)}  ACTIVE</b></text>
+          <text fg={colors.accent}>
+            <b>
+              {"ALIAS".padEnd(16)} {"INIT".padEnd(6)} ACTIVE
+            </b>
+          </text>
           <text fg={colors.border}>{"─".repeat(34)}</text>
           {projects().length === 0 ? (
             <text fg={colors.textDim}>No projects. Press 'a' to add.</text>
@@ -129,12 +125,11 @@ export default function ProjectsView(props: ProjectsViewProps) {
                 const isSelected = () => idx() === selectedIdx();
                 const isActive = () => props.activeAlias() === project.alias;
                 return (
-                  <text
-                    fg={isSelected() ? colors.accentBright : colors.text}
-                    bg={isSelected() ? colors.bgSelected : undefined}
-                  >
-                    {project.alias.padEnd(16)}{"  "}
-                    {(project.initialized ? "yes" : "no").padEnd(6)}{"  "}
+                  <text fg={isSelected() ? colors.accentBright : colors.text} bg={isSelected() ? colors.bgSelected : undefined}>
+                    {project.alias.padEnd(16)}
+                    {"  "}
+                    {(project.initialized ? "yes" : "no").padEnd(6)}
+                    {"  "}
                     <Span fg={isActive() ? colors.green : colors.textDim}>{isActive() ? "●" : " "}</Span>
                   </text>
                 );
@@ -147,25 +142,39 @@ export default function ProjectsView(props: ProjectsViewProps) {
           <Show when={selected()} fallback={<text fg={colors.textDim}>Select a project to view details</text>}>
             {(p: Accessor<LinkedProject>) => (
               <>
-                <text fg={colors.accent}><b>{p().alias}</b></text>
-                <text fg={colors.textDim}>Path:        <Span fg={colors.text}>{p().path}</Span></text>
-                <text fg={colors.textDim}>Branch:      <Span fg={colors.text}>{p().defaultBranch ?? "—"}</Span></text>
-                <text fg={colors.textDim}>Initialized: <Span fg={colors.text}>{p().initialized ? "yes" : "no"}</Span></text>
-                <text fg={colors.textDim}>Created:     <Span fg={colors.text}>{p().createdAt ?? "—"}</Span></text>
-                <text fg={colors.textDim}>Updated:     <Span fg={colors.text}>{p().updatedAt ?? "—"}</Span></text>
+                <text fg={colors.accent}>
+                  <b>{p().alias}</b>
+                </text>
+                <text fg={colors.textDim}>
+                  Path: <Span fg={colors.text}>{p().path}</Span>
+                </text>
+                <text fg={colors.textDim}>
+                  Branch: <Span fg={colors.text}>{p().defaultBranch ?? "—"}</Span>
+                </text>
+                <text fg={colors.textDim}>
+                  Initialized: <Span fg={colors.text}>{p().initialized ? "yes" : "no"}</Span>
+                </text>
+                <text fg={colors.textDim}>
+                  Created: <Span fg={colors.text}>{p().createdAt ?? "—"}</Span>
+                </text>
+                <text fg={colors.textDim}>
+                  Updated: <Span fg={colors.text}>{p().updatedAt ?? "—"}</Span>
+                </text>
               </>
             )}
           </Show>
         </box>
       </box>
 
-      <KeyHint hints={[
-        { key: "↑/↓", label: "navigate" },
-        { key: "Enter", label: "activate" },
-        { key: "a", label: "add" },
-        { key: "d", label: "remove" },
-        { key: "i", label: "init" },
-      ]} />
+      <KeyHint
+        hints={[
+          { key: "↑/↓", label: "navigate" },
+          { key: "Enter", label: "activate" },
+          { key: "a", label: "add" },
+          { key: "d", label: "remove" },
+          { key: "i", label: "init" },
+        ]}
+      />
     </box>
   );
 }

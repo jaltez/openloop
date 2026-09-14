@@ -49,9 +49,7 @@ export async function writeRunSummary(projectPath: string, summary: SchedulerRes
     `- createdAt: ${new Date().toISOString()}`,
     "",
     `## Validation`,
-    ...(validation.length > 0
-      ? validation.map((item) => `- ${item.name}: ${item.command} => ${item.exitCode}`)
-      : ["- none"]),
+    ...(validation.length > 0 ? validation.map((item) => `- ${item.name}: ${item.command} => ${item.exitCode}`) : ["- none"]),
     "",
     ...(summary.reviewFindings && summary.reviewFindings.length > 0
       ? ["## Review", ...summary.reviewFindings.map((f) => `- [${f.severity}] ${f.rule}: ${f.message}${f.file ? ` (${f.file})` : ""}`)]

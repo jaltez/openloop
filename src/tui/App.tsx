@@ -71,26 +71,11 @@ export default function App(props: AppProps) {
   });
 
   return (
-    <box
-      flexDirection="column"
-      width="100%"
-      height="100%"
-      backgroundColor={colors.bg}
-    >
+    <box flexDirection="column" width="100%" height="100%" backgroundColor={colors.bg}>
       {/* Tab bar */}
-      <box
-        flexDirection="row"
-        width="100%"
-        height={1}
-        backgroundColor={colors.bgPanel}
-        paddingLeft={1}
-        gap={1}
-      >
+      <box flexDirection="row" width="100%" height={1} backgroundColor={colors.bgPanel} paddingLeft={1} gap={1}>
         {TABS.map((tab, idx) => (
-          <text
-            fg={activeTab() === idx ? colors.accentBright : colors.textDim}
-            bg={activeTab() === idx ? colors.bgSelected : undefined}
-          >
+          <text fg={activeTab() === idx ? colors.accentBright : colors.textDim} bg={activeTab() === idx ? colors.bgSelected : undefined}>
             <b>{tab.key}</b>
             <Span>{" " + tab.label}</Span>
           </text>
@@ -99,15 +84,33 @@ export default function App(props: AppProps) {
 
       {/* Content area */}
       <box flexGrow={1} width="100%">
-        <Show when={activeTab() === 0}><DashboardView /></Show>
-        <Show when={activeTab() === 1}><ProjectsView activeAlias={activeAlias} setActiveAlias={setActiveAlias} /></Show>
-        <Show when={activeTab() === 2}><TasksView activeProjectPath={activeProjectPath} activeProjectAlias={activeAlias} /></Show>
-        <Show when={activeTab() === 3}><ServiceView /></Show>
-        <Show when={activeTab() === 4}><ConfigView activeProjectPath={activeProjectPath} activeProjectAlias={activeAlias} /></Show>
-        <Show when={activeTab() === 5}><RunView activeProject={activeProject} /></Show>
-        <Show when={activeTab() === 6}><PromotionsView activeProjectPath={activeProjectPath} activeProjectAlias={activeAlias} /></Show>
-        <Show when={activeTab() === 7}><EventsView activeProjectAlias={activeAlias} /></Show>
-        <Show when={activeTab() === 8}><LogsView activeProjectPath={activeProjectPath} activeProjectAlias={activeAlias} /></Show>
+        <Show when={activeTab() === 0}>
+          <DashboardView />
+        </Show>
+        <Show when={activeTab() === 1}>
+          <ProjectsView activeAlias={activeAlias} setActiveAlias={setActiveAlias} />
+        </Show>
+        <Show when={activeTab() === 2}>
+          <TasksView activeProjectPath={activeProjectPath} activeProjectAlias={activeAlias} />
+        </Show>
+        <Show when={activeTab() === 3}>
+          <ServiceView />
+        </Show>
+        <Show when={activeTab() === 4}>
+          <ConfigView activeProjectPath={activeProjectPath} activeProjectAlias={activeAlias} />
+        </Show>
+        <Show when={activeTab() === 5}>
+          <RunView activeProject={activeProject} />
+        </Show>
+        <Show when={activeTab() === 6}>
+          <PromotionsView activeProjectPath={activeProjectPath} activeProjectAlias={activeAlias} />
+        </Show>
+        <Show when={activeTab() === 7}>
+          <EventsView activeProjectAlias={activeAlias} />
+        </Show>
+        <Show when={activeTab() === 8}>
+          <LogsView activeProjectPath={activeProjectPath} activeProjectAlias={activeAlias} />
+        </Show>
       </box>
 
       {/* Status bar */}
@@ -121,13 +124,7 @@ export default function App(props: AppProps) {
 
       {/* Help overlay */}
       <Show when={showHelp()}>
-        <box
-          position="absolute"
-          width="100%"
-          height="100%"
-          justifyContent="center"
-          alignItems="center"
-        >
+        <box position="absolute" width="100%" height="100%" justifyContent="center" alignItems="center">
           <box
             width={50}
             height={18}
@@ -138,16 +135,42 @@ export default function App(props: AppProps) {
             flexDirection="column"
             gap={0}
           >
-            <text fg={colors.accent}><b>Keyboard Shortcuts</b></text>
+            <text fg={colors.accent}>
+              <b>Keyboard Shortcuts</b>
+            </text>
             <text fg={colors.border}>{"─".repeat(46)}</text>
-            <text><Span fg={colors.accentBright}>1-9     </Span><Span fg={colors.text}>Jump to tab</Span></text>
-            <text><Span fg={colors.accentBright}>Tab     </Span><Span fg={colors.text}>Next tab</Span></text>
-            <text><Span fg={colors.accentBright}>S-Tab   </Span><Span fg={colors.text}>Previous tab</Span></text>
-            <text><Span fg={colors.accentBright}>↑/↓ j/k </Span><Span fg={colors.text}>Navigate lists</Span></text>
-            <text><Span fg={colors.accentBright}>Enter   </Span><Span fg={colors.text}>Select / confirm</Span></text>
-            <text><Span fg={colors.accentBright}>Esc     </Span><Span fg={colors.text}>Cancel / back</Span></text>
-            <text><Span fg={colors.accentBright}>?       </Span><Span fg={colors.text}>Toggle this help</Span></text>
-            <text><Span fg={colors.accentBright}>q       </Span><Span fg={colors.text}>Quit</Span></text>
+            <text>
+              <Span fg={colors.accentBright}>1-9 </Span>
+              <Span fg={colors.text}>Jump to tab</Span>
+            </text>
+            <text>
+              <Span fg={colors.accentBright}>Tab </Span>
+              <Span fg={colors.text}>Next tab</Span>
+            </text>
+            <text>
+              <Span fg={colors.accentBright}>S-Tab </Span>
+              <Span fg={colors.text}>Previous tab</Span>
+            </text>
+            <text>
+              <Span fg={colors.accentBright}>↑/↓ j/k </Span>
+              <Span fg={colors.text}>Navigate lists</Span>
+            </text>
+            <text>
+              <Span fg={colors.accentBright}>Enter </Span>
+              <Span fg={colors.text}>Select / confirm</Span>
+            </text>
+            <text>
+              <Span fg={colors.accentBright}>Esc </Span>
+              <Span fg={colors.text}>Cancel / back</Span>
+            </text>
+            <text>
+              <Span fg={colors.accentBright}>? </Span>
+              <Span fg={colors.text}>Toggle this help</Span>
+            </text>
+            <text>
+              <Span fg={colors.accentBright}>q </Span>
+              <Span fg={colors.text}>Quit</Span>
+            </text>
             <text fg={colors.border}>{"─".repeat(46)}</text>
             <text fg={colors.textDim}>View-specific shortcuts shown at bottom of each view</text>
             <text fg={colors.textDim}>Press ? to close</text>

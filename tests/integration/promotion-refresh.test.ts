@@ -30,11 +30,15 @@ async function seedProject(alias: string): Promise<{ appHome: string; projectRoo
   await fs.mkdir(path.join(projectRoot, ".openloop"), { recursive: true });
   await fs.writeFile(
     path.join(projectRoot, ".openloop", "tasks.json"),
-    `${JSON.stringify({
-      version: 1,
-      updatedAt: new Date().toISOString(),
-      tasks: [makeProjectTask({ id: "pr-task", title: "PR task", status: "done", risk: "low-risk" })],
-    } satisfies TaskLedger, null, 2)}\n`,
+    `${JSON.stringify(
+      {
+        version: 1,
+        updatedAt: new Date().toISOString(),
+        tasks: [makeProjectTask({ id: "pr-task", title: "PR task", status: "done", risk: "low-risk" })],
+      } satisfies TaskLedger,
+      null,
+      2,
+    )}\n`,
   );
   return { appHome, projectRoot };
 }
@@ -64,11 +68,7 @@ test("promotion refresh marks merged PRs promoted", async () => {
   const binDir = path.join(os.tmpdir(), `openloop-gh-stub-${Date.now()}`);
   await fs.mkdir(binDir, { recursive: true });
   tempDirs.push(binDir);
-  await fs.writeFile(
-    path.join(binDir, "gh"),
-    `#!/bin/sh\necho '{"state":"MERGED","statusCheckRollup":[]}'\n`,
-    { mode: 0o755 },
-  );
+  await fs.writeFile(path.join(binDir, "gh"), `#!/bin/sh\necho '{"state":"MERGED","statusCheckRollup":[]}'\n`, { mode: 0o755 });
   process.env.PATH = `${binDir}:${originalPath}`;
 
   await refreshPromotion({ project: "demo", task: "pr-task" } as never);

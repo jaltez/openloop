@@ -16,12 +16,13 @@ export interface DaemonProcessInspection {
 }
 
 export function registerDaemonCommands(cli: Argv): void {
-  cli.command(
-    "service <command>",
-    "Manage the global daemon",
-    (serviceCli: Argv) =>
-      serviceCli
-        .command("start", "Start the daemon", () => {}, async () => {
+  cli.command("service <command>", "Manage the global daemon", (serviceCli: Argv) =>
+    serviceCli
+      .command(
+        "start",
+        "Start the daemon",
+        () => {},
+        async () => {
           await assertDefaultProviderAvailable();
           const inspection = await inspectDaemonProcess();
           if (inspection.state === "running") {
@@ -50,8 +51,13 @@ export function registerDaemonCommands(cli: Argv): void {
           } else {
             console.warn("Warning: daemon may not have started. Check logs: " + daemonLogPath());
           }
-        })
-        .command("stop", "Stop the daemon", () => {}, async () => {
+        },
+      )
+      .command(
+        "stop",
+        "Stop the daemon",
+        () => {},
+        async () => {
           const inspection = await inspectDaemonProcess();
           if (inspection.state === "missing") {
             console.log("Daemon is not running.");
@@ -69,16 +75,26 @@ export function registerDaemonCommands(cli: Argv): void {
           process.kill(inspection.pid as number, "SIGTERM");
           await fs.rm(daemonPidPath(), { force: true });
           console.log("Daemon stopped.");
-        })
-        .command("status", "Show daemon status", () => {}, async () => {
+        },
+      )
+      .command(
+        "status",
+        "Show daemon status",
+        () => {},
+        async () => {
           if (!(await fileExists(daemonStatePath()))) {
             console.log("Daemon has not written state yet.");
             return;
           }
           const state = await readJsonFile<DaemonState>(daemonStatePath(), createDefaultDaemonState());
           console.log(JSON.stringify(state, null, 2));
-        })
-        .command("restart", "Restart the daemon", () => {}, async () => {
+        },
+      )
+      .command(
+        "restart",
+        "Restart the daemon",
+        () => {},
+        async () => {
           await assertDefaultProviderAvailable();
           await stopIfRunning();
           const child = spawn(process.execPath, [process.argv[1], "daemon", "worker"], {
@@ -94,16 +110,31 @@ export function registerDaemonCommands(cli: Argv): void {
           } else {
             console.warn("Warning: daemon may not have started. Check logs: " + daemonLogPath());
           }
-        })
-        .command("pause", "Pause new daemon runs", () => {}, async () => {
+        },
+      )
+      .command(
+        "pause",
+        "Pause new daemon runs",
+        () => {},
+        async () => {
           const state = await pauseDaemon();
           console.log(JSON.stringify({ paused: state.paused, pausedAt: state.pausedAt }, null, 2));
-        })
-        .command("resume", "Resume daemon scheduling", () => {}, async () => {
+        },
+      )
+      .command(
+        "resume",
+        "Resume daemon scheduling",
+        () => {},
+        async () => {
           const state = await resumeDaemon();
           console.log(JSON.stringify({ paused: state.paused, pausedAt: state.pausedAt }, null, 2));
-        })
-        .command("run", "Run the daemon in the foreground (for debugging or process managers)", () => {}, async () => {
+        },
+      )
+      .command(
+        "run",
+        "Run the daemon in the foreground (for debugging or process managers)",
+        () => {},
+        async () => {
           await assertDefaultProviderAvailable();
           const inspection = await inspectDaemonProcess();
           if (inspection.state === "running") {
@@ -114,13 +145,19 @@ export function registerDaemonCommands(cli: Argv): void {
           }
           console.log("Starting daemon in foreground mode. Press Ctrl+C to stop.");
           await startWorkerLoop({ foreground: true });
-        })
-        .demandCommand(),
+        },
+      )
+      .demandCommand(),
   );
 
-  cli.command("daemon worker", false, () => {}, async () => {
-    await startWorkerLoop();
-  });
+  cli.command(
+    "daemon worker",
+    false,
+    () => {},
+    async () => {
+      await startWorkerLoop();
+    },
+  );
 }
 
 async function stopIfRunning(): Promise<void> {

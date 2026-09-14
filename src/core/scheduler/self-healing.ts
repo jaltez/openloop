@@ -1,6 +1,9 @@
 import { SUPPORTED_SELF_HEALING_TASK_KINDS, type ProjectPolicy, type ProjectTask, type WorkerRole } from "../types.js";
 
-export function getSelfHealingBlock(task: ProjectTask, projectPolicy: ProjectPolicy): {
+export function getSelfHealingBlock(
+  task: ProjectTask,
+  projectPolicy: ProjectPolicy,
+): {
   reason: string;
   note: string;
   failureSignature: string;

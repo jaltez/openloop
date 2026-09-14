@@ -42,7 +42,7 @@ export async function runLifecycleHooks(options: {
 }): Promise<LifecycleHookResult> {
   const hooks = [
     ...(options.globalConfig.hooks ?? []).map((hook) => ({ hook, scope: "global" as const })),
-    ...((options.projectConfig?.hooks ?? []).map((hook) => ({ hook, scope: "project" as const }))),
+    ...(options.projectConfig?.hooks ?? []).map((hook) => ({ hook, scope: "project" as const })),
   ];
 
   const result: LifecycleHookResult = {
@@ -60,9 +60,7 @@ export async function runLifecycleHooks(options: {
     }
 
     try {
-      const response = hook.type === "command"
-        ? await runCommandHook(hook, options.payload)
-        : await runWebhookHook(hook, options.payload);
+      const response = hook.type === "command" ? await runCommandHook(hook, options.payload) : await runWebhookHook(hook, options.payload);
 
       if (response?.note) {
         result.notes.push(`[${entry.scope}:${hook.type}] ${response.note}`);
@@ -73,11 +71,13 @@ export async function runLifecycleHooks(options: {
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       if (options.daemonLogPath) {
-        await fs.appendFile(
-          options.daemonLogPath,
-          `[${new Date().toISOString()}] hook failure (${entry.scope}:${hook.type}/${options.payload.event}): ${detail}\n`,
-          "utf8",
-        ).catch(() => {});
+        await fs
+          .appendFile(
+            options.daemonLogPath,
+            `[${new Date().toISOString()}] hook failure (${entry.scope}:${hook.type}/${options.payload.event}): ${detail}\n`,
+            "utf8",
+          )
+          .catch(() => {});
       }
       await appendEvent({
         ts: new Date().toISOString(),

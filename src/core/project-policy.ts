@@ -152,16 +152,23 @@ function mergePolicy(policy: Partial<ProjectPolicy> | null): ProjectPolicy {
     },
     riskClasses: {
       "low-risk": {
-        autoMergeAllowed: policy?.riskClasses?.["low-risk"]?.autoMergeAllowed ?? DEFAULT_PROJECT_POLICY.riskClasses["low-risk"].autoMergeAllowed,
-        requiresHumanReview: policy?.riskClasses?.["low-risk"]?.requiresHumanReview ?? DEFAULT_PROJECT_POLICY.riskClasses["low-risk"].requiresHumanReview,
+        autoMergeAllowed:
+          policy?.riskClasses?.["low-risk"]?.autoMergeAllowed ?? DEFAULT_PROJECT_POLICY.riskClasses["low-risk"].autoMergeAllowed,
+        requiresHumanReview:
+          policy?.riskClasses?.["low-risk"]?.requiresHumanReview ?? DEFAULT_PROJECT_POLICY.riskClasses["low-risk"].requiresHumanReview,
       },
       "medium-risk": {
-        autoMergeAllowed: policy?.riskClasses?.["medium-risk"]?.autoMergeAllowed ?? DEFAULT_PROJECT_POLICY.riskClasses["medium-risk"].autoMergeAllowed,
-        requiresHumanReview: policy?.riskClasses?.["medium-risk"]?.requiresHumanReview ?? DEFAULT_PROJECT_POLICY.riskClasses["medium-risk"].requiresHumanReview,
+        autoMergeAllowed:
+          policy?.riskClasses?.["medium-risk"]?.autoMergeAllowed ?? DEFAULT_PROJECT_POLICY.riskClasses["medium-risk"].autoMergeAllowed,
+        requiresHumanReview:
+          policy?.riskClasses?.["medium-risk"]?.requiresHumanReview ??
+          DEFAULT_PROJECT_POLICY.riskClasses["medium-risk"].requiresHumanReview,
       },
       "high-risk": {
-        autoMergeAllowed: policy?.riskClasses?.["high-risk"]?.autoMergeAllowed ?? DEFAULT_PROJECT_POLICY.riskClasses["high-risk"].autoMergeAllowed,
-        requiresHumanReview: policy?.riskClasses?.["high-risk"]?.requiresHumanReview ?? DEFAULT_PROJECT_POLICY.riskClasses["high-risk"].requiresHumanReview,
+        autoMergeAllowed:
+          policy?.riskClasses?.["high-risk"]?.autoMergeAllowed ?? DEFAULT_PROJECT_POLICY.riskClasses["high-risk"].autoMergeAllowed,
+        requiresHumanReview:
+          policy?.riskClasses?.["high-risk"]?.requiresHumanReview ?? DEFAULT_PROJECT_POLICY.riskClasses["high-risk"].requiresHumanReview,
       },
     },
     selfHealing: {

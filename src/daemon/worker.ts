@@ -25,7 +25,6 @@ import { downgradePendingAutoMergePromotionToReview } from "../core/promotion-qu
 import type { DaemonState, GlobalConfig, LinkedProject, ProjectSchedule, SchedulerResult } from "../core/types.js";
 
 export async function startWorkerLoop(options?: { foreground?: boolean }): Promise<void> {
-
   await ensureDir(runtimeDir());
   await rotateLogIfNeeded(daemonLogPath());
   const startedAt = new Date().toISOString();
@@ -40,7 +39,9 @@ export async function startWorkerLoop(options?: { foreground?: boolean }): Promi
     if (initConfig.dashboard?.enabled) {
       dashboardServer = createDashboardServer(initConfig.dashboard.port);
       await dashboardServer.start();
-      await fs.appendFile(daemonLogPath(), `[${new Date().toISOString()}] dashboard started on port ${dashboardServer.port}\n`, "utf8").catch(() => {});
+      await fs
+        .appendFile(daemonLogPath(), `[${new Date().toISOString()}] dashboard started on port ${dashboardServer.port}\n`, "utf8")
+        .catch(() => {});
     }
   } catch {
     await fs.appendFile(daemonLogPath(), `[${new Date().toISOString()}] dashboard failed to start\n`, "utf8").catch(() => {});
@@ -76,28 +77,30 @@ export async function startWorkerLoop(options?: { foreground?: boolean }): Promi
         const ts = new Date().toISOString().slice(11, 19);
         const proj = state.activeProject ?? "idle";
         const run = state.currentRun;
-        const summary = run
-          ? `${proj} | ${run.taskId ?? "--"} | mode:${run.mode}`
-          : `${proj} | no run`;
+        const summary = run ? `${proj} | ${run.taskId ?? "--"} | mode:${run.mode}` : `${proj} | no run`;
         process.stderr.write(`[${ts}] ${summary}\n`);
       }
     } catch (error) {
       consecutiveErrors++;
       const detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
-      await fs.appendFile(
-        daemonLogPath(),
-        `[${new Date().toISOString()}] tick error (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS}): ${detail}\n`,
-        "utf8",
-      ).catch(() => {});
+      await fs
+        .appendFile(
+          daemonLogPath(),
+          `[${new Date().toISOString()}] tick error (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS}): ${detail}\n`,
+          "utf8",
+        )
+        .catch(() => {});
       if (options?.foreground) {
         process.stderr.write(`[${new Date().toISOString().slice(11, 19)}] tick error: ${detail.split("\n")[0]}\n`);
       }
       if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-        await fs.appendFile(
-          daemonLogPath(),
-          `[${new Date().toISOString()}] max consecutive errors reached; entering degraded (paused) state\n`,
-          "utf8",
-        ).catch(() => {});
+        await fs
+          .appendFile(
+            daemonLogPath(),
+            `[${new Date().toISOString()}] max consecutive errors reached; entering degraded (paused) state\n`,
+            "utf8",
+          )
+          .catch(() => {});
         await pauseDaemon().catch(() => {});
         consecutiveErrors = 0;
       }
@@ -142,12 +145,11 @@ export async function runWorkerTick(options?: {
           alias: project.alias,
           queueSize: queue?.queueSize ?? 0,
           paused: state.paused,
-          lastIterationAt: project.alias === view.activeProjectAlias && view.lastIterationAt !== null
-            ? view.lastIterationAt
-            : (previous?.lastIterationAt ?? null),
-          lastResult: project.alias === view.activeProjectAlias
-            ? view.iterationResult ?? "idle"
-            : (previous?.lastResult ?? "idle"),
+          lastIterationAt:
+            project.alias === view.activeProjectAlias && view.lastIterationAt !== null
+              ? view.lastIterationAt
+              : (previous?.lastIterationAt ?? null),
+          lastResult: project.alias === view.activeProjectAlias ? (view.iterationResult ?? "idle") : (previous?.lastResult ?? "idle"),
           blockedTasks: queue?.blockedTasks ?? 0,
         };
       });
@@ -178,8 +180,9 @@ export async function runWorkerTick(options?: {
         event: "daily-digest",
         project: "",
         taskId: "",
-        message: `Daily digest: ${digest.projects.length} project(s), `
-          + `${digest.projects.reduce((sum, project) => sum + project.reviewQueue.length, 0)} pending review(s).`,
+        message:
+          `Daily digest: ${digest.projects.length} project(s), ` +
+          `${digest.projects.reduce((sum, project) => sum + project.reviewQueue.length, 0)} pending review(s).`,
         timestamp: new Date().toISOString(),
         mode: "idle",
         digest,
@@ -238,11 +241,9 @@ export async function runWorkerTick(options?: {
     }
     await evaluateSchedules(project, scheduleNow).catch(async (error) => {
       const detail = error instanceof Error ? error.message : String(error);
-      await fs.appendFile(
-        daemonLogPath(),
-        `[${new Date().toISOString()}] schedule evaluation failed in ${project.alias}: ${detail}\n`,
-        "utf8",
-      ).catch(() => {});
+      await fs
+        .appendFile(daemonLogPath(), `[${new Date().toISOString()}] schedule evaluation failed in ${project.alias}: ${detail}\n`, "utf8")
+        .catch(() => {});
     });
   }
 
@@ -253,8 +254,7 @@ export async function runWorkerTick(options?: {
   if (activeProject) {
     const maxPendingReviews = config.runtime.maxPendingReviewsPerProject ?? 3;
     if (maxPendingReviews > 0) {
-      const pendingCount = (await listPromotionArtifacts(activeProject.path))
-        .filter((item) => item.artifact.status === "pending").length;
+      const pendingCount = (await listPromotionArtifacts(activeProject.path)).filter((item) => item.artifact.status === "pending").length;
       if (pendingCount >= maxPendingReviews) {
         const backpressureState = await persistTickState({
           activeProjectAlias: activeProject.alias,
@@ -265,11 +265,13 @@ export async function runWorkerTick(options?: {
             state.currentRun = null;
           },
         });
-        await fs.appendFile(
-          daemonLogPath(),
-          `[${new Date().toISOString()}] review-backpressure: ${pendingCount} pending promotion(s) >= ${maxPendingReviews} in ${activeProject.alias}\n`,
-          "utf8",
-        ).catch(() => {});
+        await fs
+          .appendFile(
+            daemonLogPath(),
+            `[${new Date().toISOString()}] review-backpressure: ${pendingCount} pending promotion(s) >= ${maxPendingReviews} in ${activeProject.alias}\n`,
+            "utf8",
+          )
+          .catch(() => {});
         const payload: LifecycleHookPayload = {
           event: "review-backpressure",
           project: activeProject.alias,
@@ -348,7 +350,7 @@ export async function runWorkerTick(options?: {
       // D3: Append structured event to events.jsonl audit trail.
       await appendEvent({
         ts: new Date().toISOString(),
-        event: result.exitCode !== null ? "pi_completed" : (result.mode === "idle" ? "idle" : "task_skipped"),
+        event: result.exitCode !== null ? "pi_completed" : result.mode === "idle" ? "idle" : "task_skipped",
         project: activeProject.alias,
         taskId: result.taskId ?? undefined,
         exitCode: result.exitCode,
@@ -379,9 +381,7 @@ export async function runWorkerTick(options?: {
 
       // A2: Auto-sync issues if configured
       if (projConfig?.issueSource?.autoSync && projConfig.issueSource.token) {
-        const lastSynced = projConfig.issueSource.lastSyncedAt
-          ? new Date(projConfig.issueSource.lastSyncedAt).getTime()
-          : 0;
+        const lastSynced = projConfig.issueSource.lastSyncedAt ? new Date(projConfig.issueSource.lastSyncedAt).getTime() : 0;
         const intervalMs = (projConfig.issueSource.syncIntervalMinutes ?? 30) * 60_000;
         if (Date.now() - lastSynced >= intervalMs) {
           syncIssues(activeProject.path, projConfig.issueSource).catch(() => {});
@@ -395,7 +395,6 @@ export async function runWorkerTick(options?: {
       }
     }
   }
-
 
   const postRunState = await persistTickState({
     activeProjectAlias: activeProject?.alias ?? null,
@@ -445,11 +444,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function fireNotification(
-  config: GlobalConfig,
-  result: SchedulerResult,
-  projectAlias: string,
-): Promise<void> {
+async function fireNotification(config: GlobalConfig, result: SchedulerResult, projectAlias: string): Promise<void> {
   const env: Record<string, string> = {
     OPENLOOP_PROJECT: projectAlias,
     OPENLOOP_TASK_ID: result.taskId ?? "",
@@ -658,11 +653,13 @@ async function evaluateSchedules(project: LinkedProject, now: Date): Promise<voi
     } catch (error) {
       // A malformed cron must not poison the project's other schedules.
       const detail = error instanceof Error ? error.message : String(error);
-      await fs.appendFile(
-        daemonLogPath(),
-        `[${new Date().toISOString()}] schedule ${schedule.id} failed in ${project.alias}: ${detail}\n`,
-        "utf8",
-      ).catch(() => {});
+      await fs
+        .appendFile(
+          daemonLogPath(),
+          `[${new Date().toISOString()}] schedule ${schedule.id} failed in ${project.alias}: ${detail}\n`,
+          "utf8",
+        )
+        .catch(() => {});
     }
   }
 
@@ -736,7 +733,6 @@ async function evaluateSingleSchedule(input: {
   }).catch(() => {});
 }
 
-
 export async function recoverStuckTasks(): Promise<void> {
   try {
     const projects = await listProjects();
@@ -752,11 +748,13 @@ export async function recoverStuckTasks(): Promise<void> {
           }),
         );
         if (recovered.length > 0) {
-          await fs.appendFile(
-            daemonLogPath(),
-            `[${new Date().toISOString()}] recovered ${recovered.length} stuck task(s) in ${project.alias}\n`,
-            "utf8",
-          ).catch(() => {});
+          await fs
+            .appendFile(
+              daemonLogPath(),
+              `[${new Date().toISOString()}] recovered ${recovered.length} stuck task(s) in ${project.alias}\n`,
+              "utf8",
+            )
+            .catch(() => {});
         }
         await reclaimStaleWorktrees(project);
       } catch {
@@ -799,7 +797,8 @@ async function reclaimStaleWorktrees(project: LinkedProject): Promise<void> {
 
     // A concurrent CLI run or second daemon writes a pid marker at worktree
     // creation; never force-remove a checkout whose owner is still alive.
-    const ownerPid = await fs.readFile(path.join(worktreePath, ".openloop-run.pid"), "utf8")
+    const ownerPid = await fs
+      .readFile(path.join(worktreePath, ".openloop-run.pid"), "utf8")
       .then((raw) => Number.parseInt(raw, 10))
       .catch(() => null);
     if (ownerPid !== null && Number.isInteger(ownerPid) && isPidAlive(ownerPid)) {
@@ -820,18 +819,18 @@ async function reclaimStaleWorktrees(project: LinkedProject): Promise<void> {
       if (task && (task.status === "blocked" || task.status === "cancelled")) {
         await deleteBranch(project.path, `${branchPrefix}${taskId}`).catch(() => {});
       }
-      await fs.appendFile(
-        daemonLogPath(),
-        `[${new Date().toISOString()}] reclaimed stale worktree for ${taskId} in ${project.alias}\n`,
-        "utf8",
-      ).catch(() => {});
+      await fs
+        .appendFile(daemonLogPath(), `[${new Date().toISOString()}] reclaimed stale worktree for ${taskId} in ${project.alias}\n`, "utf8")
+        .catch(() => {});
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      await fs.appendFile(
-        daemonLogPath(),
-        `[${new Date().toISOString()}] failed to reclaim worktree for ${taskId} in ${project.alias}: ${detail}\n`,
-        "utf8",
-      ).catch(() => {});
+      await fs
+        .appendFile(
+          daemonLogPath(),
+          `[${new Date().toISOString()}] failed to reclaim worktree for ${taskId} in ${project.alias}: ${detail}\n`,
+          "utf8",
+        )
+        .catch(() => {});
     }
   }
 }

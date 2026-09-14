@@ -22,11 +22,7 @@ const DEFAULT_RETRY_DELAY_MS = 50;
  * holder only ever unlinks a lock whose token still matches its own, so a
  * stale-break or a delayed release can never delete a newer holder's lock.
  */
-export async function withFileLock<T>(
-  lockPath: string,
-  options: FileLockOptions,
-  critical: () => Promise<T> | T,
-): Promise<T> {
+export async function withFileLock<T>(lockPath: string, options: FileLockOptions, critical: () => Promise<T> | T): Promise<T> {
   const staleMs = options.staleMs ?? DEFAULT_STALE_MS;
   const retries = options.retries ?? DEFAULT_RETRIES;
   const retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;

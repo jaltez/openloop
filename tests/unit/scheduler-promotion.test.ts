@@ -55,13 +55,9 @@ function makeProjectConfig(overrides?: Partial<ProjectConfig>): ProjectConfig {
   };
 }
 
-const passingValidation: ValidationSummary[] = [
-  { name: "lint", command: "npm run lint", exitCode: 0 },
-];
+const passingValidation: ValidationSummary[] = [{ name: "lint", command: "npm run lint", exitCode: 0 }];
 
-const failingValidation: ValidationSummary[] = [
-  { name: "lint", command: "npm run lint", exitCode: 1 },
-];
+const failingValidation: ValidationSummary[] = [{ name: "lint", command: "npm run lint", exitCode: 1 }];
 
 describe("decidePromotion", () => {
   it("returns 'blocked' when validation fails", () => {

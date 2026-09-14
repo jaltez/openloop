@@ -69,36 +69,61 @@ export default function ServiceView() {
 
       {/* Daemon state */}
       <box borderStyle="rounded" borderColor={colors.border} padding={1} flexDirection="column" width={50}>
-        <text fg={colors.accent}><b>Daemon State</b></text>
-        <text fg={colors.textDim}>PID:      <Span fg={colors.text}>{daemon().pid ?? "—"}</Span></text>
-        <text fg={colors.textDim}>Status:   <Span fg={daemon().paused ? colors.yellow : daemon().pid ? colors.green : colors.textDim}>
-          {daemon().paused ? "paused" : daemon().pid ? "running" : "stopped"}
-        </Span></text>
-        <text fg={colors.textDim}>Started:  <Span fg={colors.text}>{daemon().startedAt ?? "—"}</Span></text>
-        <text fg={colors.textDim}>Uptime:   <Span fg={colors.text}>{daemon().startedAt ? elapsed(daemon().startedAt) : "—"}</Span></text>
-        <text fg={colors.textDim}>Budget:   <Span fg={colors.text}>${daemon().budgetSpentUsd.toFixed(4)} today</Span></text>
+        <text fg={colors.accent}>
+          <b>Daemon State</b>
+        </text>
+        <text fg={colors.textDim}>
+          PID: <Span fg={colors.text}>{daemon().pid ?? "—"}</Span>
+        </text>
+        <text fg={colors.textDim}>
+          Status:{" "}
+          <Span fg={daemon().paused ? colors.yellow : daemon().pid ? colors.green : colors.textDim}>
+            {daemon().paused ? "paused" : daemon().pid ? "running" : "stopped"}
+          </Span>
+        </text>
+        <text fg={colors.textDim}>
+          Started: <Span fg={colors.text}>{daemon().startedAt ?? "—"}</Span>
+        </text>
+        <text fg={colors.textDim}>
+          Uptime: <Span fg={colors.text}>{daemon().startedAt ? elapsed(daemon().startedAt) : "—"}</Span>
+        </text>
+        <text fg={colors.textDim}>
+          Budget: <Span fg={colors.text}>${daemon().budgetSpentUsd.toFixed(4)} today</Span>
+        </text>
         <Show when={daemon().currentRun}>
-          <text fg={colors.textDim}>Running:  <Span fg={colors.green}>{daemon().currentRun?.projectAlias} / {daemon().currentRun?.taskId}</Span></text>
-          <text fg={colors.textDim}>Role:     <Span fg={colors.text}>{daemon().currentRun?.role}</Span></text>
+          <text fg={colors.textDim}>
+            Running:{" "}
+            <Span fg={colors.green}>
+              {daemon().currentRun?.projectAlias} / {daemon().currentRun?.taskId}
+            </Span>
+          </text>
+          <text fg={colors.textDim}>
+            Role: <Span fg={colors.text}>{daemon().currentRun?.role}</Span>
+          </text>
         </Show>
       </box>
 
       {/* Actions */}
       <box flexDirection="column" gap={0}>
-        <text fg={colors.accent}><b>Actions</b></text>
+        <text fg={colors.accent}>
+          <b>Actions</b>
+        </text>
         {actions.map((action, idx) => (
           <text
             fg={selectedAction() === idx ? colors.accentBright : colors.text}
             bg={selectedAction() === idx ? colors.bgSelected : undefined}
           >
-            {selectedAction() === idx ? "▸ " : "  "}{action}
+            {selectedAction() === idx ? "▸ " : "  "}
+            {action}
           </text>
         ))}
       </box>
 
       {/* Log tail */}
       <box flexDirection="column" flexGrow={1} borderStyle="rounded" borderColor={colors.border} padding={1}>
-        <text fg={colors.accent}><b>Recent Logs</b></text>
+        <text fg={colors.accent}>
+          <b>Recent Logs</b>
+        </text>
         <scrollbox height="100%">
           <box flexDirection="column">
             {logTail().map((line) => (
@@ -108,10 +133,12 @@ export default function ServiceView() {
         </scrollbox>
       </box>
 
-      <KeyHint hints={[
-        { key: "↑/↓", label: "select action" },
-        { key: "Enter", label: "execute" },
-      ]} />
+      <KeyHint
+        hints={[
+          { key: "↑/↓", label: "select action" },
+          { key: "Enter", label: "execute" },
+        ]}
+      />
     </box>
   );
 }

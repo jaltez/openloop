@@ -8,7 +8,7 @@ const DEFAULT_GLOBAL_CONFIG: GlobalConfig = {
   activeProjectAlias: null,
   budgets: {
     dailyCostUsd: 25,
-    estimatedCostPerRunUsd: 0.10,
+    estimatedCostPerRunUsd: 0.1,
   },
   runtime: {
     runTimeoutSeconds: 1800,

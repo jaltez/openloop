@@ -9,13 +9,17 @@ test("detects bun-based validation commands from package.json scripts", async ()
   await fs.writeFile(path.join(projectRoot, "bun.lock"), "", "utf8");
   await fs.writeFile(
     path.join(projectRoot, "package.json"),
-    JSON.stringify({
-      scripts: {
-        lint: "eslint .",
-        test: "vitest run",
-        typecheck: "tsc --noEmit",
+    JSON.stringify(
+      {
+        scripts: {
+          lint: "eslint .",
+          test: "vitest run",
+          typecheck: "tsc --noEmit",
+        },
       },
-    }, null, 2),
+      null,
+      2,
+    ),
     "utf8",
   );
 

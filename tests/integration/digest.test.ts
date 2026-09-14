@@ -61,25 +61,45 @@ test("computeConfidence grades pending promotions deterministically", () => {
   const validation = [{ name: "test" as const, exitCode: 0 }];
   const configured = ["test"];
 
-  expect(computeConfidence({ artifact: pendingArtifact("t", validation), packet: packet({}), configuredValidationNames: configured })).toBe("high");
+  expect(computeConfidence({ artifact: pendingArtifact("t", validation), packet: packet({}), configuredValidationNames: configured })).toBe(
+    "high",
+  );
   // Second attempt drops to medium.
-  expect(computeConfidence({ artifact: pendingArtifact("t", validation), packet: packet({ attempts: 2 }), configuredValidationNames: configured })).toBe("medium");
+  expect(
+    computeConfidence({
+      artifact: pendingArtifact("t", validation),
+      packet: packet({ attempts: 2 }),
+      configuredValidationNames: configured,
+    }),
+  ).toBe("medium");
   // Medium risk drops to medium.
-  expect(computeConfidence({ artifact: pendingArtifact("t", validation), packet: packet({ risk: "medium-risk" }), configuredValidationNames: configured })).toBe("medium");
+  expect(
+    computeConfidence({
+      artifact: pendingArtifact("t", validation),
+      packet: packet({ risk: "medium-risk" }),
+      configuredValidationNames: configured,
+    }),
+  ).toBe("medium");
   // Blocking finding drops to low.
-  expect(computeConfidence({
-    artifact: pendingArtifact("t", validation),
-    packet: packet({ reviewFindings: [{ rule: "agent-review", severity: "block", message: "nope" }] }),
-    configuredValidationNames: configured,
-  })).toBe("low");
+  expect(
+    computeConfidence({
+      artifact: pendingArtifact("t", validation),
+      packet: packet({ reviewFindings: [{ rule: "agent-review", severity: "block", message: "nope" }] }),
+      configuredValidationNames: configured,
+    }),
+  ).toBe("low");
   // Failed validation drops to low.
-  expect(computeConfidence({
-    artifact: pendingArtifact("t", [{ name: "test", exitCode: 1 }]),
-    packet: packet({}),
-    configuredValidationNames: configured,
-  })).toBe("low");
+  expect(
+    computeConfidence({
+      artifact: pendingArtifact("t", [{ name: "test", exitCode: 1 }]),
+      packet: packet({}),
+      configuredValidationNames: configured,
+    }),
+  ).toBe("low");
   // Missing packet (unverifiable provenance) is low.
-  expect(computeConfidence({ artifact: pendingArtifact("t", validation), packet: null, configuredValidationNames: configured })).toBe("low");
+  expect(computeConfidence({ artifact: pendingArtifact("t", validation), packet: null, configuredValidationNames: configured })).toBe(
+    "low",
+  );
 });
 
 test("buildDigest aggregates ledgers, run summaries, and pending promotions", async () => {
@@ -118,14 +138,18 @@ test("buildDigest aggregates ledgers, run summaries, and pending promotions", as
   // Config with one validation so confidence is computable.
   await fs.writeFile(
     path.join(projectRoot, ".openloop", "project.json"),
-    `${JSON.stringify({
-      version: 1,
-      project: { alias: "demo", repoRoot: null, initializedAt: null },
-      pi: { model: null, promptFiles: [] },
-      runtime: { useWorktree: false, branchPrefix: "openloop/" },
-      validation: { lintCommand: null, testCommand: "bun test", typecheckCommand: null },
-      risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
-    }, null, 2)}\n`,
+    `${JSON.stringify(
+      {
+        version: 1,
+        project: { alias: "demo", repoRoot: null, initializedAt: null },
+        pi: { model: null, promptFiles: [] },
+        runtime: { useWorktree: false, branchPrefix: "openloop/" },
+        validation: { lintCommand: null, testCommand: "bun test", typecheckCommand: null },
+        risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
+      },
+      null,
+      2,
+    )}\n`,
   );
 
   // Two run summaries with measured/estimated cost split.
@@ -164,7 +188,5 @@ test("buildDigest aggregates ledgers, run summaries, and pending promotions", as
   expect(project.blocked).toBe(1);
   expect(project.promoted).toBe(0);
   expect(project.spendUsd).toEqual({ measured: 0.42, estimated: 0.1 });
-  expect(project.reviewQueue).toEqual([
-    { taskId: "pending-task", title: "Pending", risk: "low-risk", confidence: "high" },
-  ]);
+  expect(project.reviewQueue).toEqual([{ taskId: "pending-task", title: "Pending", risk: "low-risk", confidence: "high" }]);
 });

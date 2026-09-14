@@ -36,11 +36,20 @@ export default function LogsView(props: LogsViewProps) {
 
   const loadRunFiles = async () => {
     const path = props.activeProjectPath();
-    if (!path) { setRunFiles([]); return; }
+    if (!path) {
+      setRunFiles([]);
+      return;
+    }
     try {
       const runsDir = join(path, ".openloop", "runs");
       const files = await readdir(runsDir).catch(() => [] as string[]);
-      setRunFiles(files.filter((f) => f.endsWith(".md")).sort().reverse().slice(0, lineCount()));
+      setRunFiles(
+        files
+          .filter((f) => f.endsWith(".md"))
+          .sort()
+          .reverse()
+          .slice(0, lineCount()),
+      );
     } catch {
       setRunFiles([]);
     }
@@ -49,7 +58,10 @@ export default function LogsView(props: LogsViewProps) {
   const loadFileContent = async () => {
     const path = props.activeProjectPath();
     const file = runFiles()[selectedFileIdx()];
-    if (!path || !file) { setFileContent(""); return; }
+    if (!path || !file) {
+      setFileContent("");
+      return;
+    }
     try {
       const content = await readFile(join(path, ".openloop", "runs", file), "utf-8");
       setFileContent(content);
@@ -111,9 +123,7 @@ export default function LogsView(props: LogsViewProps) {
               {daemonLines().length === 0 ? (
                 <text fg={colors.textDim}>(no daemon log)</text>
               ) : (
-                <For each={daemonLines()}>
-                  {(line) => <text fg={colors.textDim}>{line}</text>}
-                </For>
+                <For each={daemonLines()}>{(line) => <text fg={colors.textDim}>{line}</text>}</For>
               )}
             </box>
           </scrollbox>
@@ -123,7 +133,9 @@ export default function LogsView(props: LogsViewProps) {
       <Show when={tab() === "project"}>
         <box flexDirection="row" flexGrow={1} gap={2}>
           <box flexDirection="column" width="30%">
-            <text fg={colors.accent}><b>Run Files</b></text>
+            <text fg={colors.accent}>
+              <b>Run Files</b>
+            </text>
             <text fg={colors.border}>{"─".repeat(25)}</text>
             {runFiles().length === 0 ? (
               <text fg={colors.textDim}>No run summaries.</text>
@@ -132,10 +144,7 @@ export default function LogsView(props: LogsViewProps) {
                 {(file, idx) => {
                   const isSelected = () => idx() === selectedFileIdx();
                   return (
-                    <text
-                      fg={isSelected() ? colors.accentBright : colors.text}
-                      bg={isSelected() ? colors.bgSelected : undefined}
-                    >
+                    <text fg={isSelected() ? colors.accentBright : colors.text} bg={isSelected() ? colors.bgSelected : undefined}>
                       {file}
                     </text>
                   );
@@ -144,7 +153,9 @@ export default function LogsView(props: LogsViewProps) {
             )}
           </box>
           <box flexDirection="column" width="70%" borderStyle="rounded" borderColor={colors.border} padding={1}>
-            <text fg={colors.accent}><b>Content</b></text>
+            <text fg={colors.accent}>
+              <b>Content</b>
+            </text>
             <scrollbox height="100%">
               <box flexDirection="column">
                 <text fg={colors.text}>{fileContent() || "Select a file and press Enter"}</text>
@@ -154,10 +165,17 @@ export default function LogsView(props: LogsViewProps) {
         </box>
       </Show>
 
-      <KeyHint hints={[
-        { key: "Tab", label: "daemon/project" },
-        ...(tab() === "project" ? [{ key: "↑/↓", label: "select file" }, { key: "Enter", label: "view" }] : []),
-      ]} />
+      <KeyHint
+        hints={[
+          { key: "Tab", label: "daemon/project" },
+          ...(tab() === "project"
+            ? [
+                { key: "↑/↓", label: "select file" },
+                { key: "Enter", label: "view" },
+              ]
+            : []),
+        ]}
+      />
     </box>
   );
 }

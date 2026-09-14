@@ -69,17 +69,24 @@ export default function DashboardView() {
           <Span fg={daemonLine().running ? colors.green : daemonLine().paused ? colors.yellow : colors.textDim}>
             {"Daemon: " + daemonLine().status}
           </Span>
-          <Span fg={colors.textDim}>{daemonLine().uptime}{daemonLine().budget}</Span>
+          <Span fg={colors.textDim}>
+            {daemonLine().uptime}
+            {daemonLine().budget}
+          </Span>
         </text>
       </box>
 
       <box flexDirection="column" flexGrow={1}>
         <text fg={colors.accent}>
           <b>
-            {"PROJECT".padEnd(COL.alias)}{"  "}
-            {"QUEUE".padEnd(COL.queue)}{"  "}
-            {"ACTIVE TASK".padEnd(COL.active)}{"  "}
-            {"STATUS".padEnd(COL.status)}{"  "}
+            {"PROJECT".padEnd(COL.alias)}
+            {"  "}
+            {"QUEUE".padEnd(COL.queue)}
+            {"  "}
+            {"ACTIVE TASK".padEnd(COL.active)}
+            {"  "}
+            {"STATUS".padEnd(COL.status)}
+            {"  "}
             {"LAST RUN"}
           </b>
         </text>
@@ -91,21 +98,22 @@ export default function DashboardView() {
             {(project, idx) => {
               const d = daemon();
               const isActive = () => d.currentRun?.projectAlias === project.alias;
-              const activeTask = () => (isActive() ? d.currentRun?.taskId ?? "--" : "--");
+              const activeTask = () => (isActive() ? (d.currentRun?.taskId ?? "--") : "--");
               const projState = () => d.projects.find((p) => p.alias === project.alias);
               const queueSize = () => String(projState()?.queueSize ?? "?");
               const lastRun = () => projState()?.lastResult?.slice(0, COL.lastRun) ?? "--";
               const isSelected = () => idx() === selectedIdx();
 
               return (
-                <text
-                  fg={isSelected() ? colors.accentBright : colors.text}
-                  bg={isSelected() ? colors.bgSelected : undefined}
-                >
-                  {project.alias.padEnd(COL.alias)}{"  "}
-                  {queueSize().padEnd(COL.queue)}{"  "}
-                  {activeTask().padEnd(COL.active)}{"  "}
-                  <Span fg={statusColor(project, d)}>{statusLabel(project, d).padEnd(COL.status)}</Span>{"  "}
+                <text fg={isSelected() ? colors.accentBright : colors.text} bg={isSelected() ? colors.bgSelected : undefined}>
+                  {project.alias.padEnd(COL.alias)}
+                  {"  "}
+                  {queueSize().padEnd(COL.queue)}
+                  {"  "}
+                  {activeTask().padEnd(COL.active)}
+                  {"  "}
+                  <Span fg={statusColor(project, d)}>{statusLabel(project, d).padEnd(COL.status)}</Span>
+                  {"  "}
                   <Span fg={colors.textDim}>{lastRun()}</Span>
                 </text>
               );
@@ -114,10 +122,12 @@ export default function DashboardView() {
         )}
       </box>
 
-      <KeyHint hints={[
-        { key: "↑/↓", label: "navigate" },
-        { key: "Tab", label: "next view" },
-      ]} />
+      <KeyHint
+        hints={[
+          { key: "↑/↓", label: "navigate" },
+          { key: "Tab", label: "next view" },
+        ]}
+      />
     </box>
   );
 }

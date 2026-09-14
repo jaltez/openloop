@@ -215,10 +215,7 @@ export interface SyncResult {
   errors: string[];
 }
 
-export async function syncIssues(
-  projectPath: string,
-  source: IssueSourceConfig,
-): Promise<SyncResult> {
+export async function syncIssues(projectPath: string, source: IssueSourceConfig): Promise<SyncResult> {
   const fetcher = source.provider === "github" ? fetchGitHubIssues : fetchGitLabIssues;
   const remoteIssues = await fetcher(source.repo, source.label, source.token);
 
@@ -249,9 +246,7 @@ export async function syncIssues(
       specId: null,
       branch: null,
       owner: "openloop",
-      acceptanceCriteria: issue.body
-        ? [`From issue: ${issue.url}`, issue.body.slice(0, 500)]
-        : [`From issue: ${issue.url}`],
+      acceptanceCriteria: issue.body ? [`From issue: ${issue.url}`, issue.body.slice(0, 500)] : [`From issue: ${issue.url}`],
       attempts: 0,
       lastFailureSignature: null,
       promotion: "pull-request",
@@ -291,12 +286,7 @@ export async function syncIssues(
   return result;
 }
 
-export async function postTaskStatusToIssue(
-  projectPath: string,
-  taskId: string,
-  status: string,
-  details?: string,
-): Promise<void> {
+export async function postTaskStatusToIssue(projectPath: string, taskId: string, status: string, details?: string): Promise<void> {
   const syncLedger = await loadIssueSyncLedger(projectPath);
   const syncedIssue = syncLedger.issues.find((i) => i.taskId === taskId);
   if (!syncedIssue) return;
@@ -309,7 +299,7 @@ export async function postTaskStatusToIssue(
     promoted: "🚀",
     failed: "❌",
     blocked: "⚠️",
-    "in_progress": "🔄",
+    in_progress: "🔄",
     ready: "📋",
     planned: "📝",
   };
@@ -331,12 +321,7 @@ export async function postTaskStatusToIssue(
 /**
  * Post a PR link comment to the originating issue when a task creates a PR.
  */
-export async function postPrLinkToIssue(
-  projectPath: string,
-  taskId: string,
-  prUrl: string,
-  branch?: string | null,
-): Promise<void> {
+export async function postPrLinkToIssue(projectPath: string, taskId: string, prUrl: string, branch?: string | null): Promise<void> {
   const syncLedger = await loadIssueSyncLedger(projectPath);
   const syncedIssue = syncLedger.issues.find((i) => i.taskId === taskId);
   if (!syncedIssue) return;

@@ -28,8 +28,7 @@ export async function readJsonFile<T>(filePath: string, fallback: T): Promise<T>
     return JSON.parse(raw) as T;
   } catch {
     throw new Error(
-      `Corrupt JSON in ${filePath}. Back up or delete the file and re-run. ` +
-      `Original content preserved at the same path.`,
+      `Corrupt JSON in ${filePath}. Back up or delete the file and re-run. ` + `Original content preserved at the same path.`,
     );
   }
 }
@@ -106,7 +105,7 @@ export async function copyTree(sourceDir: string, targetDir: string, options: Co
       continue;
     }
 
-    if (!overwrite && await fileExists(targetPath)) {
+    if (!overwrite && (await fileExists(targetPath))) {
       continue;
     }
 

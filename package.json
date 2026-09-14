@@ -21,8 +21,7 @@
     "codegen",
     "automation",
     "autonomous",
-    "development",
-    "agent"
+    "development"
   ],
   "type": "module",
   "engines": {

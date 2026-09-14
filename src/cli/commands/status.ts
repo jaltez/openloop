@@ -19,8 +19,8 @@ export function registerStatusCommand(cli: Argv): void {
       }),
     async (args) => {
       const projects = await listProjects();
-      const daemonState = await readJsonFile<DaemonState>(daemonStatePath(), createDefaultDaemonState()).catch(
-        () => createDefaultDaemonState(),
+      const daemonState = await readJsonFile<DaemonState>(daemonStatePath(), createDefaultDaemonState()).catch(() =>
+        createDefaultDaemonState(),
       );
 
       const rows = await Promise.all(
@@ -58,9 +58,7 @@ export function registerStatusCommand(cli: Argv): void {
           console.log("No linked projects. Use 'openloop project add' to register one.");
           return;
         }
-        const daemonStatus = daemonState.paused
-          ? "paused"
-          : `running (PID ${daemonState.pid})`;
+        const daemonStatus = daemonState.paused ? "paused" : `running (PID ${daemonState.pid})`;
         console.log(`Daemon: ${daemonStatus}`);
         console.log(`Budget: $${daemonState.budgetSpentUsd.toFixed(4)} / $${daemonState.budgetSpentUsd.toFixed(4)} today`);
         console.log("");

@@ -94,7 +94,10 @@ test("runProjectIteration marks implement task done when validations pass", asyn
   expect(persisted.tasks[0]?.lastRun?.effectivePromotionMode).toBe("auto-merge");
   expect(persisted.tasks[0]?.lastRun?.promotionAction).toBe("queue-auto-merge");
 
-  const promotionArtifact = JSON.parse(await fs.readFile(result.promotionArtifactPath as string, "utf8")) as { action: string; decision: string };
+  const promotionArtifact = JSON.parse(await fs.readFile(result.promotionArtifactPath as string, "utf8")) as {
+    action: string;
+    decision: string;
+  };
   expect(promotionArtifact.action).toBe("queue-auto-merge");
   expect(promotionArtifact.decision).toBe("auto-merge-eligible");
 });
@@ -408,13 +411,15 @@ test("runProjectIteration stops with timeout when Pi exceeds the configured run 
     updatedAt: new Date().toISOString(),
   };
 
-  await expect(runProjectIteration(project, {
-    timeoutMs: 10,
-    piRunner: async () => {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      return fakeAgentRun();
-    },
-  })).rejects.toThrow("timeout");
+  await expect(
+    runProjectIteration(project, {
+      timeoutMs: 10,
+      piRunner: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        return fakeAgentRun();
+      },
+    }),
+  ).rejects.toThrow("timeout");
 
   const persisted = JSON.parse(await fs.readFile(path.join(projectRoot, ".openloop", "tasks.json"), "utf8")) as TaskLedger;
   expect(persisted.tasks[0]?.attempts).toBe(1);

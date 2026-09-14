@@ -8,81 +8,101 @@ import type { LinkedProject, ProjectConfig, ProjectTask, TaskLedger } from "../.
 import { fakeAgentRun, initGitRepo } from "../helpers/factories.js";
 
 test("determineWorkerRole maps planner, implementer, improver, and healer roles", () => {
-  expect(determineWorkerRole({
-    id: "plan-me",
-    title: "Plan me",
-    kind: "feature",
-    status: "proposed",
-    risk: "medium-risk",
-    scope: null,
-    source: { type: "human", ref: "test" },
-    specId: null,
-    branch: null,
-    owner: null,
-    acceptanceCriteria: ["plan"],
-    attempts: 0,
-    lastFailureSignature: null,
-    promotion: "pull-request",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  }, "plan")).toBe("sdd-planner");
+  expect(
+    determineWorkerRole(
+      {
+        id: "plan-me",
+        title: "Plan me",
+        kind: "feature",
+        status: "proposed",
+        risk: "medium-risk",
+        scope: null,
+        source: { type: "human", ref: "test" },
+        specId: null,
+        branch: null,
+        owner: null,
+        acceptanceCriteria: ["plan"],
+        attempts: 0,
+        lastFailureSignature: null,
+        promotion: "pull-request",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      "plan",
+    ),
+  ).toBe("sdd-planner");
 
-  expect(determineWorkerRole({
-    id: "impl-me",
-    title: "Implement me",
-    kind: "feature",
-    status: "ready",
-    risk: "low-risk",
-    scope: null,
-    source: { type: "human", ref: "test" },
-    specId: null,
-    branch: null,
-    owner: null,
-    acceptanceCriteria: ["implement"],
-    attempts: 0,
-    lastFailureSignature: null,
-    promotion: "auto-merge",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  }, "implement")).toBe("implementer");
+  expect(
+    determineWorkerRole(
+      {
+        id: "impl-me",
+        title: "Implement me",
+        kind: "feature",
+        status: "ready",
+        risk: "low-risk",
+        scope: null,
+        source: { type: "human", ref: "test" },
+        specId: null,
+        branch: null,
+        owner: null,
+        acceptanceCriteria: ["implement"],
+        attempts: 0,
+        lastFailureSignature: null,
+        promotion: "auto-merge",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      "implement",
+    ),
+  ).toBe("implementer");
 
-  expect(determineWorkerRole({
-    id: "heal-me",
-    title: "Heal me",
-    kind: "lint-fix",
-    status: "ready",
-    risk: "low-risk",
-    scope: null,
-    source: { type: "ci", ref: "test" },
-    specId: null,
-    branch: null,
-    owner: null,
-    acceptanceCriteria: ["heal"],
-    attempts: 0,
-    lastFailureSignature: null,
-    promotion: "pull-request",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  }, "implement")).toBe("ci-healer");
+  expect(
+    determineWorkerRole(
+      {
+        id: "heal-me",
+        title: "Heal me",
+        kind: "lint-fix",
+        status: "ready",
+        risk: "low-risk",
+        scope: null,
+        source: { type: "ci", ref: "test" },
+        specId: null,
+        branch: null,
+        owner: null,
+        acceptanceCriteria: ["heal"],
+        attempts: 0,
+        lastFailureSignature: null,
+        promotion: "pull-request",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      "implement",
+    ),
+  ).toBe("ci-healer");
 
-  expect(determineWorkerRole({
-    id: "improve-me",
-    title: "Improve me",
-    kind: "discovery",
-    status: "proposed",
-    risk: "medium-risk",
-    scope: null,
-    source: { type: "discovery", ref: "test" },
-    specId: null,
-    branch: null,
-    owner: null,
-    acceptanceCriteria: ["improve"],
-    attempts: 0,
-    lastFailureSignature: null,
-    promotion: "manual-only",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  }, "plan")).toBe("repo-improver");
+  expect(
+    determineWorkerRole(
+      {
+        id: "improve-me",
+        title: "Improve me",
+        kind: "discovery",
+        status: "proposed",
+        risk: "medium-risk",
+        scope: null,
+        source: { type: "discovery", ref: "test" },
+        specId: null,
+        branch: null,
+        owner: null,
+        acceptanceCriteria: ["improve"],
+        attempts: 0,
+        lastFailureSignature: null,
+        promotion: "manual-only",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      "plan",
+    ),
+  ).toBe("repo-improver");
 });
 
 test("selectNextTask prioritizes ready self-healing work over planning tasks", () => {
@@ -297,11 +317,7 @@ test("selectNextTask skips ready tasks with unsatisfied dependsOn and names the 
   const ledger: TaskLedger = {
     version: 1,
     updatedAt: recent,
-    tasks: [
-      task("blocked-a", { dependsOn: ["missing-dep"] }),
-      task("blocked-b", { dependsOn: ["still-ready"] }),
-      task("still-ready"),
-    ],
+    tasks: [task("blocked-a", { dependsOn: ["missing-dep"] }), task("blocked-b", { dependsOn: ["still-ready"] }), task("still-ready")],
   };
 
   const selection = selectNextTask(ledger, now);
@@ -345,10 +361,7 @@ test("selectNextTask treats promoted dependencies as satisfied", () => {
   const ledger: TaskLedger = {
     version: 1,
     updatedAt: recent,
-    tasks: [
-      task("dependent", "ready", { dependsOn: ["promoted-dep"] }),
-      task("promoted-dep", "promoted"),
-    ],
+    tasks: [task("dependent", "ready", { dependsOn: ["promoted-dep"] }), task("promoted-dep", "promoted")],
   };
 
   const selection = selectNextTask(ledger, now);
@@ -528,7 +541,11 @@ test("runProjectIteration auto-generates a validation discovery task for idle pr
   };
   await fs.writeFile(path.join(projectRoot, ".openloop", "project.json"), `${JSON.stringify(projectConfig, null, 2)}\n`, "utf8");
   await fs.writeFile(path.join(projectRoot, ".openloop", "policy.yaml"), "version: 1\n", "utf8");
-  await fs.writeFile(path.join(projectRoot, ".openloop", "tasks.json"), `${JSON.stringify({ version: 1, updatedAt: new Date().toISOString(), tasks: [] }, null, 2)}\n`, "utf8");
+  await fs.writeFile(
+    path.join(projectRoot, ".openloop", "tasks.json"),
+    `${JSON.stringify({ version: 1, updatedAt: new Date().toISOString(), tasks: [] }, null, 2)}\n`,
+    "utf8",
+  );
 
   const project: LinkedProject = {
     alias: "demo",
@@ -568,7 +585,11 @@ test("runProjectIteration auto-generates a scope proposal task when validation e
   };
   await fs.writeFile(path.join(projectRoot, ".openloop", "project.json"), `${JSON.stringify(projectConfig, null, 2)}\n`, "utf8");
   await fs.writeFile(path.join(projectRoot, ".openloop", "policy.yaml"), "version: 1\n", "utf8");
-  await fs.writeFile(path.join(projectRoot, ".openloop", "tasks.json"), `${JSON.stringify({ version: 1, updatedAt: new Date().toISOString(), tasks: [] }, null, 2)}\n`, "utf8");
+  await fs.writeFile(
+    path.join(projectRoot, ".openloop", "tasks.json"),
+    `${JSON.stringify({ version: 1, updatedAt: new Date().toISOString(), tasks: [] }, null, 2)}\n`,
+    "utf8",
+  );
 
   const project: LinkedProject = {
     alias: "demo",
@@ -608,17 +629,14 @@ test("runProjectIteration auto-generates a targeted test-command task when valid
   await fs.writeFile(path.join(projectRoot, ".openloop", "project.json"), `${JSON.stringify(projectConfig, null, 2)}\n`, "utf8");
   await fs.writeFile(
     path.join(projectRoot, ".openloop", "policy.yaml"),
-    [
-      "version: 1",
-      "scope:",
-      "  allowGlobs:",
-      "    - src/**",
-      "  denyGlobs: []",
-      "  highRiskAreas: []",
-    ].join("\n") + "\n",
+    ["version: 1", "scope:", "  allowGlobs:", "    - src/**", "  denyGlobs: []", "  highRiskAreas: []"].join("\n") + "\n",
     "utf8",
   );
-  await fs.writeFile(path.join(projectRoot, ".openloop", "tasks.json"), `${JSON.stringify({ version: 1, updatedAt: new Date().toISOString(), tasks: [] }, null, 2)}\n`, "utf8");
+  await fs.writeFile(
+    path.join(projectRoot, ".openloop", "tasks.json"),
+    `${JSON.stringify({ version: 1, updatedAt: new Date().toISOString(), tasks: [] }, null, 2)}\n`,
+    "utf8",
+  );
 
   const project: LinkedProject = {
     alias: "demo",
@@ -721,13 +739,7 @@ test("runProjectIteration allows localized deterministic test self-healing tasks
   await fs.writeFile(path.join(projectRoot, ".openloop", "project.json"), `${JSON.stringify(projectConfig, null, 2)}\n`, "utf8");
   await fs.writeFile(
     path.join(projectRoot, ".openloop", "policy.yaml"),
-    [
-      "version: 1",
-      "selfHealing:",
-      "  enabled: true",
-      "  allowedTaskKinds:",
-      "    - localized-test-fix",
-    ].join("\n") + "\n",
+    ["version: 1", "selfHealing:", "  enabled: true", "  allowedTaskKinds:", "    - localized-test-fix"].join("\n") + "\n",
     "utf8",
   );
 
@@ -797,13 +809,7 @@ test("runProjectIteration blocks unsupported self-healing task kinds without inv
   await fs.writeFile(path.join(projectRoot, ".openloop", "project.json"), `${JSON.stringify(projectConfig, null, 2)}\n`, "utf8");
   await fs.writeFile(
     path.join(projectRoot, ".openloop", "policy.yaml"),
-    [
-      "version: 1",
-      "selfHealing:",
-      "  enabled: true",
-      "  allowedTaskKinds:",
-      "    - ci-heal",
-    ].join("\n") + "\n",
+    ["version: 1", "selfHealing:", "  enabled: true", "  allowedTaskKinds:", "    - ci-heal"].join("\n") + "\n",
     "utf8",
   );
 
@@ -872,15 +878,8 @@ test("runProjectIteration blocks tasks that target denied policy paths", async (
   await fs.writeFile(path.join(projectRoot, ".openloop", "project.json"), `${JSON.stringify(projectConfig, null, 2)}\n`, "utf8");
   await fs.writeFile(
     path.join(projectRoot, ".openloop", "policy.yaml"),
-    [
-      "version: 1",
-      "scope:",
-      "  allowGlobs:",
-      "    - src/**",
-      "  denyGlobs:",
-      "    - src/secrets/**",
-      "  highRiskAreas: []",
-    ].join("\n") + "\n",
+    ["version: 1", "scope:", "  allowGlobs:", "    - src/**", "  denyGlobs:", "    - src/secrets/**", "  highRiskAreas: []"].join("\n") +
+      "\n",
     "utf8",
   );
 
@@ -1327,9 +1326,7 @@ test("runProjectIteration executes the agent and validations inside the worktree
   const result = await runProjectIteration(project, { piRunner, validationRunner });
 
   expect(result.taskStatus).toBe("done");
-  expect(result.validation).toEqual([
-    { name: "test", command: "test -f touched-by-agent.txt", exitCode: 0 },
-  ]);
+  expect(result.validation).toEqual([{ name: "test", command: "test -f touched-by-agent.txt", exitCode: 0 }]);
   expect(validationRunner).toHaveBeenCalledTimes(1);
   expect(validationRunner.mock.calls[0]?.[0]).toBe(worktreePath);
 
@@ -1402,9 +1399,7 @@ test("runProjectIteration fails closed when the worktree setup command fails", a
   const piRunner = vi.fn(async () => fakeAgentRun());
   const validationRunner = vi.fn(async () => 0);
 
-  await expect(
-    runProjectIteration(project, { piRunner, validationRunner }),
-  ).rejects.toThrow(/Worktree setup command failed: exit 3/);
+  await expect(runProjectIteration(project, { piRunner, validationRunner })).rejects.toThrow(/Worktree setup command failed: exit 3/);
 
   expect(piRunner).not.toHaveBeenCalled();
   expect(validationRunner).not.toHaveBeenCalled();

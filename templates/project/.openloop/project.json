@@ -7,11 +7,7 @@
   },
   "pi": {
     "model": null,
-    "promptFiles": [
-      ".agents/skills/openloop/SKILL.md",
-      ".pi/SYSTEM.md",
-      ".pi/APPEND_SYSTEM.md"
-    ]
+    "promptFiles": [".agents/skills/openloop/SKILL.md", ".pi/SYSTEM.md", ".pi/APPEND_SYSTEM.md"]
   },
   "runtime": {
     "useWorktree": false,

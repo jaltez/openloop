@@ -81,7 +81,11 @@ export default function TasksView(props: TasksViewProps) {
       setStatusMsg("Title is required");
       return;
     }
-    const id = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60);
+    const id = title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 60);
     const task: ProjectTask = {
       id,
       title,
@@ -135,7 +139,9 @@ export default function TasksView(props: TasksViewProps) {
 
       <Show when={mode() === "add"}>
         <box borderStyle="rounded" borderColor={colors.accent} padding={1} flexDirection="column" gap={1} width={50}>
-          <text fg={colors.accent}><b>Add Task</b></text>
+          <text fg={colors.accent}>
+            <b>Add Task</b>
+          </text>
           <box flexDirection="row" gap={1}>
             <text fg={colors.textDim}>{"Title:".padEnd(8)}</text>
             <input
@@ -154,7 +160,9 @@ export default function TasksView(props: TasksViewProps) {
         {/* Left: task list */}
         <box flexDirection="column" width="50%">
           <text fg={colors.accent}>
-            <b>{"ID".padEnd(20)}  {"STATUS".padEnd(12)}  {"RISK".padEnd(8)}  TITLE</b>
+            <b>
+              {"ID".padEnd(20)} {"STATUS".padEnd(12)} {"RISK".padEnd(8)} TITLE
+            </b>
           </text>
           <text fg={colors.border}>{"─".repeat(70)}</text>
           {filteredTasks().length === 0 ? (
@@ -164,13 +172,13 @@ export default function TasksView(props: TasksViewProps) {
               {(task, idx) => {
                 const isSelected = () => idx() === selectedIdx();
                 return (
-                  <text
-                    fg={isSelected() ? colors.accentBright : colors.text}
-                    bg={isSelected() ? colors.bgSelected : undefined}
-                  >
-                    {task.id.padEnd(20).slice(0, 20)}{"  "}
-                    <Span fg={taskStatusColor(task.status)}>{task.status.padEnd(12)}</Span>{"  "}
-                    {(task.risk ?? "?").padEnd(8)}{"  "}
+                  <text fg={isSelected() ? colors.accentBright : colors.text} bg={isSelected() ? colors.bgSelected : undefined}>
+                    {task.id.padEnd(20).slice(0, 20)}
+                    {"  "}
+                    <Span fg={taskStatusColor(task.status)}>{task.status.padEnd(12)}</Span>
+                    {"  "}
+                    {(task.risk ?? "?").padEnd(8)}
+                    {"  "}
                     {task.title.slice(0, 30)}
                   </text>
                 );
@@ -185,23 +193,47 @@ export default function TasksView(props: TasksViewProps) {
             {(t: Accessor<ProjectTask>) => (
               <scrollbox height="100%">
                 <box flexDirection="column" gap={0}>
-                  <text fg={colors.accent}><b>{t().title}</b></text>
-                  <text fg={colors.textDim}>ID:       <Span fg={colors.text}>{t().id}</Span></text>
-                  <text fg={colors.textDim}>Kind:     <Span fg={colors.text}>{t().kind}</Span></text>
-                  <text fg={colors.textDim}>Status:   <Span fg={taskStatusColor(t().status)}>{t().status}</Span></text>
-                  <text fg={colors.textDim}>Risk:     <Span fg={colors.text}>{t().risk}</Span></text>
-                  <text fg={colors.textDim}>Branch:   <Span fg={colors.text}>{t().branch ?? "—"}</Span></text>
-                  <text fg={colors.textDim}>Attempts: <Span fg={colors.text}>{t().attempts}</Span></text>
-                  <text fg={colors.textDim}>Source:   <Span fg={colors.text}>{t().source?.type ?? "—"} / {t().source?.ref ?? "—"}</Span></text>
-                  <text fg={colors.textDim}>Created:  <Span fg={colors.text}>{t().createdAt}</Span></text>
+                  <text fg={colors.accent}>
+                    <b>{t().title}</b>
+                  </text>
+                  <text fg={colors.textDim}>
+                    ID: <Span fg={colors.text}>{t().id}</Span>
+                  </text>
+                  <text fg={colors.textDim}>
+                    Kind: <Span fg={colors.text}>{t().kind}</Span>
+                  </text>
+                  <text fg={colors.textDim}>
+                    Status: <Span fg={taskStatusColor(t().status)}>{t().status}</Span>
+                  </text>
+                  <text fg={colors.textDim}>
+                    Risk: <Span fg={colors.text}>{t().risk}</Span>
+                  </text>
+                  <text fg={colors.textDim}>
+                    Branch: <Span fg={colors.text}>{t().branch ?? "—"}</Span>
+                  </text>
+                  <text fg={colors.textDim}>
+                    Attempts: <Span fg={colors.text}>{t().attempts}</Span>
+                  </text>
+                  <text fg={colors.textDim}>
+                    Source:{" "}
+                    <Span fg={colors.text}>
+                      {t().source?.type ?? "—"} / {t().source?.ref ?? "—"}
+                    </Span>
+                  </text>
+                  <text fg={colors.textDim}>
+                    Created: <Span fg={colors.text}>{t().createdAt}</Span>
+                  </text>
                   <Show when={t().acceptanceCriteria?.length}>
                     <text fg={colors.textDim}>Acceptance criteria:</text>
-                    <For each={t().acceptanceCriteria}>
-                      {(ac) => <text fg={colors.text}>  • {ac}</text>}
-                    </For>
+                    <For each={t().acceptanceCriteria}>{(ac) => <text fg={colors.text}> • {ac}</text>}</For>
                   </Show>
                   <Show when={t().lastRun}>
-                    <text fg={colors.textDim}>Last run: <Span fg={colors.text}>{t().lastRun?.outcome ?? "—"} @ {t().lastRun?.completedAt ?? ""}</Span></text>
+                    <text fg={colors.textDim}>
+                      Last run:{" "}
+                      <Span fg={colors.text}>
+                        {t().lastRun?.outcome ?? "—"} @ {t().lastRun?.completedAt ?? ""}
+                      </Span>
+                    </text>
                   </Show>
                 </box>
               </scrollbox>
@@ -210,13 +242,15 @@ export default function TasksView(props: TasksViewProps) {
         </box>
       </box>
 
-      <KeyHint hints={[
-        { key: "↑/↓", label: "navigate" },
-        { key: "f", label: "filter status" },
-        { key: "a", label: "add" },
-        { key: "d", label: "delete" },
-        { key: "r", label: "recover stuck" },
-      ]} />
+      <KeyHint
+        hints={[
+          { key: "↑/↓", label: "navigate" },
+          { key: "f", label: "filter status" },
+          { key: "a", label: "add" },
+          { key: "d", label: "delete" },
+          { key: "r", label: "recover stuck" },
+        ]}
+      />
     </box>
   );
 }

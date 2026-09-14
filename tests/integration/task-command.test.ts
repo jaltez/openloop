@@ -30,7 +30,11 @@ test("task add persists declared scope paths", async () => {
 
   await runCli(["project", "add", "demo", projectRoot]);
   await fs.mkdir(path.join(projectRoot, ".openloop"), { recursive: true });
-  await fs.writeFile(path.join(projectRoot, ".openloop", "tasks.json"), `${JSON.stringify({ version: 1, updatedAt: new Date().toISOString(), tasks: [] }, null, 2)}\n`, "utf8");
+  await fs.writeFile(
+    path.join(projectRoot, ".openloop", "tasks.json"),
+    `${JSON.stringify({ version: 1, updatedAt: new Date().toISOString(), tasks: [] }, null, 2)}\n`,
+    "utf8",
+  );
 
   await runCli(["task", "add", "--project", "demo", "--title", "Scoped task", "--scope", "src/core/scheduler.ts", "--scope", "README.md"]);
 
@@ -58,13 +62,19 @@ test("project init resolves bundled templates independently of current working d
 
   const projectConfig = JSON.parse(await fs.readFile(path.join(projectRoot, ".openloop", "project.json"), "utf8"));
   expect(projectConfig.project.alias).toBe("demo");
-  expect(await fs.readFile(path.join(projectRoot, ".agents", "skills", "openloop", "SKILL.md"), "utf8")).toContain("Openloop Repository Skill");
+  expect(await fs.readFile(path.join(projectRoot, ".agents", "skills", "openloop", "SKILL.md"), "utf8")).toContain(
+    "Openloop Repository Skill",
+  );
 });
 
 async function runCli(args: string[]): Promise<void> {
-  const cli = yargs().scriptName("openloop").strict().exitProcess(false).fail((message, error) => {
-    throw error ?? new Error(message);
-  });
+  const cli = yargs()
+    .scriptName("openloop")
+    .strict()
+    .exitProcess(false)
+    .fail((message, error) => {
+      throw error ?? new Error(message);
+    });
 
   registerProjectCommands(cli);
   registerTaskCommands(cli);

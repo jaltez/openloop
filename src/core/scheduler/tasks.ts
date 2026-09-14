@@ -66,9 +66,10 @@ export function synthesizeContinuousImprovementTask(
     });
   }
 
-  const missingScopePolicy = projectPolicy.scope.allowGlobs.length === 0
-    && projectPolicy.scope.denyGlobs.length === 0
-    && projectPolicy.scope.highRiskAreas.length === 0;
+  const missingScopePolicy =
+    projectPolicy.scope.allowGlobs.length === 0 &&
+    projectPolicy.scope.denyGlobs.length === 0 &&
+    projectPolicy.scope.highRiskAreas.length === 0;
   if (missingScopePolicy && !existingRefs.has("continuous-improvement:scope-policy")) {
     return createContinuousImprovementTask(projectAlias, {
       id: "define-scope-policy",
@@ -129,11 +130,12 @@ export function buildPrompt(
   options?: { providerIsPi?: boolean },
 ): string {
   const providerIsPi = options?.providerIsPi ?? true;
-  const header = mode === "implement"
-    ? isSupportedSelfHealingTask(task.kind)
-      ? `Repair the following ${describeSelfHealingTask(task.kind)} with the smallest viable change.`
-      : "Implement the following task."
-    : "Plan the following task and prepare it for implementation.";
+  const header =
+    mode === "implement"
+      ? isSupportedSelfHealingTask(task.kind)
+        ? `Repair the following ${describeSelfHealingTask(task.kind)} with the smallest viable change.`
+        : "Implement the following task."
+      : "Plan the following task and prepare it for implementation.";
   const lines = [
     // Pi loads openloop conventions from its system-prompt files; every other
     // provider only sees AGENTS.md — point it there explicitly.

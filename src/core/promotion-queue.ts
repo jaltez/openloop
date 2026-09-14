@@ -3,7 +3,15 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileExists, readJsonFile, writeJsonFile } from "./fs.js";
-import { checkoutBranch, checkoutHandoffBranch, ensureCleanGitRepo, getBranchHead, getGitWorkingTreeState, getMergeBase, mergeFastForward } from "./git.js";
+import {
+  checkoutBranch,
+  checkoutHandoffBranch,
+  ensureCleanGitRepo,
+  getBranchHead,
+  getGitWorkingTreeState,
+  getMergeBase,
+  mergeFastForward,
+} from "./git.js";
 import { loadProjectConfig } from "./project-config.js";
 import { listPromotionResultArtifacts, readPromotionResultArtifact, writePromotionResultArtifact } from "./promotion-artifacts.js";
 import { loadTaskLedger, withTaskLedger } from "./task-ledger.js";
@@ -137,7 +145,10 @@ export async function applyPromotionArtifact(projectPath: string, taskId: string
   return match;
 }
 
-export async function dryRunPromotionApply(projectPath: string, taskId: string): Promise<{
+export async function dryRunPromotionApply(
+  projectPath: string,
+  taskId: string,
+): Promise<{
   wouldApply: boolean;
   action: string;
   reason: string;
@@ -166,7 +177,11 @@ export async function dryRunPromotionApply(projectPath: string, taskId: string):
   if (match.artifact.action === "queue-auto-merge") {
     try {
       await assertAutoMergeReady(projectPath, task);
-      return { wouldApply: true, action: "queue-auto-merge", reason: `Would auto-merge task branch into ${match.artifact.baseBranch ?? "current branch"}` };
+      return {
+        wouldApply: true,
+        action: "queue-auto-merge",
+        reason: `Would auto-merge task branch into ${match.artifact.baseBranch ?? "current branch"}`,
+      };
     } catch (error) {
       return { wouldApply: false, action: "queue-auto-merge", reason: error instanceof Error ? error.message : String(error) };
     }
@@ -391,12 +406,11 @@ async function attemptPrCreation(
     const bodyArg = ["--body", `Automated PR for OpenLoop task ${task.id}`];
     const headArg = ["--head", branchName];
     // Use shell to support custom prCommand strings
-    const { stdout } = await execFileAsync("sh", [
-      "-c",
-      `${prCmd} ${[...headArg, ...baseArg, ...titleArg, ...bodyArg]
-        .map((arg) => JSON.stringify(arg))
-        .join(" ")}`,
-    ], { cwd: projectPath });
+    const { stdout } = await execFileAsync(
+      "sh",
+      ["-c", `${prCmd} ${[...headArg, ...baseArg, ...titleArg, ...bodyArg].map((arg) => JSON.stringify(arg)).join(" ")}`],
+      { cwd: projectPath },
+    );
     const url = stdout.trim().split("\n").pop()?.trim() ?? null;
     return url || null;
   } catch {

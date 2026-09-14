@@ -35,11 +35,7 @@ export async function runPi(options: PiRunOptions): Promise<AgentRunResult> {
 }
 
 // D6 / A1: Model-agnostic agent runner dispatching to the configured provider.
-export async function runAgent(
-  options: PiRunOptions,
-  projectConfig?: ProjectConfig,
-  defaultProvider?: string,
-): Promise<AgentRunResult> {
+export async function runAgent(options: PiRunOptions, projectConfig?: ProjectConfig, defaultProvider?: string): Promise<AgentRunResult> {
   const agentType = projectConfig?.agent?.type ?? undefined;
   const customCommand = projectConfig?.agent?.command ?? null;
   const provider = resolveProvider(agentType, customCommand, defaultProvider);

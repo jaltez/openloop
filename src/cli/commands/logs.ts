@@ -27,7 +27,11 @@ export function registerLogsCommands(cli: Argv): void {
           return;
         }
         const entries = await fs.readdir(runsDir);
-        const mdFiles = entries.filter((name) => name.endsWith(".md")).sort().reverse().slice(0, args.lines);
+        const mdFiles = entries
+          .filter((name) => name.endsWith(".md"))
+          .sort()
+          .reverse()
+          .slice(0, args.lines);
         for (const file of mdFiles) {
           const content = await fs.readFile(path.join(runsDir, file), "utf8");
           console.log(`--- ${file} ---`);

@@ -12,7 +12,7 @@ const FIELD_RANGES: Array<[number, number]> = [
   [0, 23], // hour
   [1, 31], // day of month
   [1, 12], // month
-  [0, 6],  // day of week (0 = Sunday)
+  [0, 6], // day of week (0 = Sunday)
 ];
 
 function parseField(expr: string, fieldIndex: number, fullExpr: string): CronField {

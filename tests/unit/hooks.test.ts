@@ -43,7 +43,7 @@ function buildConfig(command: string): GlobalConfig {
 describe("runLifecycleHooks", () => {
   it("collects notes and manual review requests from command hooks", async () => {
     const result = await runLifecycleHooks({
-      globalConfig: buildConfig("cat >/dev/null && printf '{\"note\":\"Needs review\",\"requireManualReview\":true}'"),
+      globalConfig: buildConfig('cat >/dev/null && printf \'{"note":"Needs review","requireManualReview":true}\''),
       payload: {
         event: "promotion-auto-merge-queued",
         project: "demo",

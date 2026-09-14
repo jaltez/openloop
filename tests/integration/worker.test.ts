@@ -12,7 +12,6 @@ import { initGitRepo } from "../helpers/factories.js";
 import type { ProjectTask, SchedulerResult, TaskLedger } from "../../src/core/types.js";
 import { RunTimeoutError } from "../../src/core/timeout.js";
 
-
 const tempDirs: string[] = [];
 const originalOpenloopHome = process.env.OPENLOOP_HOME;
 
@@ -50,31 +49,37 @@ test("worker tick blocks new runs when daily budget is exhausted", async () => {
   process.env.OPENLOOP_HOME = appHome;
 
   await seedRunnableProject(appHome, projectRoot, "demo", "task-1");
-  await saveGlobalConfig({
-    version: 1,
-    model: null,
-    activeProjectAlias: null,
-    budgets: { dailyCostUsd: 5 },
-    runtime: {
-      runTimeoutSeconds: 1800,
-      maxAttemptsPerTask: 3,
-      noProgressRepeatLimit: 2,
+  await saveGlobalConfig(
+    {
+      version: 1,
+      model: null,
+      activeProjectAlias: null,
+      budgets: { dailyCostUsd: 5 },
+      runtime: {
+        runTimeoutSeconds: 1800,
+        maxAttemptsPerTask: 3,
+        noProgressRepeatLimit: 2,
+      },
     },
-  }, appHome);
-  await saveDaemonState({
-    version: 1,
-    startedAt: "2026-03-09T09:00:00.000Z",
-    pid: 123,
-    activeProject: null,
-    paused: false,
-    pausedAt: null,
-    totalBudgetSpentUsd: 5,
-    budgetDate: "2026-03-09",
-    budgetSpentUsd: 5,
-    budgetBlocked: false,
-    currentRun: null,
-    projects: [],
-  }, appHome);
+    appHome,
+  );
+  await saveDaemonState(
+    {
+      version: 1,
+      startedAt: "2026-03-09T09:00:00.000Z",
+      pid: 123,
+      activeProject: null,
+      paused: false,
+      pausedAt: null,
+      totalBudgetSpentUsd: 5,
+      budgetDate: "2026-03-09",
+      budgetSpentUsd: 5,
+      budgetBlocked: false,
+      currentRun: null,
+      projects: [],
+    },
+    appHome,
+  );
 
   const runProjectIterationFn = vi.fn();
   const state = await runWorkerTick({ startedAt: "2026-03-09T10:00:00.000Z", runProjectIterationFn: runProjectIterationFn as never });
@@ -92,13 +97,16 @@ test("worker tick accumulates measured cost from the iteration result", async ()
   process.env.OPENLOOP_HOME = appHome;
 
   await seedRunnableProject(appHome, projectRoot, "demo", "task-1");
-  await saveGlobalConfig({
-    version: 1,
-    model: null,
-    activeProjectAlias: null,
-    budgets: { dailyCostUsd: 25, estimatedCostPerRunUsd: 0.1 },
-    runtime: { runTimeoutSeconds: 1800, maxAttemptsPerTask: 3, noProgressRepeatLimit: 2 },
-  }, appHome);
+  await saveGlobalConfig(
+    {
+      version: 1,
+      model: null,
+      activeProjectAlias: null,
+      budgets: { dailyCostUsd: 25, estimatedCostPerRunUsd: 0.1 },
+      runtime: { runTimeoutSeconds: 1800, maxAttemptsPerTask: 3, noProgressRepeatLimit: 2 },
+    },
+    appHome,
+  );
 
   const state = await runWorkerTick({
     startedAt: "2026-03-09T10:00:00.000Z",
@@ -119,13 +127,16 @@ test("worker tick charges the estimate when a run times out", async () => {
   process.env.OPENLOOP_HOME = appHome;
 
   await seedRunnableProject(appHome, projectRoot, "demo", "task-1");
-  await saveGlobalConfig({
-    version: 1,
-    model: null,
-    activeProjectAlias: null,
-    budgets: { dailyCostUsd: 25, estimatedCostPerRunUsd: 0.1 },
-    runtime: { runTimeoutSeconds: 1800, maxAttemptsPerTask: 3, noProgressRepeatLimit: 2 },
-  }, appHome);
+  await saveGlobalConfig(
+    {
+      version: 1,
+      model: null,
+      activeProjectAlias: null,
+      budgets: { dailyCostUsd: 25, estimatedCostPerRunUsd: 0.1 },
+      runtime: { runTimeoutSeconds: 1800, maxAttemptsPerTask: 3, noProgressRepeatLimit: 2 },
+    },
+    appHome,
+  );
 
   const state = await runWorkerTick({
     startedAt: "2026-03-09T10:00:00.000Z",
@@ -193,13 +204,16 @@ test("worker tick disables review backpressure when the limit is zero", async ()
 
   await seedRunnableProject(appHome, projectRoot, "demo", "task-1");
   await seedPendingPromotions(projectRoot, 5);
-  await saveGlobalConfig({
-    version: 1,
-    model: null,
-    activeProjectAlias: null,
-    budgets: { dailyCostUsd: 25, estimatedCostPerRunUsd: 0.1 },
-    runtime: { runTimeoutSeconds: 1800, maxAttemptsPerTask: 3, noProgressRepeatLimit: 2, maxPendingReviewsPerProject: 0 },
-  }, appHome);
+  await saveGlobalConfig(
+    {
+      version: 1,
+      model: null,
+      activeProjectAlias: null,
+      budgets: { dailyCostUsd: 25, estimatedCostPerRunUsd: 0.1 },
+      runtime: { runTimeoutSeconds: 1800, maxAttemptsPerTask: 3, noProgressRepeatLimit: 2, maxPendingReviewsPerProject: 0 },
+    },
+    appHome,
+  );
 
   const runProjectIterationFn = vi.fn(async () => makeIterationResult({}));
   const state = await runWorkerTick({
@@ -210,7 +224,6 @@ test("worker tick disables review backpressure when the limit is zero", async ()
   expect(runProjectIterationFn).toHaveBeenCalledTimes(1);
   expect(state.projects.find((project) => project.alias === "demo")?.lastResult).not.toBe("review-backpressure");
 });
-
 
 test("a pause arriving mid-run is not reverted by the tick's post-run save", async () => {
   const appHome = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-home-"));
@@ -271,22 +284,26 @@ async function seedPendingPromotions(projectRoot: string, count: number): Promis
   for (let index = 0; index < count; index++) {
     await fs.writeFile(
       path.join(promotionsDir, `2026-03-09T10-00-0${index}-000Z-task-${index}.json`),
-      `${JSON.stringify({
-        version: 1,
-        createdAt: `2026-03-09T10:00:0${index}.000Z`,
-        projectAlias: "demo",
-        taskId: `task-${index}`,
-        baseBranch: null,
-        decision: "manual-review",
-        action: "queue-review",
-        effectivePromotionMode: "pull-request",
-        validation: [],
-        piExitCode: 0,
-        outcome: "completed",
-        status: "pending",
-        processedAt: null,
-        note: null,
-      }, null, 2)}\n`,
+      `${JSON.stringify(
+        {
+          version: 1,
+          createdAt: `2026-03-09T10:00:0${index}.000Z`,
+          projectAlias: "demo",
+          taskId: `task-${index}`,
+          baseBranch: null,
+          decision: "manual-review",
+          action: "queue-review",
+          effectivePromotionMode: "pull-request",
+          validation: [],
+          piExitCode: 0,
+          outcome: "completed",
+          status: "pending",
+          processedAt: null,
+          note: null,
+        },
+        null,
+        2,
+      )}\n`,
       "utf8",
     );
   }
@@ -345,18 +362,24 @@ async function writeScheduleConfig(
   scheduleState: Record<string, string> | null,
 ): Promise<void> {
   const configPath = path.join(projectRoot, ".openloop", "project.json");
-  const existing = await fs.readFile(configPath, "utf8").then((raw) => JSON.parse(raw), () => ({}));
+  const existing = await fs.readFile(configPath, "utf8").then(
+    (raw) => JSON.parse(raw),
+    () => ({}),
+  );
   await fs.writeFile(
     configPath,
-    `${JSON.stringify({
-      ...existing,
-      schedule: Object.entries(schedules).map(([id, schedule]) => ({ id, ...schedule })),
-      scheduleState: scheduleState ?? undefined,
-    }, null, 2)}\n`,
+    `${JSON.stringify(
+      {
+        ...existing,
+        schedule: Object.entries(schedules).map(([id, schedule]) => ({ id, ...schedule })),
+        scheduleState: scheduleState ?? undefined,
+      },
+      null,
+      2,
+    )}\n`,
     "utf8",
   );
 }
-
 
 async function readTasks(projectRoot: string): Promise<ProjectTask[]> {
   // Test-owned fixture file: loadTaskLedger would apply defaults; read raw JSON.
@@ -378,29 +401,33 @@ test("recoverStuckTasks reclaims stale worktrees and drops abandoned branches", 
   const now = new Date().toISOString();
   await fs.writeFile(
     path.join(projectRoot, ".openloop", "tasks.json"),
-    `${JSON.stringify({
-      version: 1,
-      updatedAt: now,
-      tasks: [
-        { id: "blocked-task", status: "blocked" },
-        { id: "done-task", status: "done" },
-      ].map((partial) => ({
-        title: partial.id,
-        kind: "feature",
-        risk: "low-risk",
-        source: { type: "human", ref: "test" },
-        specId: null,
-        branch: null,
-        owner: null,
-        acceptanceCriteria: [],
-        attempts: 1,
-        lastFailureSignature: null,
-        promotion: "pull-request",
-        createdAt: now,
+    `${JSON.stringify(
+      {
+        version: 1,
         updatedAt: now,
-        ...partial,
-      })),
-    }, null, 2)}\n`,
+        tasks: [
+          { id: "blocked-task", status: "blocked" },
+          { id: "done-task", status: "done" },
+        ].map((partial) => ({
+          title: partial.id,
+          kind: "feature",
+          risk: "low-risk",
+          source: { type: "human", ref: "test" },
+          specId: null,
+          branch: null,
+          owner: null,
+          acceptanceCriteria: [],
+          attempts: 1,
+          lastFailureSignature: null,
+          promotion: "pull-request",
+          createdAt: now,
+          updatedAt: now,
+          ...partial,
+        })),
+      },
+      null,
+      2,
+    )}\n`,
     "utf8",
   );
 
@@ -472,29 +499,33 @@ async function seedRunnableProject(appHome: string, projectRoot: string, alias: 
   await fs.mkdir(path.join(projectRoot, ".openloop"), { recursive: true });
   await fs.writeFile(
     path.join(projectRoot, ".openloop", "tasks.json"),
-    `${JSON.stringify({
-      version: 1,
-      updatedAt: new Date().toISOString(),
-      tasks: [
-        {
-          id: taskId,
-          title: "Queued task",
-          kind: "feature",
-          status: "ready",
-          risk: "low-risk",
-          source: { type: "human", ref: "test" },
-          specId: null,
-          branch: null,
-          owner: null,
-          acceptanceCriteria: ["x"],
-          attempts: 0,
-          lastFailureSignature: null,
-          promotion: "auto-merge",
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-      ],
-    }, null, 2)}\n`,
+    `${JSON.stringify(
+      {
+        version: 1,
+        updatedAt: new Date().toISOString(),
+        tasks: [
+          {
+            id: taskId,
+            title: "Queued task",
+            kind: "feature",
+            status: "ready",
+            risk: "low-risk",
+            source: { type: "human", ref: "test" },
+            specId: null,
+            branch: null,
+            owner: null,
+            acceptanceCriteria: ["x"],
+            attempts: 0,
+            lastFailureSignature: null,
+            promotion: "auto-merge",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
     "utf8",
   );
 }

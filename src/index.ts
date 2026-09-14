@@ -56,13 +56,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const cli = yargs(hideBin(process.argv))
-    .scriptName("openloop")
-    .version(version)
-    .alias("version", "V")
-    .strict()
-    .demandCommand()
-    .help();
+  const cli = yargs(hideBin(process.argv)).scriptName("openloop").version(version).alias("version", "V").strict().demandCommand().help();
 
   registerProjectCommands(cli);
   registerPromotionCommands(cli);

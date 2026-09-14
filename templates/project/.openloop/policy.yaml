@@ -23,7 +23,6 @@ selfHealing:
     - type-fix
     - localized-test-fix
 
-
 promotion:
   lowRiskMode: auto-merge
   mediumRiskMode: pull-request

@@ -13,10 +13,7 @@ describe("Issue Sync", () => {
   beforeEach(async () => {
     projectDir = await createTempDir();
     await fs.mkdir(path.join(projectDir, ".openloop"), { recursive: true });
-    await fs.writeFile(
-      path.join(projectDir, ".openloop", "project.json"),
-      makeProjectConfigJson(),
-    );
+    await fs.writeFile(path.join(projectDir, ".openloop", "project.json"), makeProjectConfigJson());
     await saveTaskLedger(projectDir, makeEmptyLedger());
   });
 

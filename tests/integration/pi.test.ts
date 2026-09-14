@@ -10,7 +10,9 @@ import type { LinkedProject } from "../../src/core/types.js";
 // we create tiny shell scripts named "pi" and prepend them to PATH.
 
 const origPath = process.env.PATH;
-afterEach(() => { process.env.PATH = origPath; });
+afterEach(() => {
+  process.env.PATH = origPath;
+});
 
 async function makeFakePi(dir: string, script: string): Promise<void> {
   const piPath = path.join(dir, "pi");
@@ -51,9 +53,7 @@ test("runPi rejects with RunTimeoutError when timeout fires", async () => {
   await makeFakePi(dir, "sleep 999");
   process.env.PATH = `${dir}:${origPath}`;
 
-  await expect(
-    runPi({ prompt: "hello", project: fakeProject(dir), timeoutMs: 200 }),
-  ).rejects.toThrow(RunTimeoutError);
+  await expect(runPi({ prompt: "hello", project: fakeProject(dir), timeoutMs: 200 })).rejects.toThrow(RunTimeoutError);
 }, 10_000);
 
 test("runPi rejects when pi binary is not found", async () => {
@@ -61,7 +61,5 @@ test("runPi rejects when pi binary is not found", async () => {
   // PATH points to empty dir — no `pi` binary exists
   process.env.PATH = dir;
 
-  await expect(
-    runPi({ prompt: "hello", project: fakeProject(dir) }),
-  ).rejects.toThrow();
+  await expect(runPi({ prompt: "hello", project: fakeProject(dir) })).rejects.toThrow();
 });

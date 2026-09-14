@@ -30,10 +30,7 @@ export default function EventsView(props: EventsViewProps) {
   const [projectFilter, setProjectFilter] = createSignal<string | undefined>(undefined);
 
   const projectAccessor = (): string | undefined => projectFilter();
-  const events = useEventLog(
-    { project: projectAccessor, sinceMs: SINCE_OPTIONS[sinceIdx()]!.ms, limit: 100 },
-    3000,
-  );
+  const events = useEventLog({ project: projectAccessor, sinceMs: SINCE_OPTIONS[sinceIdx()]!.ms, limit: 100 }, 3000);
 
   useKeyboard((key) => {
     const len = events().length;
@@ -45,7 +42,7 @@ export default function EventsView(props: EventsViewProps) {
     }
     if (key.raw === "p") {
       const alias = props.activeProjectAlias();
-      setProjectFilter((f) => (f ? undefined : alias ?? undefined));
+      setProjectFilter((f) => (f ? undefined : (alias ?? undefined)));
     }
   });
 
@@ -63,7 +60,9 @@ export default function EventsView(props: EventsViewProps) {
 
       <box flexDirection="column" flexGrow={1}>
         <text fg={colors.accent}>
-          <b>{"TIME".padEnd(10)}  {"EVENT".padEnd(24)}  {"PROJECT".padEnd(14)}  TASK</b>
+          <b>
+            {"TIME".padEnd(10)} {"EVENT".padEnd(24)} {"PROJECT".padEnd(14)} TASK
+          </b>
         </text>
         <text fg={colors.border}>{"─".repeat(65)}</text>
         <scrollbox height="100%">
@@ -76,13 +75,13 @@ export default function EventsView(props: EventsViewProps) {
                   const isSelected = () => idx() === selectedIdx();
                   const time = evt.ts ? new Date(evt.ts).toLocaleTimeString().slice(0, 8) : "??:??:??";
                   return (
-                    <text
-                      fg={isSelected() ? colors.accentBright : colors.text}
-                      bg={isSelected() ? colors.bgSelected : undefined}
-                    >
-                      {time.padEnd(10)}{"  "}
-                      <Span fg={eventColor(evt.event)}>{evt.event.padEnd(24)}</Span>{"  "}
-                      {(evt.project ?? "—").padEnd(14)}{"  "}
+                    <text fg={isSelected() ? colors.accentBright : colors.text} bg={isSelected() ? colors.bgSelected : undefined}>
+                      {time.padEnd(10)}
+                      {"  "}
+                      <Span fg={eventColor(evt.event)}>{evt.event.padEnd(24)}</Span>
+                      {"  "}
+                      {(evt.project ?? "—").padEnd(14)}
+                      {"  "}
                       <Span fg={colors.textDim}>{evt.taskId ?? "—"}</Span>
                     </text>
                   );
@@ -93,11 +92,13 @@ export default function EventsView(props: EventsViewProps) {
         </scrollbox>
       </box>
 
-      <KeyHint hints={[
-        { key: "↑/↓", label: "navigate" },
-        { key: "s", label: "cycle since" },
-        { key: "p", label: "toggle project filter" },
-      ]} />
+      <KeyHint
+        hints={[
+          { key: "↑/↓", label: "navigate" },
+          { key: "s", label: "cycle since" },
+          { key: "p", label: "toggle project filter" },
+        ]}
+      />
     </box>
   );
 }

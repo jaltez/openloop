@@ -105,7 +105,5 @@ test("withDaemonState rejects while another process holds a fresh lock", async (
   await fs.mkdir(path.dirname(lockPath), { recursive: true });
   await fs.writeFile(lockPath, `${process.pid}.live\n`, "utf8");
 
-  await expect(withDaemonState(() => {}, appHome)).rejects.toThrow(
-    "Daemon state is locked by another openloop process",
-  );
+  await expect(withDaemonState(() => {}, appHome)).rejects.toThrow("Daemon state is locked by another openloop process");
 });

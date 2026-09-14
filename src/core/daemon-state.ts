@@ -51,16 +51,12 @@ export async function withDaemonState(
   mutator: (state: DaemonState) => void | Promise<void>,
   appHomeOverride?: string,
 ): Promise<DaemonState> {
-  return withFileLock(
-    path.join(runtimeDir(appHomeOverride), ".daemon-state.lock"),
-    { label: "Daemon state" },
-    async () => {
-      const state = await loadDaemonState(appHomeOverride);
-      await mutator(state);
-      await saveDaemonState(state, appHomeOverride);
-      return state;
-    },
-  );
+  return withFileLock(path.join(runtimeDir(appHomeOverride), ".daemon-state.lock"), { label: "Daemon state" }, async () => {
+    const state = await loadDaemonState(appHomeOverride);
+    await mutator(state);
+    await saveDaemonState(state, appHomeOverride);
+    return state;
+  });
 }
 
 export async function pauseDaemon(appHomeOverride?: string, requestedAt: string = new Date().toISOString()): Promise<DaemonState> {

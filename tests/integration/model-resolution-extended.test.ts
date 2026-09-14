@@ -16,14 +16,18 @@ afterEach(async () => {
 function writeProjectConfig(projectRoot: string, model: string | null): Promise<void> {
   return fs.writeFile(
     path.join(projectRoot, ".openloop", "project.json"),
-    JSON.stringify({
-      version: 1,
-      project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
-      pi: { model, promptFiles: [] },
-      runtime: { useWorktree: false, branchPrefix: "openloop/" },
-      validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
-      risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
-    }, null, 2),
+    JSON.stringify(
+      {
+        version: 1,
+        project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
+        pi: { model, promptFiles: [] },
+        runtime: { useWorktree: false, branchPrefix: "openloop/" },
+        validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
+        risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
+      },
+      null,
+      2,
+    ),
     "utf8",
   );
 }
@@ -35,13 +39,16 @@ test("returns null when no model is set anywhere", async () => {
 
   await fs.mkdir(path.join(projectRoot, ".openloop"), { recursive: true });
   await writeProjectConfig(projectRoot, null);
-  await saveGlobalConfig({
-    version: 1,
-    model: null,
-    activeProjectAlias: null,
-    budgets: { dailyCostUsd: 25 },
-    runtime: { runTimeoutSeconds: 1800, maxAttemptsPerTask: 3, noProgressRepeatLimit: 2 },
-  }, appHome);
+  await saveGlobalConfig(
+    {
+      version: 1,
+      model: null,
+      activeProjectAlias: null,
+      budgets: { dailyCostUsd: 25 },
+      runtime: { runTimeoutSeconds: 1800, maxAttemptsPerTask: 3, noProgressRepeatLimit: 2 },
+    },
+    appHome,
+  );
 
   const result = await resolveModel(projectRoot, undefined, appHome);
   expect(result).toBeNull();
@@ -54,13 +61,16 @@ test("returns project model when only project model is set", async () => {
 
   await fs.mkdir(path.join(projectRoot, ".openloop"), { recursive: true });
   await writeProjectConfig(projectRoot, "anthropic/sonnet");
-  await saveGlobalConfig({
-    version: 1,
-    model: null,
-    activeProjectAlias: null,
-    budgets: { dailyCostUsd: 25 },
-    runtime: { runTimeoutSeconds: 1800, maxAttemptsPerTask: 3, noProgressRepeatLimit: 2 },
-  }, appHome);
+  await saveGlobalConfig(
+    {
+      version: 1,
+      model: null,
+      activeProjectAlias: null,
+      budgets: { dailyCostUsd: 25 },
+      runtime: { runTimeoutSeconds: 1800, maxAttemptsPerTask: 3, noProgressRepeatLimit: 2 },
+    },
+    appHome,
+  );
 
   const result = await resolveModel(projectRoot, undefined, appHome);
   expect(result).toBe("anthropic/sonnet");
@@ -73,13 +83,16 @@ test("returns global model when only global model is set", async () => {
 
   await fs.mkdir(path.join(projectRoot, ".openloop"), { recursive: true });
   await writeProjectConfig(projectRoot, null);
-  await saveGlobalConfig({
-    version: 1,
-    model: "openai/gpt-4o",
-    activeProjectAlias: null,
-    budgets: { dailyCostUsd: 25 },
-    runtime: { runTimeoutSeconds: 1800, maxAttemptsPerTask: 3, noProgressRepeatLimit: 2 },
-  }, appHome);
+  await saveGlobalConfig(
+    {
+      version: 1,
+      model: "openai/gpt-4o",
+      activeProjectAlias: null,
+      budgets: { dailyCostUsd: 25 },
+      runtime: { runTimeoutSeconds: 1800, maxAttemptsPerTask: 3, noProgressRepeatLimit: 2 },
+    },
+    appHome,
+  );
 
   const result = await resolveModel(projectRoot, undefined, appHome);
   expect(result).toBe("openai/gpt-4o");
@@ -92,13 +105,16 @@ test("CLI override takes precedence even when empty string is passed", async () 
 
   await fs.mkdir(path.join(projectRoot, ".openloop"), { recursive: true });
   await writeProjectConfig(projectRoot, "anthropic/sonnet");
-  await saveGlobalConfig({
-    version: 1,
-    model: "openai/gpt-4o",
-    activeProjectAlias: null,
-    budgets: { dailyCostUsd: 25 },
-    runtime: { runTimeoutSeconds: 1800, maxAttemptsPerTask: 3, noProgressRepeatLimit: 2 },
-  }, appHome);
+  await saveGlobalConfig(
+    {
+      version: 1,
+      model: "openai/gpt-4o",
+      activeProjectAlias: null,
+      budgets: { dailyCostUsd: 25 },
+      runtime: { runTimeoutSeconds: 1800, maxAttemptsPerTask: 3, noProgressRepeatLimit: 2 },
+    },
+    appHome,
+  );
 
   // Empty string should fall through to project model
   const result = await resolveModel(projectRoot, "", appHome);

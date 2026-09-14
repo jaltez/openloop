@@ -57,9 +57,7 @@ export async function selectNextProject(appHomeOverride?: string): Promise<Linke
 
   if (strategy === "focus") {
     // Stay with the first project that has work until its queue is empty.
-    const sorted = [...eligible].sort((left, right) =>
-      left.project.alias.localeCompare(right.project.alias),
-    );
+    const sorted = [...eligible].sort((left, right) => left.project.alias.localeCompare(right.project.alias));
     return sorted[0]?.project ?? null;
   }
 

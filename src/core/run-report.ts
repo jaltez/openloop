@@ -63,10 +63,7 @@ async function buildTaskEntry(task: ProjectTask, projectPath: string): Promise<T
   };
 }
 
-export async function generateRunReport(options?: {
-  sinceMs?: number;
-  appHomeOverride?: string;
-}): Promise<RunReport> {
+export async function generateRunReport(options?: { sinceMs?: number; appHomeOverride?: string }): Promise<RunReport> {
   const sinceMs = options?.sinceMs ?? 24 * 60 * 60 * 1000; // Default 24h
   const config = await loadGlobalConfig(options?.appHomeOverride);
   const daemonState = await loadDaemonState(options?.appHomeOverride);
@@ -96,12 +93,8 @@ export async function generateRunReport(options?: {
     const completed = await Promise.all(
       recentlyUpdated.filter((t) => t.status === "done" || t.status === "promoted").map((t) => buildTaskEntry(t, project.path)),
     );
-    const failed = await Promise.all(
-      recentlyUpdated.filter((t) => t.status === "failed").map((t) => buildTaskEntry(t, project.path)),
-    );
-    const blocked = await Promise.all(
-      recentlyUpdated.filter((t) => t.status === "blocked").map((t) => buildTaskEntry(t, project.path)),
-    );
+    const failed = await Promise.all(recentlyUpdated.filter((t) => t.status === "failed").map((t) => buildTaskEntry(t, project.path)));
+    const blocked = await Promise.all(recentlyUpdated.filter((t) => t.status === "blocked").map((t) => buildTaskEntry(t, project.path)));
     const inProgress = await Promise.all(
       recentlyUpdated.filter((t) => t.status === "in_progress" || t.status === "ready").map((t) => buildTaskEntry(t, project.path)),
     );
@@ -147,9 +140,7 @@ export function formatRunReport(report: RunReport): string {
   lines.push(
     `✅ ${report.totalCompleted} completed | ⚠️ ${report.totalFailed} failed | 🚫 ${report.totalBlocked} blocked | 💤 ${report.totalIdle} idle`,
   );
-  lines.push(
-    `💰 $${report.budgetSpentUsd.toFixed(2)} spent ($${report.budgetRemainingUsd.toFixed(2)} remaining)`,
-  );
+  lines.push(`💰 $${report.budgetSpentUsd.toFixed(2)} spent ($${report.budgetRemainingUsd.toFixed(2)} remaining)`);
 
   for (const section of report.projects) {
     lines.push("");

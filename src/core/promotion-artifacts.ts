@@ -42,7 +42,10 @@ export async function readPromotionResultArtifact(filePath: string): Promise<Pro
   });
 }
 
-export async function listPromotionResultArtifacts(projectPath: string, taskId?: string): Promise<Array<{ artifactPath: string; artifact: PromotionResultArtifact }>> {
+export async function listPromotionResultArtifacts(
+  projectPath: string,
+  taskId?: string,
+): Promise<Array<{ artifactPath: string; artifact: PromotionResultArtifact }>> {
   const resultsDir = path.join(projectPath, ".openloop", "promotion-results");
   if (!(await fileExists(resultsDir))) {
     return [];

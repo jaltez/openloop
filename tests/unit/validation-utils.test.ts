@@ -57,9 +57,7 @@ describe("hasAllRequiredAutoMergeValidations", () => {
 
   it("returns false when a configured validation is missing from results", () => {
     const config = makeConfig({ lintCommand: "eslint .", testCommand: "vitest run" });
-    const validation: ValidationSummary[] = [
-      { name: "lint", command: "eslint .", exitCode: 0 },
-    ];
+    const validation: ValidationSummary[] = [{ name: "lint", command: "eslint .", exitCode: 0 }];
     expect(hasAllRequiredAutoMergeValidations(validation, config)).toBe(false);
   });
 });

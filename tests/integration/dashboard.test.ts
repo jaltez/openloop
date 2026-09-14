@@ -12,17 +12,19 @@ import { ensureDir } from "../../src/core/fs.js";
 
 function httpGet(url: string): Promise<{ statusCode: number; body: string; headers: http.IncomingHttpHeaders }> {
   return new Promise((resolve, reject) => {
-    http.get(url, (res) => {
-      const chunks: Buffer[] = [];
-      res.on("data", (chunk: Buffer) => chunks.push(chunk));
-      res.on("end", () => {
-        resolve({
-          statusCode: res.statusCode ?? 0,
-          body: Buffer.concat(chunks).toString("utf8"),
-          headers: res.headers,
+    http
+      .get(url, (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => {
+          resolve({
+            statusCode: res.statusCode ?? 0,
+            body: Buffer.concat(chunks).toString("utf8"),
+            headers: res.headers,
+          });
         });
-      });
-    }).on("error", reject);
+      })
+      .on("error", reject);
   });
 }
 
@@ -38,10 +40,13 @@ describe("Dashboard Server", () => {
     process.env.OPENLOOP_HOME = appHome;
 
     await ensureDir(path.join(appHome, "run"));
-    await saveDaemonState(createDefaultDaemonState({
-      startedAt: new Date().toISOString(),
-      pid: process.pid,
-    }), appHome);
+    await saveDaemonState(
+      createDefaultDaemonState({
+        startedAt: new Date().toISOString(),
+        pid: process.pid,
+      }),
+      appHome,
+    );
 
     const config = await loadGlobalConfig(appHome);
     config.dashboard = { port: TEST_PORT, enabled: true };

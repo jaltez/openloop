@@ -71,7 +71,5 @@ test("assertProviderAvailable rejects missing provider binaries and passes for p
   expect(() => assertProviderAvailable(null, null)).toThrow("'pi' binary not found on PATH");
 
   // Custom providers are always "available" (they shell out).
-  expect(() =>
-    assertProviderAvailable({ agent: { type: "custom", command: "echo hi" } } as never, null),
-  ).not.toThrow();
+  expect(() => assertProviderAvailable({ agent: { type: "custom", command: "echo hi" } } as never, null)).not.toThrow();
 });

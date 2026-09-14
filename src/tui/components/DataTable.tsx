@@ -16,8 +16,7 @@ interface DataTableProps<T> {
 }
 
 export default function DataTable<T>(props: DataTableProps<T>) {
-  const headerText = () =>
-    props.columns.map((c) => c.header.toUpperCase().padEnd(c.width)).join("  ");
+  const headerText = () => props.columns.map((c) => c.header.toUpperCase().padEnd(c.width)).join("  ");
 
   return (
     <box flexDirection="column" width="100%">
@@ -39,10 +38,7 @@ export default function DataTable<T>(props: DataTableProps<T>) {
                 })
                 .join("  ");
             return (
-              <text
-                fg={isSelected() ? colors.accentBright : colors.text}
-                bg={isSelected() ? colors.bgSelected : undefined}
-              >
+              <text fg={isSelected() ? colors.accentBright : colors.text} bg={isSelected() ? colors.bgSelected : undefined}>
                 {line()}
               </text>
             );

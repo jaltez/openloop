@@ -43,7 +43,19 @@ async function resolveProjectPath(alias: string): Promise<string> {
   return project.path;
 }
 
-const VALID_KINDS = ["feature", "bugfix", "test", "refactor", "docs", "lint-fix", "type-fix", "localized-test-fix", "ci-heal", "discovery", "scope-proposal"] as const;
+const VALID_KINDS = [
+  "feature",
+  "bugfix",
+  "test",
+  "refactor",
+  "docs",
+  "lint-fix",
+  "type-fix",
+  "localized-test-fix",
+  "ci-heal",
+  "discovery",
+  "scope-proposal",
+] as const;
 const VALID_RISKS = ["low-risk", "medium-risk", "high-risk"] as const;
 
 function makeTask(args: Record<string, unknown>): ProjectTask {
@@ -57,7 +69,11 @@ function makeTask(args: Record<string, unknown>): ProjectTask {
     throw new Error(`Invalid risk: ${risk}`);
   }
   const now = new Date().toISOString();
-  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 64);
+  const slug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 64);
   return {
     id: slug || `task-${Date.now()}`,
     title,

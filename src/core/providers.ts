@@ -87,9 +87,7 @@ function spawnAndWait(
     append("stderr", String(chunk));
   });
 
-  const unregister = options?.projectAlias
-    ? registerActiveRun(options.projectAlias, () => killProcessGroup(child, "SIGTERM"))
-    : null;
+  const unregister = options?.projectAlias ? registerActiveRun(options.projectAlias, () => killProcessGroup(child, "SIGTERM")) : null;
 
   const finish = (settle: () => void) => {
     if (settled) return;
@@ -146,15 +144,12 @@ function extractUsage(obj: unknown): AgentUsage | undefined {
     return undefined;
   }
   const record = obj as Record<string, unknown>;
-  const nested = record.usage && typeof record.usage === "object"
-    ? (record.usage as Record<string, unknown>)
-    : {};
+  const nested = record.usage && typeof record.usage === "object" ? (record.usage as Record<string, unknown>) : {};
   const usage: AgentUsage = {
     inputTokens: toNumber(nested.input_tokens) ?? toNumber(nested.inputTokens),
     outputTokens: toNumber(nested.output_tokens) ?? toNumber(nested.outputTokens),
     totalTokens: toNumber(nested.total_tokens) ?? toNumber(nested.totalTokens) ?? toNumber(record.total_tokens),
-    costUsd: toNumber(record.total_cost_usd) ?? toNumber(record.cost_usd)
-      ?? toNumber(nested.total_cost_usd) ?? toNumber(nested.cost_usd),
+    costUsd: toNumber(record.total_cost_usd) ?? toNumber(record.cost_usd) ?? toNumber(nested.total_cost_usd) ?? toNumber(nested.cost_usd),
   };
   const defined = Object.entries(usage).filter(([, value]) => value !== undefined);
   if (defined.length === 0) {
@@ -178,10 +173,7 @@ function parseLastLineUsage(stdout: string): AgentUsage | undefined {
   return extractUsage(JSON.parse(last));
 }
 
-async function withUsage(
-  raw: Promise<RawRunResult>,
-  parse: (stdout: string) => AgentUsage | undefined,
-): Promise<AgentRunResult> {
+async function withUsage(raw: Promise<RawRunResult>, parse: (stdout: string) => AgentUsage | undefined): Promise<AgentRunResult> {
   const result = await raw;
   try {
     const usage = parse(result.stdout);
@@ -313,10 +305,6 @@ function shellQuotePosix(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-// ---------------------------------------------------------------------------
-// Custom command provider (instantiated per-project)
-// ---------------------------------------------------------------------------
-
 export function createCustomProvider(command: string): AgentProvider {
   return {
     name: "custom",
@@ -354,9 +342,7 @@ const BUILTIN_PROVIDERS: AgentProvider[] = [
   ompProvider,
 ];
 
-const providerMap = new Map<string, AgentProvider>(
-  BUILTIN_PROVIDERS.map((p) => [p.name, p]),
-);
+const providerMap = new Map<string, AgentProvider>(BUILTIN_PROVIDERS.map((p) => [p.name, p]));
 
 export type ProviderName = "pi" | "claude" | "aider" | "codex" | "opencode" | "ka" | "omp" | "custom";
 

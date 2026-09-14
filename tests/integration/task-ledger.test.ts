@@ -201,9 +201,7 @@ test("withTaskLedger rejects while another process holds a fresh lock", async ()
 
   await fs.writeFile(path.join(projectRoot, ".openloop", ".tasks.lock"), `${process.pid}\n`, "utf8");
 
-  await expect(withTaskLedger(projectRoot, () => {})).rejects.toThrow(
-    "Task ledger is locked by another openloop process",
-  );
+  await expect(withTaskLedger(projectRoot, () => {})).rejects.toThrow("Task ledger is locked by another openloop process");
 });
 
 test("addTask rejects unknown local dependsOn ids and accepts cross-project refs", async () => {
@@ -236,9 +234,7 @@ test("addTask rejects unknown local dependsOn ids and accepts cross-project refs
     status: "proposed",
     dependsOn: ["missing-dep"],
   } as ProjectTask;
-  await expect(addTask(projectRoot, { ...dependent })).rejects.toThrow(
-    "Unknown task id in dependsOn: missing-dep",
-  );
+  await expect(addTask(projectRoot, { ...dependent })).rejects.toThrow("Unknown task id in dependsOn: missing-dep");
 
   const crossProject = {
     ...base,

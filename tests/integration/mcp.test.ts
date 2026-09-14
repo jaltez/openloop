@@ -117,9 +117,7 @@ test("MCP server speaks JSON-RPC and serves control-plane tools", async () => {
 
   // tools/call list projects returns the linked alias
   const listText = (responses[2]?.result?.content as Array<{ text: string }>)[0]?.text ?? "";
-  expect(JSON.parse(listText)).toEqual(expect.arrayContaining([
-    expect.objectContaining({ alias: "demo" }),
-  ]));
+  expect(JSON.parse(listText)).toEqual(expect.arrayContaining([expect.objectContaining({ alias: "demo" })]));
 
   // add + show round-trip creates a real ledger task
   const showText = (responses[4]?.result?.content as Array<{ text: string }>)[0]?.text ?? "";

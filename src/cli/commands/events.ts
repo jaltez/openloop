@@ -51,9 +51,7 @@ export function registerEventsCommand(cli: Argv): void {
         const ts = String(evt.ts).slice(11, 19);
         const proj = evt.project ? `[${evt.project}]` : "";
         const task = evt.taskId ? `#${evt.taskId}` : "";
-        const detail = [evt.event, proj, task]
-          .filter(Boolean)
-          .join(" ");
+        const detail = [evt.event, proj, task].filter(Boolean).join(" ");
         console.log(`${ts} ${detail}`);
       }
     },

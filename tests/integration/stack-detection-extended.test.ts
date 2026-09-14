@@ -9,9 +9,13 @@ test("detects npm-based validation commands with package-lock.json", async () =>
   await fs.writeFile(path.join(projectRoot, "package-lock.json"), "{}", "utf8");
   await fs.writeFile(
     path.join(projectRoot, "package.json"),
-    JSON.stringify({
-      scripts: { lint: "eslint .", test: "jest", check: "tsc --noEmit" },
-    }, null, 2),
+    JSON.stringify(
+      {
+        scripts: { lint: "eslint .", test: "jest", check: "tsc --noEmit" },
+      },
+      null,
+      2,
+    ),
     "utf8",
   );
 
@@ -26,9 +30,13 @@ test("detects pnpm-based validation commands with pnpm-lock.yaml", async () => {
   await fs.writeFile(path.join(projectRoot, "pnpm-lock.yaml"), "", "utf8");
   await fs.writeFile(
     path.join(projectRoot, "package.json"),
-    JSON.stringify({
-      scripts: { lint: "eslint .", test: "vitest run", typecheck: "tsc --noEmit" },
-    }, null, 2),
+    JSON.stringify(
+      {
+        scripts: { lint: "eslint .", test: "vitest run", typecheck: "tsc --noEmit" },
+      },
+      null,
+      2,
+    ),
     "utf8",
   );
 
@@ -43,9 +51,13 @@ test("detects yarn-based validation commands with yarn.lock", async () => {
   await fs.writeFile(path.join(projectRoot, "yarn.lock"), "", "utf8");
   await fs.writeFile(
     path.join(projectRoot, "package.json"),
-    JSON.stringify({
-      scripts: { lint: "eslint .", test: "jest" },
-    }, null, 2),
+    JSON.stringify(
+      {
+        scripts: { lint: "eslint .", test: "jest" },
+      },
+      null,
+      2,
+    ),
     "utf8",
   );
 
@@ -59,9 +71,13 @@ test("falls back to npm when no lockfile exists", async () => {
   const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-nolockfile-project-"));
   await fs.writeFile(
     path.join(projectRoot, "package.json"),
-    JSON.stringify({
-      scripts: { test: "vitest run" },
-    }, null, 2),
+    JSON.stringify(
+      {
+        scripts: { test: "vitest run" },
+      },
+      null,
+      2,
+    ),
     "utf8",
   );
 
@@ -73,7 +89,7 @@ test("falls back to npm when no lockfile exists", async () => {
 
 test("detects python validation commands from pyproject.toml", async () => {
   const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-python-project-"));
-  await fs.writeFile(path.join(projectRoot, "pyproject.toml"), "[project]\nname = \"myapp\"\n", "utf8");
+  await fs.writeFile(path.join(projectRoot, "pyproject.toml"), '[project]\nname = "myapp"\n', "utf8");
 
   const commands = await detectValidationCommands(projectRoot);
   expect(commands.lintCommand).toBe("ruff check .");
@@ -105,9 +121,13 @@ test("prefers typecheck script over check script", async () => {
   await fs.writeFile(path.join(projectRoot, "package-lock.json"), "{}", "utf8");
   await fs.writeFile(
     path.join(projectRoot, "package.json"),
-    JSON.stringify({
-      scripts: { typecheck: "tsc --noEmit", check: "biome check" },
-    }, null, 2),
+    JSON.stringify(
+      {
+        scripts: { typecheck: "tsc --noEmit", check: "biome check" },
+      },
+      null,
+      2,
+    ),
     "utf8",
   );
 
@@ -127,7 +147,7 @@ test("detects Go validation commands from go.mod", async () => {
 
 test("detects Rust validation commands from Cargo.toml", async () => {
   const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-rust-project-"));
-  await fs.writeFile(path.join(projectRoot, "Cargo.toml"), "[package]\nname = \"myapp\"\nversion = \"0.1.0\"\n", "utf8");
+  await fs.writeFile(path.join(projectRoot, "Cargo.toml"), '[package]\nname = "myapp"\nversion = "0.1.0"\n', "utf8");
 
   const commands = await detectValidationCommands(projectRoot);
   expect(commands.lintCommand).toBe("cargo clippy");

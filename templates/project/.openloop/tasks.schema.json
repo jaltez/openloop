@@ -41,15 +41,7 @@
           },
           "lastRun": {
             "type": "object",
-            "required": [
-              "completedAt",
-              "mode",
-              "piExitCode",
-              "outcome",
-              "validation",
-              "promotionDecision",
-              "effectivePromotionMode"
-            ],
+            "required": ["completedAt", "mode", "piExitCode", "outcome", "validation", "promotionDecision", "effectivePromotionMode"],
             "properties": {
               "completedAt": {
                 "type": "string",

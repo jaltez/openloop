@@ -50,9 +50,7 @@ export function registerSetupCommand(cli: Argv): void {
         console.log("Step 1/4: Checking prerequisites...");
         console.log("");
         const checks = await runDoctorChecks();
-        const criticalChecks = checks.filter((c) =>
-          ["pi", "git", "node"].includes(c.label),
-        );
+        const criticalChecks = checks.filter((c) => ["pi", "git", "node"].includes(c.label));
         for (const check of criticalChecks) {
           const icon = check.status === "ok" ? "✅" : check.status === "warn" ? "⚠️" : "❌";
           console.log(`  ${icon} ${check.label}: ${check.detail}`);
@@ -67,7 +65,9 @@ export function registerSetupCommand(cli: Argv): void {
           return;
         }
         if (!hasPi) {
-          console.log("⚠️  'pi' binary not found. You can still set up projects, but the daemon will need an agent binary (pi, claude, aider, codex, opencode, ka, or omp) to run tasks.");
+          console.log(
+            "⚠️  'pi' binary not found. You can still set up projects, but the daemon will need an agent binary (pi, claude, aider, codex, opencode, ka, or omp) to run tasks.",
+          );
           console.log("");
         }
 
@@ -105,7 +105,14 @@ export function registerSetupCommand(cli: Argv): void {
         // Step 4: Initialize templates
         const shouldInit = await confirm(rl, "Initialize control-plane templates in the project?");
         if (shouldInit) {
-          const project = { alias, path: resolvedPath, defaultBranch: null, initialized: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+          const project = {
+            alias,
+            path: resolvedPath,
+            defaultBranch: null,
+            initialized: false,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
           await initializeProjectFromTemplates(packageRoot, project);
           await markProjectInitialized(alias);
           const projectConfig = await loadProjectConfig(resolvedPath);

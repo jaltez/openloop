@@ -28,16 +28,12 @@ function elapsed(from: string): string {
 }
 
 async function renderDashboard(): Promise<string> {
-  const state = await readJsonFile<DaemonState>(daemonStatePath(), createDefaultDaemonState()).catch(
-    () => createDefaultDaemonState(),
-  );
+  const state = await readJsonFile<DaemonState>(daemonStatePath(), createDefaultDaemonState()).catch(() => createDefaultDaemonState());
   const projects = await listProjects().catch(() => []);
 
   const lines: string[] = [];
 
-  const daemonStatus = state.paused
-    ? `${YELLOW}paused${RESET}`
-    : `${GREEN}running (PID ${state.pid})${RESET}`;
+  const daemonStatus = state.paused ? `${YELLOW}paused${RESET}` : `${GREEN}running (PID ${state.pid})${RESET}`;
   const uptime = state.startedAt ? `uptime: ${elapsed(state.startedAt)}` : "";
   const budget = `$${state.budgetSpentUsd.toFixed(4)} spent today`;
 
@@ -54,9 +50,7 @@ async function renderDashboard(): Promise<string> {
   for (const project of projects) {
     const ledger = await loadTaskLedger(project.path).catch(() => ({ tasks: [] }));
     const tasks = ledger.tasks;
-    const queueSize = tasks.filter(
-      (t) => t.status === "ready" || t.status === "proposed" || t.status === "planned",
-    ).length;
+    const queueSize = tasks.filter((t) => t.status === "ready" || t.status === "proposed" || t.status === "planned").length;
 
     const projectState = state.projects.find((p) => p.alias === project.alias);
     const isActive = state.currentRun?.projectAlias === project.alias;

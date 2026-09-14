@@ -57,13 +57,17 @@ export default function ConfigView(props: ConfigViewProps) {
     try {
       const gc = await loadGlobalConfig();
       setGlobalEntries(flattenConfig(gc as unknown as Record<string, unknown>));
-    } catch { /* empty */ }
+    } catch {
+      /* empty */
+    }
     const path = props.activeProjectPath();
     if (path) {
       try {
         const pc = await loadProjectConfig(path);
         setProjectEntries(flattenConfig(pc as unknown as Record<string, unknown>));
-      } catch { /* empty */ }
+      } catch {
+        /* empty */
+      }
     }
   };
   void loadConfigs();
@@ -125,7 +129,7 @@ export default function ConfigView(props: ConfigViewProps) {
       <box flexDirection="row" justifyContent="space-between">
         <text>
           <Bold fg={colors.accent}>Config</Bold>
-          <Span fg={colors.textDim}> — {panel() === "global" ? "global" : props.activeProjectAlias() ?? "no project"}</Span>
+          <Span fg={colors.textDim}> — {panel() === "global" ? "global" : (props.activeProjectAlias() ?? "no project")}</Span>
         </text>
         <text fg={colors.textDim}>Tab to switch │ [global] [project]</text>
       </box>
@@ -145,7 +149,7 @@ export default function ConfigView(props: ConfigViewProps) {
 
       <box flexDirection="column" flexGrow={1}>
         <text fg={colors.accent}>
-          <b>{"KEY".padEnd(40)}  VALUE</b>
+          <b>{"KEY".padEnd(40)} VALUE</b>
         </text>
         <text fg={colors.border}>{"─".repeat(70)}</text>
         <scrollbox height="100%">
@@ -157,7 +161,8 @@ export default function ConfigView(props: ConfigViewProps) {
                   fg={isSelected() ? colors.accentBright : entry.editable ? colors.text : colors.textDim}
                   bg={isSelected() ? colors.bgSelected : undefined}
                 >
-                  {entry.key.padEnd(40)}{"  "}
+                  {entry.key.padEnd(40)}
+                  {"  "}
                   {entry.value}
                   {entry.editable ? "" : " (read-only)"}
                 </text>
@@ -169,7 +174,9 @@ export default function ConfigView(props: ConfigViewProps) {
 
       <Show when={editing()}>
         <box borderStyle="rounded" borderColor={colors.accent} padding={1} flexDirection="row" gap={1} width={60}>
-          <text fg={colors.accent}><b>{currentEntry()?.key}:</b></text>
+          <text fg={colors.accent}>
+            <b>{currentEntry()?.key}:</b>
+          </text>
           <input
             value={editValue()}
             width={30}
@@ -180,12 +187,14 @@ export default function ConfigView(props: ConfigViewProps) {
         </box>
       </Show>
 
-      <KeyHint hints={[
-        { key: "↑/↓", label: "navigate" },
-        { key: "Tab", label: "global/project" },
-        { key: "Enter", label: "edit" },
-        { key: "R", label: "reload" },
-      ]} />
+      <KeyHint
+        hints={[
+          { key: "↑/↓", label: "navigate" },
+          { key: "Tab", label: "global/project" },
+          { key: "Enter", label: "edit" },
+          { key: "R", label: "reload" },
+        ]}
+      />
     </box>
   );
 }

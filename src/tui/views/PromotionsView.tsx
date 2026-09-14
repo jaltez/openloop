@@ -24,7 +24,10 @@ export default function PromotionsView(props: PromotionsViewProps) {
 
   const loadItems = async () => {
     const path = props.activeProjectPath();
-    if (!path) { setItems([]); return; }
+    if (!path) {
+      setItems([]);
+      return;
+    }
     try {
       const list = await listPromotionArtifacts(path);
       setItems(list);
@@ -40,7 +43,10 @@ export default function PromotionsView(props: PromotionsViewProps) {
   const loadDetail = async () => {
     const path = props.activeProjectPath();
     const item = selected();
-    if (!path || !item) { setDetail(""); return; }
+    if (!path || !item) {
+      setDetail("");
+      return;
+    }
     try {
       const d = await getPromotionDetail(path, item.artifact.taskId);
       setDetail(JSON.stringify(d, null, 2));
@@ -65,10 +71,12 @@ export default function PromotionsView(props: PromotionsViewProps) {
       const path = props.activeProjectPath();
       const item = selected();
       if (path && item) {
-        void applyPromotionArtifact(path, item.artifact.taskId).then(() => {
-          setStatusMsg(`Applied: ${item.artifact.taskId}`);
-          void loadItems();
-        }).catch((e: unknown) => setStatusMsg(e instanceof Error ? e.message : String(e)));
+        void applyPromotionArtifact(path, item.artifact.taskId)
+          .then(() => {
+            setStatusMsg(`Applied: ${item.artifact.taskId}`);
+            void loadItems();
+          })
+          .catch((e: unknown) => setStatusMsg(e instanceof Error ? e.message : String(e)));
       }
     }
 
@@ -76,10 +84,12 @@ export default function PromotionsView(props: PromotionsViewProps) {
       const path = props.activeProjectPath();
       const item = selected();
       if (path && item) {
-        void updatePromotionArtifact(path, item.artifact.taskId, "rejected").then(() => {
-          setStatusMsg(`Rejected: ${item.artifact.taskId}`);
-          void loadItems();
-        }).catch((e: unknown) => setStatusMsg(e instanceof Error ? e.message : String(e)));
+        void updatePromotionArtifact(path, item.artifact.taskId, "rejected")
+          .then(() => {
+            setStatusMsg(`Rejected: ${item.artifact.taskId}`);
+            void loadItems();
+          })
+          .catch((e: unknown) => setStatusMsg(e instanceof Error ? e.message : String(e)));
       }
     }
   });
@@ -105,7 +115,9 @@ export default function PromotionsView(props: PromotionsViewProps) {
       <box flexDirection="row" flexGrow={1} gap={2}>
         <box flexDirection="column" width="45%">
           <text fg={colors.accent}>
-            <b>{"TASK".padEnd(20)}  {"STATUS".padEnd(10)}  {"ACTION".padEnd(12)}  DATE</b>
+            <b>
+              {"TASK".padEnd(20)} {"STATUS".padEnd(10)} {"ACTION".padEnd(12)} DATE
+            </b>
           </text>
           <text fg={colors.border}>{"─".repeat(60)}</text>
           {items().length === 0 ? (
@@ -116,13 +128,13 @@ export default function PromotionsView(props: PromotionsViewProps) {
                 const isSelected = () => idx() === selectedIdx();
                 const a = item.artifact;
                 return (
-                  <text
-                    fg={isSelected() ? colors.accentBright : colors.text}
-                    bg={isSelected() ? colors.bgSelected : undefined}
-                  >
-                    {a.taskId.padEnd(20).slice(0, 20)}{"  "}
-                    <Span fg={statusColor(a.status)}>{a.status.padEnd(10)}</Span>{"  "}
-                    {(a.action ?? "—").padEnd(12)}{"  "}
+                  <text fg={isSelected() ? colors.accentBright : colors.text} bg={isSelected() ? colors.bgSelected : undefined}>
+                    {a.taskId.padEnd(20).slice(0, 20)}
+                    {"  "}
+                    <Span fg={statusColor(a.status)}>{a.status.padEnd(10)}</Span>
+                    {"  "}
+                    {(a.action ?? "—").padEnd(12)}
+                    {"  "}
                     <Span fg={colors.textDim}>{a.createdAt?.slice(0, 10) ?? ""}</Span>
                   </text>
                 );
@@ -132,7 +144,9 @@ export default function PromotionsView(props: PromotionsViewProps) {
         </box>
 
         <box flexDirection="column" width="55%" borderStyle="rounded" borderColor={colors.border} padding={1}>
-          <text fg={colors.accent}><b>Detail</b></text>
+          <text fg={colors.accent}>
+            <b>Detail</b>
+          </text>
           <scrollbox height="100%">
             <box flexDirection="column">
               <text fg={colors.text}>{detail() || "Select a promotion and press Enter to view details."}</text>
@@ -141,12 +155,14 @@ export default function PromotionsView(props: PromotionsViewProps) {
         </box>
       </box>
 
-      <KeyHint hints={[
-        { key: "↑/↓", label: "navigate" },
-        { key: "Enter", label: "view detail" },
-        { key: "a", label: "apply" },
-        { key: "r", label: "reject" },
-      ]} />
+      <KeyHint
+        hints={[
+          { key: "↑/↓", label: "navigate" },
+          { key: "Enter", label: "view detail" },
+          { key: "a", label: "apply" },
+          { key: "r", label: "reject" },
+        ]}
+      />
     </box>
   );
 }

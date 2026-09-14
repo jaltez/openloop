@@ -119,7 +119,8 @@ export function summarizeTasks(tasks: ProjectTask[]): TaskListSummary {
 
 export function summarizeQueue(ledger: TaskLedger): { queueSize: number; blockedTasks: number } {
   return {
-    queueSize: ledger.tasks.filter((task) => ["proposed", "planned", "ready", "awaiting-approval", "in_progress"].includes(task.status)).length,
+    queueSize: ledger.tasks.filter((task) => ["proposed", "planned", "ready", "awaiting-approval", "in_progress"].includes(task.status))
+      .length,
     blockedTasks: ledger.tasks.filter((task) => task.status === "blocked").length,
   };
 }
@@ -168,10 +169,7 @@ function tasksLockPath(projectPath: string): string {
  * `.tasks.lock`. The mutator receives the freshly loaded ledger and mutates it
  * in place (or returns a value); the ledger is persisted on completion.
  */
-export async function withTaskLedger<T>(
-  projectPath: string,
-  mutator: (ledger: TaskLedger) => Promise<T> | T,
-): Promise<T> {
+export async function withTaskLedger<T>(projectPath: string, mutator: (ledger: TaskLedger) => Promise<T> | T): Promise<T> {
   return withFileLock(tasksLockPath(projectPath), { label: "Task ledger" }, async () => {
     const ledger = await loadTaskLedger(projectPath);
     const result = await mutator(ledger);

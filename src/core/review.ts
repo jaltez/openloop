@@ -13,11 +13,7 @@ import type { ProjectConfig, ProjectPolicy, ProjectTask, ReviewFinding, ReviewRe
  * and the project's deny/high-risk globs. These catch what validation structurally
  * cannot: the agent touching files it was not supposed to touch.
  */
-export function checkScopeDrift(
-  changedFiles: string[],
-  task: ProjectTask,
-  policy: ProjectPolicy,
-): ReviewFinding[] {
+export function checkScopeDrift(changedFiles: string[], task: ProjectTask, policy: ProjectPolicy): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
   const scopePaths = (task.scope?.paths ?? []).map(normalizeScopePath);
 
@@ -111,9 +107,10 @@ export function extractChangedFiles(patch: string): string[] {
 
 export function buildReviewPrompt(task: ProjectTask, diffPatch: string, reviewsDirAbs: string): string {
   const maxDiffChars = 20_000;
-  const truncatedDiff = diffPatch.length > maxDiffChars
-    ? `${diffPatch.slice(0, maxDiffChars)}\n\n... (diff truncated, ${diffPatch.length - maxDiffChars} chars omitted)`
-    : diffPatch;
+  const truncatedDiff =
+    diffPatch.length > maxDiffChars
+      ? `${diffPatch.slice(0, maxDiffChars)}\n\n... (diff truncated, ${diffPatch.length - maxDiffChars} chars omitted)`
+      : diffPatch;
 
   return [
     "You are reviewing code changes made by another AI agent for safety and correctness.",
@@ -137,11 +134,11 @@ export function buildReviewPrompt(task: ProjectTask, diffPatch: string, reviewsD
     `## Output`,
     `Write your review as JSON to \`${path.join(reviewsDirAbs, `${task.id}.json`)}\` (absolute path) with exactly this schema:`,
     "```json",
-    '{',
+    "{",
     '  "verdict": "approve" | "request-changes",',
     '  "findings": [',
     '    { "severity": "block" | "warn" | "info", "message": "concise description" }',
-    '  ]',
+    "  ]",
     "}",
     "```",
     "",

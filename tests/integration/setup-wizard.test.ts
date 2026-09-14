@@ -44,19 +44,11 @@ test("setup command exists and shows wizard header", async () => {
   // The setup wizard needs interactive input, but we can verify the command
   // is registered by running it with --help
   const appHome = await setupAppHome();
-  const result = execFileSync(
-    process.execPath,
-    [
-      "--import", "tsx",
-      path.resolve("src/index.ts"),
-      "setup", "--help",
-    ],
-    {
-      env: { ...process.env, OPENLOOP_HOME: appHome },
-      encoding: "utf8",
-      timeout: 15_000,
-    },
-  );
+  const result = execFileSync(process.execPath, ["--import", "tsx", path.resolve("src/index.ts"), "setup", "--help"], {
+    env: { ...process.env, OPENLOOP_HOME: appHome },
+    encoding: "utf8",
+    timeout: 15_000,
+  });
   expect(result).toContain("Interactive first-run setup wizard");
 });
 

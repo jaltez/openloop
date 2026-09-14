@@ -21,17 +21,20 @@ async function setupTestEnv() {
   const appHome = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-report-"));
   tempDirs.push(appHome);
 
-  await saveGlobalConfig({
-    version: 1,
-    model: null,
-    activeProjectAlias: null,
-    budgets: { dailyCostUsd: 25 },
-    runtime: {
-      runTimeoutSeconds: 1800,
-      maxAttemptsPerTask: 3,
-      noProgressRepeatLimit: 2,
+  await saveGlobalConfig(
+    {
+      version: 1,
+      model: null,
+      activeProjectAlias: null,
+      budgets: { dailyCostUsd: 25 },
+      runtime: {
+        runTimeoutSeconds: 1800,
+        maxAttemptsPerTask: 3,
+        noProgressRepeatLimit: 2,
+      },
     },
-  }, appHome);
+    appHome,
+  );
 
   await ensureDir(runtimeDir(appHome));
   await writeJsonFile(daemonStatePath(appHome), createDefaultDaemonState({ budgetSpentUsd: 4.23 }));
@@ -56,7 +59,16 @@ test("generates report with project tasks", async () => {
 
   await writeJsonFile(projectsRegistryPath(appHome), {
     version: 1,
-    projects: [{ alias: "myapp", path: projectDir, defaultBranch: null, initialized: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }],
+    projects: [
+      {
+        alias: "myapp",
+        path: projectDir,
+        defaultBranch: null,
+        initialized: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ],
   });
 
   const openloopDir = path.join(projectDir, ".openloop");
@@ -75,7 +87,10 @@ test("generates report with project tasks", async () => {
       piExitCode: 0,
       outcome: "completed",
       baseBranch: "main",
-      validation: [{ name: "lint", command: "bun run lint", exitCode: 0 }, { name: "test", command: "bun run test", exitCode: 0 }],
+      validation: [
+        { name: "lint", command: "bun run lint", exitCode: 0 },
+        { name: "test", command: "bun run test", exitCode: 0 },
+      ],
       promotionDecision: "auto-merge-eligible",
       effectivePromotionMode: "auto-merge",
       promotionAction: "queue-auto-merge",
@@ -98,7 +113,10 @@ test("generates report with project tasks", async () => {
       piExitCode: 1,
       outcome: "validation-failed",
       baseBranch: "main",
-      validation: [{ name: "lint", command: "bun run lint", exitCode: 0 }, { name: "test", command: "bun run test", exitCode: 1 }],
+      validation: [
+        { name: "lint", command: "bun run lint", exitCode: 0 },
+        { name: "test", command: "bun run test", exitCode: 1 },
+      ],
       promotionDecision: "blocked",
       effectivePromotionMode: "pull-request",
       promotionAction: "block",
@@ -141,7 +159,16 @@ test("report respects sinceMs filter", async () => {
 
   await writeJsonFile(projectsRegistryPath(appHome), {
     version: 1,
-    projects: [{ alias: "myapp", path: projectDir, defaultBranch: null, initialized: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }],
+    projects: [
+      {
+        alias: "myapp",
+        path: projectDir,
+        defaultBranch: null,
+        initialized: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ],
   });
 
   const openloopDir = path.join(projectDir, ".openloop");

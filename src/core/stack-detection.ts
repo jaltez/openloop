@@ -16,7 +16,7 @@ export async function detectValidationCommands(projectPath: string): Promise<Det
 
   const pyprojectPath = path.join(projectPath, "pyproject.toml");
   const requirementsPath = path.join(projectPath, "requirements.txt");
-  if (await fileExists(pyprojectPath) || await fileExists(requirementsPath)) {
+  if ((await fileExists(pyprojectPath)) || (await fileExists(requirementsPath))) {
     return detectPythonValidationCommands(projectPath);
   }
 
@@ -28,7 +28,11 @@ export async function detectValidationCommands(projectPath: string): Promise<Det
     return detectRustValidationCommands();
   }
 
-  if (await fileExists(path.join(projectPath, "build.gradle")) || await fileExists(path.join(projectPath, "build.gradle.kts")) || await fileExists(path.join(projectPath, "pom.xml"))) {
+  if (
+    (await fileExists(path.join(projectPath, "build.gradle"))) ||
+    (await fileExists(path.join(projectPath, "build.gradle.kts"))) ||
+    (await fileExists(path.join(projectPath, "pom.xml")))
+  ) {
     return detectJavaValidationCommands(projectPath);
   }
 
@@ -53,11 +57,7 @@ async function detectNodeValidationCommands(projectPath: string, packageJsonPath
   return {
     lintCommand: scripts.lint ? `${runner} run lint` : null,
     testCommand: scripts.test ? `${runner} run test` : null,
-    typecheckCommand: scripts.typecheck
-      ? `${runner} run typecheck`
-      : scripts.check
-        ? `${runner} run check`
-        : null,
+    typecheckCommand: scripts.typecheck ? `${runner} run typecheck` : scripts.check ? `${runner} run check` : null,
   };
 }
 
@@ -112,7 +112,7 @@ function detectRustValidationCommands(): DetectedValidationCommands {
 }
 
 async function detectJavaValidationCommands(projectPath: string): Promise<DetectedValidationCommands> {
-  if (await fileExists(path.join(projectPath, "build.gradle")) || await fileExists(path.join(projectPath, "build.gradle.kts"))) {
+  if ((await fileExists(path.join(projectPath, "build.gradle"))) || (await fileExists(path.join(projectPath, "build.gradle.kts")))) {
     return {
       lintCommand: null,
       testCommand: "./gradlew test",

@@ -20,7 +20,7 @@ export function decidePromotion(
     if (getConfiguredValidationNames(projectConfig).length === 0) {
       console.warn(
         `[openloop] Warning: no validation commands configured for project. Forcing manual-only promotion. ` +
-        `Run 'openloop config project-set-validation' to configure lint/test/typecheck commands.`,
+          `Run 'openloop config project-set-validation' to configure lint/test/typecheck commands.`,
       );
       return "manual-review";
     }

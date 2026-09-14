@@ -129,9 +129,7 @@ async function buildProjectDigest(alias: string, projectPath: string, since: str
   const completed = ledger.tasks.filter(
     (task) => (task.status === "done" || task.status === "promoted") && (task.lastRun?.completedAt ?? task.updatedAt) >= since,
   ).length;
-  const failed = ledger.tasks.filter(
-    (task) => task.status === "failed" && (task.lastRun?.completedAt ?? task.updatedAt) >= since,
-  ).length;
+  const failed = ledger.tasks.filter((task) => task.status === "failed" && (task.lastRun?.completedAt ?? task.updatedAt) >= since).length;
   const blocked = ledger.tasks.filter((task) => task.status === "blocked" && task.updatedAt >= since).length;
   const promoted = ledger.tasks.filter((task) => task.status === "promoted" && (task.promotedAt ?? task.updatedAt) >= since).length;
 

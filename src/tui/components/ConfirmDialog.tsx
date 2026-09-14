@@ -13,13 +13,7 @@ export default function ConfirmDialog(props: ConfirmDialogProps) {
   if (!props.visible()) return null;
 
   return (
-    <box
-      position="absolute"
-      width="100%"
-      height="100%"
-      justifyContent="center"
-      alignItems="center"
-    >
+    <box position="absolute" width="100%" height="100%" justifyContent="center" alignItems="center">
       <box
         width={50}
         height={7}

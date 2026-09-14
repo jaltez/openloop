@@ -44,24 +44,26 @@ test("plan run gates medium-risk tasks to awaiting-approval", async () => {
   const ledger: TaskLedger = {
     version: 1,
     updatedAt: new Date().toISOString(),
-    tasks: [{
-      id: "gate-me",
-      title: "Medium risk task",
-      kind: "feature",
-      status: "proposed",
-      risk: "medium-risk",
-      source: { type: "human", ref: "test" },
-      specId: null,
-      branch: null,
-      owner: null,
-      acceptanceCriteria: [],
-      attempts: 0,
-      lastFailureSignature: null,
-      promotion: "pull-request",
-      notes: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }],
+    tasks: [
+      {
+        id: "gate-me",
+        title: "Medium risk task",
+        kind: "feature",
+        status: "proposed",
+        risk: "medium-risk",
+        source: { type: "human", ref: "test" },
+        specId: null,
+        branch: null,
+        owner: null,
+        acceptanceCriteria: [],
+        attempts: 0,
+        lastFailureSignature: null,
+        promotion: "pull-request",
+        notes: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ],
   };
   await fs.writeFile(path.join(projectRoot, ".openloop", "tasks.json"), `${JSON.stringify(ledger, null, 2)}\n`, "utf8");
 
@@ -102,24 +104,26 @@ test("plan run gates high-risk tasks to awaiting-approval", async () => {
   const ledger: TaskLedger = {
     version: 1,
     updatedAt: new Date().toISOString(),
-    tasks: [{
-      id: "gate-me-high",
-      title: "High risk task",
-      kind: "feature",
-      status: "proposed",
-      risk: "high-risk",
-      source: { type: "human", ref: "test" },
-      specId: null,
-      branch: null,
-      owner: null,
-      acceptanceCriteria: [],
-      attempts: 0,
-      lastFailureSignature: null,
-      promotion: "pull-request",
-      notes: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }],
+    tasks: [
+      {
+        id: "gate-me-high",
+        title: "High risk task",
+        kind: "feature",
+        status: "proposed",
+        risk: "high-risk",
+        source: { type: "human", ref: "test" },
+        specId: null,
+        branch: null,
+        owner: null,
+        acceptanceCriteria: [],
+        attempts: 0,
+        lastFailureSignature: null,
+        promotion: "pull-request",
+        notes: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ],
   };
   await fs.writeFile(path.join(projectRoot, ".openloop", "tasks.json"), `${JSON.stringify(ledger, null, 2)}\n`, "utf8");
 
@@ -156,24 +160,26 @@ test("plan run lets low-risk tasks go straight to ready", async () => {
   const ledger: TaskLedger = {
     version: 1,
     updatedAt: new Date().toISOString(),
-    tasks: [{
-      id: "gate-me-low",
-      title: "Low risk task",
-      kind: "feature",
-      status: "proposed",
-      risk: "low-risk",
-      source: { type: "human", ref: "test" },
-      specId: null,
-      branch: null,
-      owner: null,
-      acceptanceCriteria: [],
-      attempts: 0,
-      lastFailureSignature: null,
-      promotion: "pull-request",
-      notes: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }],
+    tasks: [
+      {
+        id: "gate-me-low",
+        title: "Low risk task",
+        kind: "feature",
+        status: "proposed",
+        risk: "low-risk",
+        source: { type: "human", ref: "test" },
+        specId: null,
+        branch: null,
+        owner: null,
+        acceptanceCriteria: [],
+        attempts: 0,
+        lastFailureSignature: null,
+        promotion: "pull-request",
+        notes: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ],
   };
   await fs.writeFile(path.join(projectRoot, ".openloop", "tasks.json"), `${JSON.stringify(ledger, null, 2)}\n`, "utf8");
 
@@ -207,24 +213,26 @@ test("task approve transitions awaiting-approval to ready", async () => {
   const ledger: TaskLedger = {
     version: 1,
     updatedAt: new Date().toISOString(),
-    tasks: [{
-      id: "awaiting-task",
-      title: "Awaiting approval task",
-      kind: "feature",
-      status: "awaiting-approval",
-      risk: "medium-risk",
-      source: { type: "human", ref: "test" },
-      specId: null,
-      branch: null,
-      owner: null,
-      acceptanceCriteria: [],
-      attempts: 0,
-      lastFailureSignature: null,
-      promotion: "pull-request",
-      notes: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }],
+    tasks: [
+      {
+        id: "awaiting-task",
+        title: "Awaiting approval task",
+        kind: "feature",
+        status: "awaiting-approval",
+        risk: "medium-risk",
+        source: { type: "human", ref: "test" },
+        specId: null,
+        branch: null,
+        owner: null,
+        acceptanceCriteria: [],
+        attempts: 0,
+        lastFailureSignature: null,
+        promotion: "pull-request",
+        notes: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ],
   };
   await fs.writeFile(path.join(projectRoot, ".openloop", "tasks.json"), `${JSON.stringify(ledger, null, 2)}\n`, "utf8");
 
@@ -247,24 +255,26 @@ test("task approve fails when task is not awaiting-approval", async () => {
   const ledger: TaskLedger = {
     version: 1,
     updatedAt: new Date().toISOString(),
-    tasks: [{
-      id: "ready-task",
-      title: "Ready task",
-      kind: "feature",
-      status: "ready",
-      risk: "medium-risk",
-      source: { type: "human", ref: "test" },
-      specId: null,
-      branch: null,
-      owner: null,
-      acceptanceCriteria: [],
-      attempts: 0,
-      lastFailureSignature: null,
-      promotion: "pull-request",
-      notes: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }],
+    tasks: [
+      {
+        id: "ready-task",
+        title: "Ready task",
+        kind: "feature",
+        status: "ready",
+        risk: "medium-risk",
+        source: { type: "human", ref: "test" },
+        specId: null,
+        branch: null,
+        owner: null,
+        acceptanceCriteria: [],
+        attempts: 0,
+        lastFailureSignature: null,
+        promotion: "pull-request",
+        notes: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ],
   };
   await fs.writeFile(path.join(projectRoot, ".openloop", "tasks.json"), `${JSON.stringify(ledger, null, 2)}\n`, "utf8");
 
@@ -275,9 +285,13 @@ test("task approve fails when task is not awaiting-approval", async () => {
 });
 
 async function runCli(args: string[]): Promise<void> {
-  const cli = yargs().scriptName("openloop").strict().exitProcess(false).fail((message, error) => {
-    throw error ?? new Error(message);
-  });
+  const cli = yargs()
+    .scriptName("openloop")
+    .strict()
+    .exitProcess(false)
+    .fail((message, error) => {
+      throw error ?? new Error(message);
+    });
 
   registerProjectCommands(cli);
   registerTaskCommands(cli);

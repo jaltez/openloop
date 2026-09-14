@@ -84,44 +84,33 @@ export default function RunView(props: RunViewProps) {
       <box flexDirection="column" gap={1} width={70}>
         <box flexDirection="row" gap={1}>
           <text fg={colors.textDim}>{"Prompt:".padEnd(8)}</text>
-          <input
-            placeholder="Enter your prompt..."
-            width={55}
-            onInput={(v: string) => setPrompt(v)}
-            focused={!running()}
-          />
+          <input placeholder="Enter your prompt..." width={55} onInput={(v: string) => setPrompt(v)} focused={!running()} />
         </box>
         <box flexDirection="row" gap={1}>
           <text fg={colors.textDim}>{"Model:".padEnd(8)}</text>
-          <input
-            placeholder="(default from config)"
-            width={30}
-            onInput={(v: string) => setModel(v)}
-          />
+          <input placeholder="(default from config)" width={30} onInput={(v: string) => setModel(v)} />
         </box>
         <text fg={colors.textDim}>Ctrl+R to execute │ {running() ? <Span fg={colors.yellow}>running...</Span> : "idle"}</text>
       </box>
 
       {/* Output area */}
       <box flexDirection="column" flexGrow={1} borderStyle="rounded" borderColor={colors.border} padding={1}>
-        <text fg={colors.accent}><b>Output</b></text>
+        <text fg={colors.accent}>
+          <b>Output</b>
+        </text>
         <scrollbox height="100%">
           <box flexDirection="column">
             {outputLines().map((line) => (
               <text fg={line.startsWith(">") ? colors.cyan : colors.text}>{line}</text>
             ))}
             <Show when={exitCode() !== null}>
-              <text fg={exitCode() === 0 ? colors.green : colors.red}>
-                Process exited with code {exitCode()}
-              </text>
+              <text fg={exitCode() === 0 ? colors.green : colors.red}>Process exited with code {exitCode()}</text>
             </Show>
           </box>
         </scrollbox>
       </box>
 
-      <KeyHint hints={[
-        { key: "Ctrl+R", label: "run" },
-      ]} />
+      <KeyHint hints={[{ key: "Ctrl+R", label: "run" }]} />
     </box>
   );
 }

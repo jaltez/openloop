@@ -19,17 +19,20 @@ test("doctor reports ok for valid global config", async () => {
   const appHome = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-doctor-"));
   tempDirs.push(appHome);
 
-  await saveGlobalConfig({
-    version: 1,
-    model: null,
-    activeProjectAlias: null,
-    budgets: { dailyCostUsd: 25 },
-    runtime: {
-      runTimeoutSeconds: 1800,
-      maxAttemptsPerTask: 3,
-      noProgressRepeatLimit: 2,
+  await saveGlobalConfig(
+    {
+      version: 1,
+      model: null,
+      activeProjectAlias: null,
+      budgets: { dailyCostUsd: 25 },
+      runtime: {
+        runTimeoutSeconds: 1800,
+        maxAttemptsPerTask: 3,
+        noProgressRepeatLimit: 2,
+      },
     },
-  }, appHome);
+    appHome,
+  );
 
   await writeJsonFile(projectsRegistryPath(appHome), { version: 1, projects: [] });
   await ensureDir(runtimeDir(appHome));
@@ -44,17 +47,20 @@ test("doctor warns on zero budget ceiling", async () => {
   const appHome = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-doctor-"));
   tempDirs.push(appHome);
 
-  await saveGlobalConfig({
-    version: 1,
-    model: null,
-    activeProjectAlias: null,
-    budgets: { dailyCostUsd: 0 },
-    runtime: {
-      runTimeoutSeconds: 1800,
-      maxAttemptsPerTask: 3,
-      noProgressRepeatLimit: 2,
+  await saveGlobalConfig(
+    {
+      version: 1,
+      model: null,
+      activeProjectAlias: null,
+      budgets: { dailyCostUsd: 0 },
+      runtime: {
+        runTimeoutSeconds: 1800,
+        maxAttemptsPerTask: 3,
+        noProgressRepeatLimit: 2,
+      },
     },
-  }, appHome);
+    appHome,
+  );
 
   await writeJsonFile(projectsRegistryPath(appHome), { version: 1, projects: [] });
 
@@ -68,17 +74,20 @@ test("doctor warns when no projects are linked", async () => {
   const appHome = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-doctor-"));
   tempDirs.push(appHome);
 
-  await saveGlobalConfig({
-    version: 1,
-    model: null,
-    activeProjectAlias: null,
-    budgets: { dailyCostUsd: 25 },
-    runtime: {
-      runTimeoutSeconds: 1800,
-      maxAttemptsPerTask: 3,
-      noProgressRepeatLimit: 2,
+  await saveGlobalConfig(
+    {
+      version: 1,
+      model: null,
+      activeProjectAlias: null,
+      budgets: { dailyCostUsd: 25 },
+      runtime: {
+        runTimeoutSeconds: 1800,
+        maxAttemptsPerTask: 3,
+        noProgressRepeatLimit: 2,
+      },
     },
-  }, appHome);
+    appHome,
+  );
   await writeJsonFile(projectsRegistryPath(appHome), { version: 1, projects: [] });
 
   const results = await runDoctorChecks(appHome);
@@ -105,13 +114,16 @@ test("doctor detects git on PATH", async () => {
   const appHome = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-doctor-"));
   tempDirs.push(appHome);
 
-  await saveGlobalConfig({
-    version: 1,
-    model: null,
-    activeProjectAlias: null,
-    budgets: { dailyCostUsd: 25 },
-    runtime: { runTimeoutSeconds: 1800, maxAttemptsPerTask: 3, noProgressRepeatLimit: 2 },
-  }, appHome);
+  await saveGlobalConfig(
+    {
+      version: 1,
+      model: null,
+      activeProjectAlias: null,
+      budgets: { dailyCostUsd: 25 },
+      runtime: { runTimeoutSeconds: 1800, maxAttemptsPerTask: 3, noProgressRepeatLimit: 2 },
+    },
+    appHome,
+  );
   await writeJsonFile(projectsRegistryPath(appHome), { version: 1, projects: [] });
 
   const results = await runDoctorChecks(appHome);

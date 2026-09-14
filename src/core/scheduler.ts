@@ -16,7 +16,17 @@ import { runConfiguredValidations, type ValidationRunner } from "./validation.js
 import { runReview } from "./review.js";
 import { writeApprovalPacket } from "./approval-packets.js";
 import { ensureDir, fileExists } from "./fs.js";
-import type { AgentRunResult, LinkedProject, ProjectTask, PromotionArtifact, ReviewResult, SchedulerResult, SchedulerSelection, TaskLedger, ValidationSummary } from "./types.js";
+import type {
+  AgentRunResult,
+  LinkedProject,
+  ProjectTask,
+  PromotionArtifact,
+  ReviewResult,
+  SchedulerResult,
+  SchedulerSelection,
+  TaskLedger,
+  ValidationSummary,
+} from "./types.js";
 
 // Re-export from extracted submodules for backward compatibility
 export { determineWorkerRole, isSupportedSelfHealingTask, getSelfHealingBlock } from "./scheduler/self-healing.js";
@@ -25,7 +35,13 @@ export { decidePromotion, decidePromotionAction, resolveEffectivePromotionMode }
 export { shouldStopForNoProgress } from "./scheduler/no-progress.js";
 
 import { determineWorkerRole } from "./scheduler/self-healing.js";
-import { buildPrompt, buildVerifierPrompt, readSpecContent, detectAndSetSpecId, synthesizeContinuousImprovementTask } from "./scheduler/tasks.js";
+import {
+  buildPrompt,
+  buildVerifierPrompt,
+  readSpecContent,
+  detectAndSetSpecId,
+  synthesizeContinuousImprovementTask,
+} from "./scheduler/tasks.js";
 import { decidePromotion, decidePromotionAction, resolveEffectivePromotionMode } from "./scheduler/promotion.js";
 import { getSelfHealingBlock } from "./scheduler/self-healing.js";
 import { shouldStopForNoProgress } from "./scheduler/no-progress.js";
@@ -52,9 +68,7 @@ export function selectNextTask(ledger: TaskLedger, now: Date = new Date()): Sche
   // queue-equivalent to low-risk, so low-risk-first cannot starve it.
   // Within the equivalent set the oldest-updated task runs first.
   const staleCutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
-  const equivalent = satisfiableReady.filter(
-    (task) => task.risk === "low-risk" || task.updatedAt < staleCutoff,
-  );
+  const equivalent = satisfiableReady.filter((task) => task.risk === "low-risk" || task.updatedAt < staleCutoff);
   if (equivalent.length > 0) {
     const oldest = [...equivalent].sort((left, right) => {
       const order = left.updatedAt.localeCompare(right.updatedAt);
@@ -64,9 +78,7 @@ export function selectNextTask(ledger: TaskLedger, now: Date = new Date()): Sche
     return {
       task: oldest,
       mode: "implement",
-      reason: aged
-        ? `selected ready task ${oldest.id} (aged past 24h, queue-equivalent to low-risk)`
-        : "selected ready low-risk task",
+      reason: aged ? `selected ready task ${oldest.id} (aged past 24h, queue-equivalent to low-risk)` : "selected ready low-risk task",
     };
   }
 
@@ -106,10 +118,7 @@ export function selectNextTask(ledger: TaskLedger, now: Date = new Date()): Sche
  * Resolve the cost of a completed agent run: a parsed positive cost wins
  * ("measured"); anything else falls back to the configured estimate.
  */
-export function resolveRunCost(
-  result: AgentRunResult,
-  estimated: number,
-): { costUsd: number; costSource: "measured" | "estimated" } {
+export function resolveRunCost(result: AgentRunResult, estimated: number): { costUsd: number; costSource: "measured" | "estimated" } {
   const measured = result.usage?.costUsd;
   if (typeof measured === "number" && Number.isFinite(measured) && measured > 0) {
     return { costUsd: measured, costSource: "measured" };
@@ -335,12 +344,8 @@ export async function runProjectIteration(
 
   // D5: Worktree path/branch for isolated runs (setup happens inside the try below).
   const useWorktree = projectConfig.runtime.useWorktree;
-  const worktreeBranchName = useWorktree
-    ? `${projectConfig.runtime.branchPrefix}${task.id}`
-    : null;
-  const worktreePath = useWorktree
-    ? path.join(project.path, ".openloop", "worktrees", task.id)
-    : null;
+  const worktreeBranchName = useWorktree ? `${projectConfig.runtime.branchPrefix}${task.id}` : null;
+  const worktreePath = useWorktree ? path.join(project.path, ".openloop", "worktrees", task.id) : null;
 
   // Control-plane path (main tree: .openloop ledger, specs, reviews) vs execution
   // path (worktree when runtime.useWorktree, else the main tree the agent edits).
@@ -372,8 +377,8 @@ export async function runProjectIteration(
       } catch (error) {
         throw new Error(
           `Worktree isolation failed for ${worktreePath}: ` +
-          `${error instanceof Error ? error.message : String(error)}. ` +
-          `Aborting because useWorktree is enabled; refusing to fall back to the main working tree.`,
+            `${error instanceof Error ? error.message : String(error)}. ` +
+            `Aborting because useWorktree is enabled; refusing to fall back to the main working tree.`,
         );
       }
       // Liveness marker: crash recovery skips force-reclaiming a checkout
@@ -391,14 +396,12 @@ export async function runProjectIteration(
         if (setupExitCode !== 0) {
           throw new Error(
             `Worktree setup command failed: ${worktreeSetupCommand} (exit ${setupExitCode}). ` +
-            `Aborting because useWorktree is enabled; refusing to fall back to the main working tree.`,
+              `Aborting because useWorktree is enabled; refusing to fall back to the main working tree.`,
           );
         }
       }
     }
-    const runProject = worktreePath
-      ? { ...project, path: worktreePath }
-      : project;
+    const runProject = worktreePath ? { ...project, path: worktreePath } : project;
     agentStarted = true;
     const runResult = await withTimeout(
       runner({
@@ -465,14 +468,17 @@ export async function runProjectIteration(
             task.notes = [...(task.notes ?? []), `Openloop ${mode} run succeeded.`];
           }
           if (task.status === "done" && projectConfig.review?.enabled) {
-            const reviewerRunner = options?.reviewerRunner
-              ?? (async (reviewPrompt: string) =>
-                (await runner({
-                  project: runProject,
-                  prompt: reviewPrompt,
-                  model: model ?? undefined,
-                  timeoutMs: getRemainingTimeoutMs(),
-                })).exitCode);
+            const reviewerRunner =
+              options?.reviewerRunner ??
+              (async (reviewPrompt: string) =>
+                (
+                  await runner({
+                    project: runProject,
+                    prompt: reviewPrompt,
+                    model: model ?? undefined,
+                    timeoutMs: getRemainingTimeoutMs(),
+                  })
+                ).exitCode);
             reviewResult = await runReview({
               controlPlanePath,
               executionPath,
@@ -485,9 +491,7 @@ export async function runProjectIteration(
               task.notes = [...(task.notes ?? []), "Reviewer output malformed; downgraded to manual review."];
             }
             if (reviewResult.findings.length > 0) {
-              task.notes = [...(task.notes ?? []), ...reviewResult.findings.map(
-                (f) => `Review [${f.severity}] ${f.rule}: ${f.message}`,
-              )];
+              task.notes = [...(task.notes ?? []), ...reviewResult.findings.map((f) => `Review [${f.severity}] ${f.rule}: ${f.message}`)];
               if (reviewResult.hasBlocking) {
                 task.notes = [...(task.notes ?? []), "Openloop review found blocking issues; downgrading auto-merge to manual review."];
               }
@@ -516,21 +520,28 @@ export async function runProjectIteration(
       outcome = "pi-failed";
     }
 
-    const effectivePromotionMode = resolveEffectivePromotionMode(task, projectPolicy, projectConfig.risk.requirePolicyForAutoMerge, projectConfig);
+    const effectivePromotionMode = resolveEffectivePromotionMode(
+      task,
+      projectPolicy,
+      projectConfig.risk.requirePolicyForAutoMerge,
+      projectConfig,
+    );
     let promotionDecision = decidePromotion(task, validation, effectivePromotionMode, projectConfig);
     if ((reviewResult?.hasBlocking || reviewResult?.malformed || verifierRequiresReview) && promotionDecision === "auto-merge-eligible") {
       promotionDecision = "manual-review";
     }
     const afterFingerprint = await getGitDiffFingerprint(executionPath);
-    if (shouldStopForNoProgress({
-      task,
-      previousFailureSignature,
-      previousPromotionDecision,
-      currentPromotionDecision: promotionDecision,
-      beforeFingerprint,
-      afterFingerprint,
-      noProgressRepeatLimit,
-    })) {
+    if (
+      shouldStopForNoProgress({
+        task,
+        previousFailureSignature,
+        previousPromotionDecision,
+        currentPromotionDecision: promotionDecision,
+        beforeFingerprint,
+        afterFingerprint,
+        noProgressRepeatLimit,
+      })
+    ) {
       task.status = "blocked";
       task.notes = [...(task.notes ?? []), "Openloop blocked task due to no-progress detection."];
       stoppedBy = "no-progress";
@@ -587,7 +598,6 @@ export async function runProjectIteration(
     task.updatedAt = new Date().toISOString();
     await upsertTask(project.path, task);
 
-
     const result: SchedulerResult = {
       projectAlias: project.alias,
       taskId: task.id,
@@ -624,20 +634,30 @@ export async function runProjectIteration(
     task.lastFailureSignature = error instanceof RunTimeoutError ? "timeout" : error instanceof Error ? error.message : String(error);
     task.notes = [...(task.notes ?? []), `Openloop ${mode} run threw an error.`];
     const afterFingerprint = await getGitDiffFingerprint(executionPath);
-    const stoppedBy: SchedulerResult["stoppedBy"] = error instanceof RunTimeoutError ? "timeout" : shouldStopForNoProgress({
-      task,
-      previousFailureSignature,
-      previousPromotionDecision,
-      currentPromotionDecision: "blocked",
-      beforeFingerprint,
-      afterFingerprint,
-      noProgressRepeatLimit,
-    }) ? "no-progress" : "none";
+    const stoppedBy: SchedulerResult["stoppedBy"] =
+      error instanceof RunTimeoutError
+        ? "timeout"
+        : shouldStopForNoProgress({
+              task,
+              previousFailureSignature,
+              previousPromotionDecision,
+              currentPromotionDecision: "blocked",
+              beforeFingerprint,
+              afterFingerprint,
+              noProgressRepeatLimit,
+            })
+          ? "no-progress"
+          : "none";
     if (stoppedBy === "no-progress") {
       task.status = "blocked";
       task.notes = [...(task.notes ?? []), "Openloop blocked task due to no-progress detection."];
     }
-    const effectivePromotionMode = resolveEffectivePromotionMode(task, projectPolicy, projectConfig.risk.requirePolicyForAutoMerge, projectConfig);
+    const effectivePromotionMode = resolveEffectivePromotionMode(
+      task,
+      projectPolicy,
+      projectConfig.risk.requirePolicyForAutoMerge,
+      projectConfig,
+    );
     const promotionAction = decidePromotionAction("blocked");
     promotionArtifactPath = await maybeWritePromotionArtifact(project.path, {
       projectAlias: project.alias,
@@ -751,20 +771,19 @@ async function runVerifierStage(input: {
   verifierRunner?: (prompt: string) => Promise<number>;
   getRemainingTimeoutMs: () => number | undefined;
 }): Promise<VerifierOutcome> {
-  const verifierRunner = input.verifierRunner
-    ?? (async (prompt: string) =>
-      (await input.runner({
-        project: input.runProject,
-        model: input.model,
-        prompt,
-        timeoutMs: input.getRemainingTimeoutMs(),
-      })).exitCode);
+  const verifierRunner =
+    input.verifierRunner ??
+    (async (prompt: string) =>
+      (
+        await input.runner({
+          project: input.runProject,
+          model: input.model,
+          prompt,
+          timeoutMs: input.getRemainingTimeoutMs(),
+        })
+      ).exitCode);
 
-  const prompt = buildVerifierPrompt(
-    input.task,
-    input.specContent,
-    path.join(input.controlPlanePath, ".openloop", "reviews"),
-  );
+  const prompt = buildVerifierPrompt(input.task, input.specContent, path.join(input.controlPlanePath, ".openloop", "reviews"));
   // Verdicts from a previous attempt are never valid for this one — a
   // verifier that fails to run must degrade to requiresReview, not replay
   // old fail verdicts against a retry it never judged.
@@ -793,11 +812,7 @@ async function runVerifierStage(input: {
   const failingCriteria = verdicts
     .filter((verdict) => verdict.verdict === "fail")
     .map((verdict) =>
-      typeof verdict.index === "number"
-        ? String(verdict.index)
-        : typeof verdict.criterion === "string"
-          ? verdict.criterion
-          : "unknown",
+      typeof verdict.index === "number" ? String(verdict.index) : typeof verdict.criterion === "string" ? verdict.criterion : "unknown",
     );
   if (failingCriteria.length > 0) {
     return { failed: true, requiresReview: false, failingCriteria };
@@ -825,13 +840,9 @@ async function writeRunTranscript(controlPlanePath: string, taskId: string, resu
   }
   const runsDir = path.join(controlPlanePath, ".openloop", "runs");
   await ensureDir(runsDir);
-  const text = result.stderr
-    ? `${result.stdout}\n--- stderr ---\n${result.stderr}`
-    : result.stdout;
+  const text = result.stderr ? `${result.stdout}\n--- stderr ---\n${result.stderr}` : result.stdout;
   const buffer = Buffer.from(text, "utf8");
-  const clipped = buffer.length > MAX_TRANSCRIPT_BYTES
-    ? buffer.subarray(buffer.length - MAX_TRANSCRIPT_BYTES)
-    : buffer;
+  const clipped = buffer.length > MAX_TRANSCRIPT_BYTES ? buffer.subarray(buffer.length - MAX_TRANSCRIPT_BYTES) : buffer;
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   await fs.writeFile(path.join(runsDir, `${timestamp}-${taskId}.transcript.log`), clipped);
 }

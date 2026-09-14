@@ -4,7 +4,14 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { expect, test } from "vitest";
-import { applyPromotionArtifact, getPromotionDetail, getPromotionHistory, listPromotionArtifacts, listPromotionArtifactsForTask, updatePromotionArtifact } from "../../src/core/promotion-queue.js";
+import {
+  applyPromotionArtifact,
+  getPromotionDetail,
+  getPromotionHistory,
+  listPromotionArtifacts,
+  listPromotionArtifactsForTask,
+  updatePromotionArtifact,
+} from "../../src/core/promotion-queue.js";
 import { writePromotionArtifact } from "../../src/core/promotion-artifacts.js";
 import type { PromotionArtifact, TaskLedger } from "../../src/core/types.js";
 
@@ -491,14 +498,18 @@ test("applyPromotionArtifact rejects auto-merge when no validations were persist
   const baseBranch = currentBranch.stdout.trim();
   await fs.writeFile(
     path.join(projectRoot, ".openloop", "project.json"),
-    `${JSON.stringify({
-      version: 1,
-      project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
-      pi: { model: null, promptFiles: [] },
-      runtime: { useWorktree: false, branchPrefix: "openloop/" },
-      validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
-      risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
-    }, null, 2)}\n`,
+    `${JSON.stringify(
+      {
+        version: 1,
+        project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
+        pi: { model: null, promptFiles: [] },
+        runtime: { useWorktree: false, branchPrefix: "openloop/" },
+        validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
+        risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
+      },
+      null,
+      2,
+    )}\n`,
     "utf8",
   );
   const artifact: PromotionArtifact = {
@@ -561,7 +572,9 @@ test("applyPromotionArtifact rejects auto-merge when no validations were persist
   await execFileAsync("git", ["add", ".openloop"], { cwd: projectRoot });
   await execFileAsync("git", ["commit", "-m", "control plane"], { cwd: projectRoot });
 
-  await expect(applyPromotionArtifact(projectRoot, "task-no-validation")).rejects.toThrow("Auto-merge requires at least one configured validation command.");
+  await expect(applyPromotionArtifact(projectRoot, "task-no-validation")).rejects.toThrow(
+    "Auto-merge requires at least one configured validation command.",
+  );
 });
 
 test("applyPromotionArtifact rejects auto-merge when base branch drifted", async () => {
@@ -577,14 +590,18 @@ test("applyPromotionArtifact rejects auto-merge when base branch drifted", async
   const baseBranch = currentBranch.stdout.trim();
   await fs.writeFile(
     path.join(projectRoot, ".openloop", "project.json"),
-    `${JSON.stringify({
-      version: 1,
-      project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
-      pi: { model: null, promptFiles: [] },
-      runtime: { useWorktree: false, branchPrefix: "openloop/" },
-      validation: { lintCommand: null, testCommand: "bun test", typecheckCommand: null },
-      risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
-    }, null, 2)}\n`,
+    `${JSON.stringify(
+      {
+        version: 1,
+        project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
+        pi: { model: null, promptFiles: [] },
+        runtime: { useWorktree: false, branchPrefix: "openloop/" },
+        validation: { lintCommand: null, testCommand: "bun test", typecheckCommand: null },
+        risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
+      },
+      null,
+      2,
+    )}\n`,
     "utf8",
   );
 
@@ -657,7 +674,9 @@ test("applyPromotionArtifact rejects auto-merge when base branch drifted", async
   await execFileAsync("git", ["add", ".openloop"], { cwd: projectRoot });
   await execFileAsync("git", ["commit", "-m", "control plane"], { cwd: projectRoot });
 
-  await expect(applyPromotionArtifact(projectRoot, "task-drift")).rejects.toThrow(`Base branch has drifted since task branch split from ${baseBranch}.`);
+  await expect(applyPromotionArtifact(projectRoot, "task-drift")).rejects.toThrow(
+    `Base branch has drifted since task branch split from ${baseBranch}.`,
+  );
 });
 
 test("getPromotionHistory returns promotion request and result artifacts in order", async () => {

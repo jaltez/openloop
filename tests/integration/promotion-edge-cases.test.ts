@@ -11,14 +11,18 @@ import type { PromotionArtifact, TaskLedger } from "../../src/core/types.js";
 const execFileAsync = promisify(execFile);
 
 function makeProjectConfig(): string {
-  return JSON.stringify({
-    version: 1,
-    project: { alias: "demo", repoRoot: "/tmp", initializedAt: null },
-    pi: { model: null, promptFiles: [] },
-    runtime: { useWorktree: false, branchPrefix: "openloop/" },
-    validation: { lintCommand: "echo lint", testCommand: null, typecheckCommand: null },
-    risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
-  }, null, 2);
+  return JSON.stringify(
+    {
+      version: 1,
+      project: { alias: "demo", repoRoot: "/tmp", initializedAt: null },
+      pi: { model: null, promptFiles: [] },
+      runtime: { useWorktree: false, branchPrefix: "openloop/" },
+      validation: { lintCommand: "echo lint", testCommand: null, typecheckCommand: null },
+      risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
+    },
+    null,
+    2,
+  );
 }
 
 test("auto-merge rejects when base branch has drifted", async () => {
@@ -70,38 +74,40 @@ test("auto-merge rejects when base branch has drifted", async () => {
   const ledger: TaskLedger = {
     version: 1,
     updatedAt: new Date().toISOString(),
-    tasks: [{
-      id: "task-drift",
-      title: "Drift test",
-      kind: "feature",
-      status: "done",
-      risk: "low-risk",
-      source: { type: "human", ref: "test" },
-      specId: null,
-      branch: "openloop/task-drift",
-      owner: "openloop",
-      acceptanceCriteria: ["done"],
-      attempts: 1,
-      lastFailureSignature: null,
-      promotion: "auto-merge",
-      notes: [],
-      lastRun: {
-        completedAt: new Date().toISOString(),
-        mode: "implement",
-        piExitCode: 0,
-        outcome: "completed",
-        baseBranch: mainBranch,
-        validation: [{ name: "lint", command: "echo lint", exitCode: 0 }],
-        promotionDecision: "auto-merge-eligible",
-        effectivePromotionMode: "auto-merge",
-        promotionAction: "queue-auto-merge",
-        promotionArtifactPath: artifactPath,
-        promotionArtifactState: "pending",
-        promotionResultArtifactPath: null,
+    tasks: [
+      {
+        id: "task-drift",
+        title: "Drift test",
+        kind: "feature",
+        status: "done",
+        risk: "low-risk",
+        source: { type: "human", ref: "test" },
+        specId: null,
+        branch: "openloop/task-drift",
+        owner: "openloop",
+        acceptanceCriteria: ["done"],
+        attempts: 1,
+        lastFailureSignature: null,
+        promotion: "auto-merge",
+        notes: [],
+        lastRun: {
+          completedAt: new Date().toISOString(),
+          mode: "implement",
+          piExitCode: 0,
+          outcome: "completed",
+          baseBranch: mainBranch,
+          validation: [{ name: "lint", command: "echo lint", exitCode: 0 }],
+          promotionDecision: "auto-merge-eligible",
+          effectivePromotionMode: "auto-merge",
+          promotionAction: "queue-auto-merge",
+          promotionArtifactPath: artifactPath,
+          promotionArtifactState: "pending",
+          promotionResultArtifactPath: null,
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       },
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }],
+    ],
   };
   await fs.writeFile(path.join(dir, ".openloop", "tasks.json"), `${JSON.stringify(ledger, null, 2)}\n`, "utf8");
   await execFileAsync("git", ["add", "."], { cwd: dir });
@@ -142,38 +148,40 @@ test("auto-merge rejects when task risk is not low-risk", async () => {
   const ledger: TaskLedger = {
     version: 1,
     updatedAt: new Date().toISOString(),
-    tasks: [{
-      id: "task-medrisk",
-      title: "Medium risk auto-merge attempt",
-      kind: "feature",
-      status: "done",
-      risk: "medium-risk",
-      source: { type: "human", ref: "test" },
-      specId: null,
-      branch: null,
-      owner: "openloop",
-      acceptanceCriteria: ["done"],
-      attempts: 1,
-      lastFailureSignature: null,
-      promotion: "auto-merge",
-      notes: [],
-      lastRun: {
-        completedAt: new Date().toISOString(),
-        mode: "implement",
-        piExitCode: 0,
-        outcome: "completed",
-        baseBranch: null,
-        validation: [{ name: "lint", command: "echo lint", exitCode: 0 }],
-        promotionDecision: "auto-merge-eligible",
-        effectivePromotionMode: "auto-merge",
-        promotionAction: "queue-auto-merge",
-        promotionArtifactPath: artifactPath,
-        promotionArtifactState: "pending",
-        promotionResultArtifactPath: null,
+    tasks: [
+      {
+        id: "task-medrisk",
+        title: "Medium risk auto-merge attempt",
+        kind: "feature",
+        status: "done",
+        risk: "medium-risk",
+        source: { type: "human", ref: "test" },
+        specId: null,
+        branch: null,
+        owner: "openloop",
+        acceptanceCriteria: ["done"],
+        attempts: 1,
+        lastFailureSignature: null,
+        promotion: "auto-merge",
+        notes: [],
+        lastRun: {
+          completedAt: new Date().toISOString(),
+          mode: "implement",
+          piExitCode: 0,
+          outcome: "completed",
+          baseBranch: null,
+          validation: [{ name: "lint", command: "echo lint", exitCode: 0 }],
+          promotionDecision: "auto-merge-eligible",
+          effectivePromotionMode: "auto-merge",
+          promotionAction: "queue-auto-merge",
+          promotionArtifactPath: artifactPath,
+          promotionArtifactState: "pending",
+          promotionResultArtifactPath: null,
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       },
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }],
+    ],
   };
   await fs.writeFile(path.join(dir, ".openloop", "tasks.json"), `${JSON.stringify(ledger, null, 2)}\n`, "utf8");
   await execFileAsync("git", ["add", "."], { cwd: dir });
@@ -191,14 +199,18 @@ test("auto-merge rejects when no validation commands are configured", async () =
   await fs.writeFile(path.join(dir, "README.md"), "init\n", "utf8");
 
   // No validation commands
-  const noValidationConfig = JSON.stringify({
-    version: 1,
-    project: { alias: "demo", repoRoot: "/tmp", initializedAt: null },
-    pi: { model: null, promptFiles: [] },
-    runtime: { useWorktree: false, branchPrefix: "openloop/" },
-    validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
-    risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
-  }, null, 2);
+  const noValidationConfig = JSON.stringify(
+    {
+      version: 1,
+      project: { alias: "demo", repoRoot: "/tmp", initializedAt: null },
+      pi: { model: null, promptFiles: [] },
+      runtime: { useWorktree: false, branchPrefix: "openloop/" },
+      validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
+      risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
+    },
+    null,
+    2,
+  );
   await fs.writeFile(path.join(dir, ".openloop", "project.json"), `${noValidationConfig}\n`, "utf8");
   await execFileAsync("git", ["add", "."], { cwd: dir });
   await execFileAsync("git", ["commit", "-m", "initial"], { cwd: dir });
@@ -224,38 +236,40 @@ test("auto-merge rejects when no validation commands are configured", async () =
   const ledger: TaskLedger = {
     version: 1,
     updatedAt: new Date().toISOString(),
-    tasks: [{
-      id: "task-noval",
-      title: "No validation auto-merge attempt",
-      kind: "feature",
-      status: "done",
-      risk: "low-risk",
-      source: { type: "human", ref: "test" },
-      specId: null,
-      branch: null,
-      owner: "openloop",
-      acceptanceCriteria: ["done"],
-      attempts: 1,
-      lastFailureSignature: null,
-      promotion: "auto-merge",
-      notes: [],
-      lastRun: {
-        completedAt: new Date().toISOString(),
-        mode: "implement",
-        piExitCode: 0,
-        outcome: "completed",
-        baseBranch: null,
-        validation: [],
-        promotionDecision: "auto-merge-eligible",
-        effectivePromotionMode: "auto-merge",
-        promotionAction: "queue-auto-merge",
-        promotionArtifactPath: artifactPath,
-        promotionArtifactState: "pending",
-        promotionResultArtifactPath: null,
+    tasks: [
+      {
+        id: "task-noval",
+        title: "No validation auto-merge attempt",
+        kind: "feature",
+        status: "done",
+        risk: "low-risk",
+        source: { type: "human", ref: "test" },
+        specId: null,
+        branch: null,
+        owner: "openloop",
+        acceptanceCriteria: ["done"],
+        attempts: 1,
+        lastFailureSignature: null,
+        promotion: "auto-merge",
+        notes: [],
+        lastRun: {
+          completedAt: new Date().toISOString(),
+          mode: "implement",
+          piExitCode: 0,
+          outcome: "completed",
+          baseBranch: null,
+          validation: [],
+          promotionDecision: "auto-merge-eligible",
+          effectivePromotionMode: "auto-merge",
+          promotionAction: "queue-auto-merge",
+          promotionArtifactPath: artifactPath,
+          promotionArtifactState: "pending",
+          promotionResultArtifactPath: null,
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       },
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }],
+    ],
   };
   await fs.writeFile(path.join(dir, ".openloop", "tasks.json"), `${JSON.stringify(ledger, null, 2)}\n`, "utf8");
   await execFileAsync("git", ["add", "."], { cwd: dir });
