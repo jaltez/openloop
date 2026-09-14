@@ -96,6 +96,8 @@ Low-risk tasks with passing validations can auto-merge. Everything else waits fo
 
 - Node.js 22+ (Bun also works). The interactive TUI additionally requires Bun; without it, `openloop watch` provides a no-Bun live dashboard.
 - An AI coding agent on `PATH` — Pi (default), Claude Code, Aider, Codex, OpenCode, ka, Oh My Pi (omp), or a custom command
+  - `ka`: install with `cargo install ka-agent`; unattended runs execute in guarded mode
+  - `omp` (Oh My Pi, a Pi fork): complete the interactive `/login` once before headless use
 - `git` available on `PATH`
 - `git worktree` support when `runtime.useWorktree` is enabled (opt-in isolation); `runtime.worktreeSetupCommand` can provision worktree-local build state (e.g. `npm install`)
 
@@ -161,15 +163,15 @@ Tasks can declare `scope.paths`, and the runtime enforces project policy:
 
 ### Safety Guardrails
 
-| Guard                 | Default       | Details                                                               |
-| --------------------- | ------------- | --------------------------------------------------------------------- |
-| Budget ceiling        | $25/day       | Daemon pauses when exhausted                                          |
-| Max attempts          | 3 per task    | Task is blocked after repeated failures                               |
-| Run timeout           | 30 min        | Hard cap per agent invocation                                        |
-| No-progress detection | On            | Blocks tasks with ineffective diffs or repeated errors                |
-| Scope policy          | Per-project   | `allowGlobs`, `denyGlobs`, `highRiskAreas` in `.openloop/policy.yaml` |
-| Auto-merge            | Low-risk only | All validations must pass; medium/high-risk always requires review    |
-| Post-implementation review | Optional  | Scope-drift and secret detection on diffs; blocking findings downgrade auto-merge to manual review |
+| Guard                      | Default       | Details                                                                                            |
+| -------------------------- | ------------- | -------------------------------------------------------------------------------------------------- |
+| Budget ceiling             | $25/day       | Daemon pauses when exhausted                                                                       |
+| Max attempts               | 3 per task    | Task is blocked after repeated failures                                                            |
+| Run timeout                | 30 min        | Hard cap per agent invocation                                                                      |
+| No-progress detection      | On            | Blocks tasks with ineffective diffs or repeated errors                                             |
+| Scope policy               | Per-project   | `allowGlobs`, `denyGlobs`, `highRiskAreas` in `.openloop/policy.yaml`                              |
+| Auto-merge                 | Low-risk only | All validations must pass; medium/high-risk always requires review                                 |
+| Post-implementation review | Optional      | Scope-drift and secret detection on diffs; blocking findings downgrade auto-merge to manual review |
 
 ## CLI Reference
 
@@ -272,10 +274,20 @@ Command hooks receive the JSON payload on stdin. Command and webhook hooks may r
 
 ## Release
 
-Before publishing:
+Publishing to npm is automated and token-free via trusted publishing (OIDC). The repository, `publish.yml` workflow, and `npm` environment are registered as trusted publishers for the package on npmjs.com; every `v*` tag push triggers the workflow, which type-checks, tests, builds, validates the tarball, and publishes with provenance.
+
+To release:
 
 ```bash
-npm run release:verify    # validates tarball contents
+# 1. Bump "version" in package.json and commit
+git tag -a v0.8.0 -m "openloop 0.8.0"
+git push origin v0.8.0    # workflow publishes; watch it under Actions
+```
+
+For local pre-flight checks before tagging:
+
+```bash
+npm run release:verify    # typecheck, tests, build, smoke, tarball contents
 npm run release:pack      # verify + pack
 ```
 
