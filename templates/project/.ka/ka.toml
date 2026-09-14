@@ -1,0 +1,12 @@
+# ka configuration for a repository linked to Openloop.
+# ka validates strictly (unknown keys are errors), so only keys documented at
+# https://github.com/jaltez/ka should be added here.
+
+# Unattended Openloop runs execute `ka run --mode guarded`; this file can
+# override defaults for interactive use without weakening that mode.
+
+# Example: deny writes to Openloop runtime-managed files.
+# [[rules]]
+# tool = "edit"
+# effect = "deny"
+# glob = ".openloop/**"

@@ -29,3 +29,31 @@ test("materializes project templates into the target repository", async () => {
   expect(projectConfig.project.alias).toBe("demo");
   expect(await fs.readFile(path.join(targetRoot, ".agents", "skills", "openloop", "SKILL.md"), "utf8")).toContain("# Target");
 });
+
+test("materializes .ka/ka.toml without overwriting user modifications", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-app-"));
+  const targetRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-target-"));
+  const templatesRoot = path.join(repoRoot, "templates", "project", ".openloop");
+  await fs.mkdir(templatesRoot, { recursive: true });
+  await fs.writeFile(path.join(templatesRoot, "project.json"), "{}\n", "utf8");
+  const kaDir = path.join(repoRoot, "templates", "project", ".ka");
+  await fs.mkdir(kaDir, { recursive: true });
+  await fs.writeFile(path.join(kaDir, "ka.toml"), "# template default\n", "utf8");
+
+  const project: LinkedProject = {
+    alias: "demo",
+    path: targetRoot,
+    defaultBranch: null,
+    initialized: false,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  await initializeProjectFromTemplates(repoRoot, project);
+  expect(await fs.readFile(path.join(targetRoot, ".ka", "ka.toml"), "utf8")).toContain("# template default");
+
+  // User-edited config survives re-materialization without --force.
+  await fs.writeFile(path.join(targetRoot, ".ka", "ka.toml"), "# user override\n", "utf8");
+  await initializeProjectFromTemplates(repoRoot, project);
+  expect(await fs.readFile(path.join(targetRoot, ".ka", "ka.toml"), "utf8")).toContain("# user override");
+});

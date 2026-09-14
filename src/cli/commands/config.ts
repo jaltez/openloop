@@ -2,7 +2,7 @@ import type { Argv, ArgumentsCamelCase, Options } from "yargs";
 import { getProject } from "../../core/project-registry.js";
 import { loadGlobalConfig, saveGlobalConfig } from "../../core/global-config.js";
 import { loadProjectConfig, saveProjectConfig } from "../../core/project-config.js";
-import { listProviders, PROVIDER_NAMES, getProvider } from "../../core/providers.js";
+import { listProviders, PROVIDER_NAMES, getProvider, type ProviderName } from "../../core/providers.js";
 import type { LifecycleHookConfig } from "../../core/types.js";
 
 type ModelArgs = ArgumentsCamelCase<{ model: string }>;
@@ -247,7 +247,7 @@ export function registerConfigCommands(cli: Argv): void {
               return;
             }
             config.agent = {
-              type: providerName as "pi" | "claude" | "aider" | "codex" | "opencode" | "custom",
+              type: providerName as ProviderName,
               command: providerName === "custom" ? String(args.command) : null,
             };
             await saveProjectConfig(project.path, config);

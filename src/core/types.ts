@@ -106,7 +106,7 @@ export interface ProjectConfig {
     promptFiles: string[];
   };
   agent?: {
-    type: "pi" | "claude" | "aider" | "codex" | "opencode" | "custom";
+    type: "pi" | "claude" | "aider" | "codex" | "opencode" | "ka" | "omp" | "custom";
     command: string | null;
     extraArgs?: string[];
   };

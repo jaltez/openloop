@@ -53,6 +53,8 @@ test("getProvider returns known providers", () => {
   expect(getProvider("claude")?.label).toBe("Claude Code");
   expect(getProvider("codex")?.label).toBe("OpenAI Codex");
   expect(getProvider("opencode")?.label).toBe("OpenCode");
+  expect(getProvider("ka")?.label).toBe("ka");
+  expect(getProvider("omp")?.label).toBe("Oh My Pi");
 });
 
 test("resolveProvider falls back to pi when no type specified", () => {
@@ -79,6 +81,63 @@ test("resolveProvider creates custom provider when type is custom", () => {
 test("createCustomProvider marks itself as always available", () => {
   const provider = createCustomProvider("echo hello");
   expect(provider.checkAvailable()).toBe(true);
+});
+
+test("ka provider runs headless guarded mode with the prompt last", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-provider-ka-"));
+  tempDirs.push(dir);
+
+  const fakeBin = path.join(dir, "ka");
+  await fs.writeFile(fakeBin, '#!/bin/sh\necho "$@"\n', "utf8");
+  await fs.chmod(fakeBin, 0o755);
+
+  const origPath = process.env.PATH;
+  process.env.PATH = `${dir}:${origPath}`;
+  try {
+    const provider = getProvider("ka")!;
+    expect(provider.checkAvailable()).toBe(true);
+    const result = await provider.run({
+      prompt: "do the thing",
+      model: "test-model",
+      projectPath: dir,
+      extraArgs: ["--trust"],
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe("run --mode guarded --model test-model do the thing --trust");
+  } finally {
+    process.env.PATH = origPath;
+  }
+});
+
+test("omp provider runs print mode with JSON event stream", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-provider-omp-"));
+  tempDirs.push(dir);
+
+  const fakeBin = path.join(dir, "omp");
+  await fs.writeFile(
+    fakeBin,
+    '#!/bin/sh\necho \'{"event":"message"}\'\necho \'{"usage":{"input_tokens":7,"output_tokens":3},"total_cost_usd":0.11}\'\n',
+    "utf8",
+  );
+  await fs.chmod(fakeBin, 0o755);
+
+  const origPath = process.env.PATH;
+  process.env.PATH = `${dir}:${origPath}`;
+  try {
+    const provider = getProvider("omp")!;
+    expect(provider.checkAvailable()).toBe(true);
+    const result = await provider.run({
+      prompt: "hello",
+      model: "test-model",
+      projectPath: dir,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.usage).toEqual({ inputTokens: 7, outputTokens: 3, costUsd: 0.11 });
+  } finally {
+    process.env.PATH = origPath;
+  }
 });
 
 // --- runAgent with provider dispatch ---
@@ -332,6 +391,34 @@ test("config project-set-agent persists project agent config", async () => {
   const config = await loadProjectConfig(projectRoot);
   expect(config.agent?.type).toBe("claude");
   expect(config.agent?.command).toBeNull();
+});
+
+test("config project-set-agent accepts ka and omp", async () => {
+  const appHome = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-home-"));
+  const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openloop-project-"));
+  tempDirs.push(appHome, projectRoot);
+  process.env.OPENLOOP_HOME = appHome;
+
+  await runCli(["project", "add", "demo", projectRoot]);
+  await fs.mkdir(path.join(projectRoot, ".openloop"), { recursive: true });
+  await fs.writeFile(
+    path.join(projectRoot, ".openloop", "project.json"),
+    JSON.stringify({
+      version: 1,
+      project: { alias: "demo", repoRoot: projectRoot, initializedAt: null },
+      pi: { model: null, promptFiles: [] },
+      runtime: { useWorktree: false, branchPrefix: "openloop/" },
+      validation: { lintCommand: null, testCommand: null, typecheckCommand: null },
+      risk: { defaultUnknownAreaClassification: "medium-risk", requirePolicyForAutoMerge: true },
+    }, null, 2),
+    "utf8",
+  );
+
+  await runCli(["config", "project-set-agent", "demo", "ka"]);
+  await runCli(["config", "project-set-agent", "demo", "omp"]);
+
+  const config = await loadProjectConfig(projectRoot);
+  expect(config.agent?.type).toBe("omp");
 });
 
 async function runCli(args: string[]): Promise<void> {

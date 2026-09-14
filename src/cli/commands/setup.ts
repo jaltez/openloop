@@ -67,7 +67,7 @@ export function registerSetupCommand(cli: Argv): void {
           return;
         }
         if (!hasPi) {
-          console.log("⚠️  'pi' binary not found. You can still set up projects, but the daemon will need 'pi' (or another agent) to run.");
+          console.log("⚠️  'pi' binary not found. You can still set up projects, but the daemon will need an agent binary (pi, claude, aider, codex, opencode, ka, or omp) to run tasks.");
           console.log("");
         }
 

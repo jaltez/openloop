@@ -269,6 +269,41 @@ const opencodeProvider: AgentProvider = {
   },
 };
 
+const kaProvider: AgentProvider = {
+  name: "ka",
+  label: "ka",
+  checkAvailable: () => binaryExists("ka"),
+  run(options) {
+    // Guarded mode keeps ka's permission gate on for unattended runs; --trust
+    // and sandbox overrides stay opt-in via agent.extraArgs.
+    const args = ["run", "--mode", "guarded"];
+    if (options.model) args.push("--model", options.model);
+    args.push(options.prompt);
+    appendExtraArgs(args, options.extraArgs);
+    return withUsage(
+      spawnAndWait("ka", args, options.projectPath, { timeoutMs: options.timeoutMs, projectAlias: options.projectAlias }),
+      parseLastLineUsage,
+    );
+  },
+};
+
+const ompProvider: AgentProvider = {
+  name: "omp",
+  label: "Oh My Pi",
+  checkAvailable: () => binaryExists("omp"),
+  run(options) {
+    // Print mode with the JSON event stream so usage can be parsed from the
+    // last NDJSON line. Requires a one-time interactive `omp` /login.
+    const args = ["-p", options.prompt, "--mode", "json"];
+    if (options.model) args.push("--model", options.model);
+    appendExtraArgs(args, options.extraArgs);
+    return withUsage(
+      spawnAndWait("omp", args, options.projectPath, { timeoutMs: options.timeoutMs, projectAlias: options.projectAlias }),
+      parseLastLineUsage,
+    );
+  },
+};
+
 // ---------------------------------------------------------------------------
 // Custom command provider (instantiated per-project)
 // ---------------------------------------------------------------------------
@@ -315,13 +350,15 @@ const BUILTIN_PROVIDERS: AgentProvider[] = [
   aiderProvider,
   codexProvider,
   opencodeProvider,
+  kaProvider,
+  ompProvider,
 ];
 
 const providerMap = new Map<string, AgentProvider>(
   BUILTIN_PROVIDERS.map((p) => [p.name, p]),
 );
 
-export type ProviderName = "pi" | "claude" | "aider" | "codex" | "opencode" | "custom";
+export type ProviderName = "pi" | "claude" | "aider" | "codex" | "opencode" | "ka" | "omp" | "custom";
 
 export const PROVIDER_NAMES: readonly string[] = BUILTIN_PROVIDERS.map((p) => p.name);
 

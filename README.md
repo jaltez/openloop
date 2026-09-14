@@ -95,7 +95,7 @@ Low-risk tasks with passing validations can auto-merge. Everything else waits fo
 ## Requirements
 
 - Node.js 22+ (Bun also works). The interactive TUI additionally requires Bun; without it, `openloop watch` provides a no-Bun live dashboard.
-- An AI coding agent on `PATH` — Pi (default), Claude Code, Aider, Codex, OpenCode, or a custom command
+- An AI coding agent on `PATH` — Pi (default), Claude Code, Aider, Codex, OpenCode, ka, Oh My Pi (omp), or a custom command
 - `git` available on `PATH`
 - `git worktree` support when `runtime.useWorktree` is enabled (opt-in isolation); `runtime.worktreeSetupCommand` can provision worktree-local build state (e.g. `npm install`)
 
@@ -119,7 +119,7 @@ Each run is labeled with a worker role that shapes the agent's behavior:
 
 ### Runtime Model
 
-- The configured agent runs as a subprocess. Supports Pi, Claude Code, Aider, Codex, OpenCode, or a custom command via the provider abstraction.
+- The configured agent runs as a subprocess. Supports Pi, Claude Code, Aider, Codex, OpenCode, ka, Oh My Pi (omp), or a custom command via the provider abstraction.
 - Model resolution is deterministic: CLI flag > project config > global config.
 - A single resident daemon manages scheduling across all linked projects.
 - One active worker per project at a time; the daemon sleeps between iterations.
