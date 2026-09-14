@@ -1,0 +1,60 @@
+name: Publish
+
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # Must match the "Environment" field registered in the npm trusted
+    # publisher settings for the openloop package.
+    environment: npm
+    permissions:
+      contents: read
+      # Lets the workflow's OIDC token be exchanged for a short-lived npm
+      # publish grant — no NPM_TOKEN secret involved.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # prepack builds via bun (bun bun-build.ts).
+      - uses: oven-sh/setup-bun@v2
+
+      # The npm bundled with Node 22 predates OIDC trusted publishing;
+      # npm >= 11.5 is required. Pin to the 11.x line: npm 12 turns
+      # dependency lifecycle scripts off by default, which the test
+      # dependencies don't declare allowlists for yet.
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@11
+
+      - name: Check tag matches package version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="v$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$version" ]; then
+            echo "::error::Tag $TAG does not match package.json ($version)."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Verify release tarball
+        run: npm run release:verify
+
+      - name: Publish to npm
+        run: npm publish
