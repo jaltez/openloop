@@ -6,6 +6,97 @@ pub use dispatch::dispatch;
 
 
 
+
+fn validate_in(valid: &'static [&'static str]) -> impl Fn(&str) -> Result<String, String> {
+    move |value: &str| {
+        if valid.contains(&value) {
+            Ok(value.to_string())
+        } else {
+            Err(format!("invalid value '{value}' for --flag; expected one of {}", valid.join(", ")))
+        }
+    }
+}
+
+pub const TASK_STATUSES: &[&str] = &[
+    "proposed",
+    "planned",
+    "ready",
+    "awaiting-approval",
+    "in_progress",
+    "blocked",
+    "done",
+    "failed",
+    "cancelled",
+    "promoted",
+];
+pub const TASK_RISKS: &[&str] = &["low-risk", "medium-risk", "high-risk"];
+pub const TASK_KINDS: &[&str] = &[
+    "feature",
+    "bugfix",
+    "test",
+    "refactor",
+    "docs",
+    "lint-fix",
+    "type-fix",
+    "localized-test-fix",
+    "ci-heal",
+    "discovery",
+    "scope-proposal",
+];
+pub const PROMOTION_STATUSES: &[&str] = &["pending", "applied", "rejected"];
+
+pub fn validate_task_status(value: &str) -> Result<String, String> {
+    validate_in(TASK_STATUSES)(value)
+}
+pub fn validate_task_risk(value: &str) -> Result<String, String> {
+    validate_in(TASK_RISKS)(value)
+}
+pub fn validate_task_kind(value: &str) -> Result<String, String> {
+    validate_in(TASK_KINDS)(value)
+}
+pub fn validate_promotion_status(value: &str) -> Result<String, String> {
+    validate_in(PROMOTION_STATUSES)(value)
+}
+
+/// Coerce a `config set` value following TS semantics: numbers must be
+/// finite and respect min/max; whole numbers serialize as JSON integers so
+/// the u64/u32 config fields round-trip; "null" maps to JSON null.
+pub fn coerce_config_set_value(
+    kind: &str,
+    value: &str,
+    min: Option<f64>,
+    max: Option<f64>,
+) -> Result<serde_json::Value, String> {
+    if kind != "number" {
+        return Ok(if value == "null" {
+            serde_json::Value::Null
+        } else {
+            serde_json::json!(value)
+        });
+    }
+    let num: f64 = value
+        .parse::<f64>()
+        .ok()
+        .filter(|n| n.is_finite())
+        .ok_or_else(|| format!("invalid number '{value}'"))?;
+    if let Some(min) = min {
+        if num < min {
+            return Err(format!("must be >= {min}"));
+        }
+    }
+    if let Some(max) = max {
+        if num > max {
+            return Err(format!("must be <= {max}"));
+        }
+    }
+    if num.fract() == 0.0 && num.abs() < 9.0e15 {
+        Ok(serde_json::json!(num as i64))
+    } else {
+        Ok(serde_json::json!(num))
+    }
+}
+
+
 #[derive(Debug, clap::Parser)]
 #[command(name = "openloop", version, about = "Global CLI and service for unattended Pi-driven development across linked repositories.")]
 pub struct Cli {
@@ -121,7 +212,7 @@ pub enum PromotionSubcommand {
         project: String,
         #[arg(long)]
         task: Option<String>,
-        #[arg(long)]
+        #[arg(long, value_parser = validate_promotion_status)]
         status: Option<String>,
         #[arg(long)]
         format: Option<String>,
@@ -316,6 +407,8 @@ pub struct RunOnceArgs {
 pub struct EnqueueArgs {
     #[arg(short = 'p', long)]
     pub project: String,
+    /// Project reference to enqueue work from
+    #[arg(long = "ref")]
     pub ref_: String,
 }
 
@@ -336,9 +429,9 @@ pub enum TaskSubcommand {
         /// Create task from an issue/PR reference (sets title and source)
         #[arg(long = "from-ref")]
         from_ref: Option<String>,
-        #[arg(long, default_value = "feature")]
+        #[arg(long, default_value = "feature", value_parser = validate_task_kind)]
         kind: String,
-        #[arg(long, default_value = "medium-risk")]
+        #[arg(long, default_value = "medium-risk", value_parser = validate_task_risk)]
         risk: String,
         /// Relative scope paths for policy enforcement
         #[arg(long)]
@@ -351,9 +444,9 @@ pub enum TaskSubcommand {
     List {
         #[arg(short = 'p', long)]
         project: String,
-        #[arg(long)]
+        #[arg(long, value_parser = validate_task_status)]
         status: Option<String>,
-        #[arg(long)]
+        #[arg(long, value_parser = validate_task_risk)]
         risk: Option<String>,
         #[arg(long)]
         format: Option<String>,
@@ -373,11 +466,11 @@ pub enum TaskSubcommand {
         task: String,
         #[arg(long)]
         title: Option<String>,
-        #[arg(long)]
+        #[arg(long, value_parser = validate_task_status)]
         status: Option<String>,
-        #[arg(long)]
+        #[arg(long, value_parser = validate_task_risk)]
         risk: Option<String>,
-        #[arg(long)]
+        #[arg(long, value_parser = validate_task_kind)]
         kind: Option<String>,
     },
     /// Remove a task from a linked project

@@ -1,9 +1,7 @@
-mod cli;
-mod core;
-mod tui;
-
 use clap::Parser;
-use cli::Cli;
+
+use openloop::cli::{self, Cli};
+use openloop::tui;
 
 fn main() {
     // Launch the interactive TUI when stdout is a TTY and no args are given.

@@ -165,11 +165,14 @@ impl App {
     }
 
     pub fn refresh_if_needed(&mut self) {
+        // Daemon state drives the status bar on every tab: keep polling at 1 s.
         if self.daemon_refreshed.elapsed() >= std::time::Duration::from_secs(1) {
             self.daemon = c::daemon_state::load_daemon_state(None).unwrap_or_default();
             self.daemon_refreshed = Instant::now();
         }
-        if self.projects_refreshed.elapsed() >= std::time::Duration::from_secs(3) {
+        // Projects feed the alias used by task/promotion/log views and the
+        // status bar; cheap to reload at a relaxed cadence.
+        if self.projects_refreshed.elapsed() >= std::time::Duration::from_secs(5) {
             self.projects = c::project_registry::list_projects(None).unwrap_or_default();
             if self.active_alias.is_none() {
                 self.active_alias = c::global_config::load_global_config(None)
@@ -178,8 +181,16 @@ impl App {
             }
             self.projects_refreshed = Instant::now();
         }
+        // Tab-gated polling: only the data source the active view renders is
+        // refreshed (TS polls per-view via onCleanup; the port used to poll
+        // everything on every tab).
+        let tab_needs_ledger = self.active_tab == 2; // Tasks
+        let tab_needs_promotions = self.active_tab == 6; // Promotions
+        let tab_needs_config = self.active_tab == 4; // Config
+        let tab_needs_events = self.active_tab == 7; // Events
+        let tab_needs_logs = self.active_tab == 3 || self.active_tab == 8; // Service / Logs
         if let Some(path) = self.active_project_path() {
-            if self.ledger_refreshed.elapsed() >= std::time::Duration::from_secs(2) {
+            if tab_needs_ledger && self.ledger_refreshed.elapsed() >= std::time::Duration::from_secs(2) {
                 self.ledger = c::task_ledger::load_task_ledger(&path).unwrap_or(TaskLedger {
                     version: 1,
                     updated_at: String::new(),
@@ -187,17 +198,17 @@ impl App {
                 });
                 self.ledger_refreshed = Instant::now();
             }
-            if self.promotions_refreshed.elapsed() >= std::time::Duration::from_secs(5) {
+            if tab_needs_promotions && self.promotions_refreshed.elapsed() >= std::time::Duration::from_secs(5) {
                 self.promotions =
                     c::promotion_queue::list_promotion_artifacts(&path).unwrap_or_default();
                 self.promotions_refreshed = Instant::now();
             }
-            if self.config_refreshed.elapsed() >= std::time::Duration::from_secs(5) {
+            if tab_needs_config && self.config_refreshed.elapsed() >= std::time::Duration::from_secs(5) {
                 self.reload_config_entries();
                 self.config_refreshed = Instant::now();
             }
         }
-        if self.events_refreshed.elapsed() >= std::time::Duration::from_secs(3) {
+        if tab_needs_events && self.events_refreshed.elapsed() >= std::time::Duration::from_secs(3) {
             const SINCE_OPTIONS: [(&str, i64); 4] = [
                 ("30m", 30 * 60_000),
                 ("1h", 60 * 60_000),
@@ -212,7 +223,7 @@ impl App {
             });
             self.events_refreshed = Instant::now();
         }
-        if self.log_refreshed.elapsed() >= std::time::Duration::from_secs(3) {
+        if tab_needs_logs && self.log_refreshed.elapsed() >= std::time::Duration::from_secs(3) {
             self.reload_logs();
             self.log_refreshed = Instant::now();
         }
@@ -220,7 +231,7 @@ impl App {
 
     fn reload_logs(&mut self) {
         let log_path = c::paths::daemon_log_path(None);
-        if let Ok(content) = std::fs::read_to_string(&log_path) {
+        if let Ok(content) = c::fsutil::read_file_tail(&log_path, 64 * 1024) {
             let lines: Vec<&str> = content.split('\n').collect();
             let start = lines.len().saturating_sub(50);
             self.daemon_log_lines = lines[start..].iter().map(|s| s.to_string()).collect();

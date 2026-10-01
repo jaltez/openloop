@@ -244,7 +244,10 @@ fn run_webhook_hook(hook: &LifecycleHookConfig, payload: &LifecycleHookPayload) 
                 let _ = resp.into_reader().take(200).read_to_string(&mut body);
                 format!("Webhook hook returned {code}: {body}")
             }
-            other => format!("Webhook hook timed out or failed: {other}"),
+            ureq::Error::Transport(transport) if transport.kind() == ureq::ErrorKind::Io => {
+                format!("Webhook hook timed out after {timeout_seconds}s.")
+            }
+            other => format!("Webhook hook request failed: {other}"),
         })?;
 
     let mut response_body = String::new();

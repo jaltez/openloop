@@ -48,7 +48,6 @@ pub fn default_project_policy() -> ProjectPolicy {
         },
     }
 }
-
 pub fn load_project_policy(project_path: &std::path::Path) -> Result<ProjectPolicy, String> {
     let policy_path = project_path.join(".openloop").join("policy.yaml");
     let raw = match std::fs::read_to_string(&policy_path) {
@@ -56,8 +55,10 @@ pub fn load_project_policy(project_path: &std::path::Path) -> Result<ProjectPoli
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(default_project_policy()),
         Err(e) => return Err(e.to_string()),
     };
-    let parsed: Option<serde_yaml::Value> = serde_yaml::from_str(&raw).ok();
-    Ok(merge_policy(parsed.as_ref()))
+    // TS parity: a malformed policy.yaml throws — silently falling back to
+    // defaults would disable scope enforcement without notice.
+    let parsed: serde_yaml::Value = serde_yaml::from_str(&raw).map_err(|e| e.to_string())?;
+    Ok(merge_policy(Some(&parsed)))
 }
 
 #[derive(Debug, Clone)]

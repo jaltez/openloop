@@ -43,11 +43,20 @@ pub struct ReadEventsOptions<'a> {
 
 pub fn read_recent_events(options: &ReadEventsOptions<'_>) -> Vec<OpenLoopEvent> {
     let log_path = events_log_path(options.override_home);
-    let raw = match std::fs::read_to_string(&log_path) {
-        Ok(r) => r,
-        Err(_) => return Vec::new(),
+    // Tail-bounded read: when a limit is requested we only need the last
+    // ~limit lines; read at most 256 KiB from the end instead of parsing the
+    // whole (up to 10 MiB pre-rotation) file.
+    let raw = if options.limit.is_some() {
+        match super::fsutil::read_file_tail(&log_path, 256 * 1024) {
+            Ok(r) => r,
+            Err(_) => return Vec::new(),
+        }
+    } else {
+        match std::fs::read_to_string(&log_path) {
+            Ok(r) => r,
+            Err(_) => return Vec::new(),
+        }
     };
-
     let cutoff = options
         .since_ms
         .map(|ms| {

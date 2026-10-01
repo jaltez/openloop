@@ -98,12 +98,13 @@ fn parse_run_summary_cost(content: &str) -> Option<RunSummaryCost> {
     let mut cost_source = None;
     let mut completed_at = None;
     for line in content.lines() {
+        // TS multiline regexes match the FIRST occurrence per field.
         if let Some(rest) = line.strip_prefix("- costUsd: ") {
-            if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit() || c == '.') {
+            if cost_usd.is_none() && !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit() || c == '.') {
                 cost_usd = rest.parse::<f64>().ok();
             }
         } else if let Some(rest) = line.strip_prefix("- costSource: ") {
-            if rest == "measured" || rest == "estimated" {
+            if cost_source.is_none() && (rest == "measured" || rest == "estimated") {
                 cost_source = Some(if rest == "measured" {
                     CostSource::Measured
                 } else {
@@ -111,7 +112,9 @@ fn parse_run_summary_cost(content: &str) -> Option<RunSummaryCost> {
                 });
             }
         } else if let Some(rest) = line.strip_prefix("- createdAt: ") {
-            completed_at = Some(rest.to_string());
+            if completed_at.is_none() {
+                completed_at = Some(rest.to_string());
+            }
         }
     }
     Some(RunSummaryCost {

@@ -20,7 +20,7 @@ pub fn write_run_summary(project_path: &Path, summary: &SchedulerResult, file_pa
     let file_path = match file_path {
         Some(p) => p.to_path_buf(),
         None => {
-            let timestamp = now_iso().replace(':', "-");
+            let timestamp = now_iso().replace([':', '.'], "-");
             let task_id = summary.task_id.clone().unwrap_or_else(|| "idle".to_string());
             runs_dir.join(format!("{timestamp}-{task_id}.md"))
         }

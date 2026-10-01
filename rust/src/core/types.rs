@@ -976,9 +976,9 @@ pub struct PromotionResultArtifact {
     pub note: Option<String>,
     #[serde(default)]
     pub pr_url: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub checks: Option<Vec<PromotionCheckRollupEntry>>,
 }
 

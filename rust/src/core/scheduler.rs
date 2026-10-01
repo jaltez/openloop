@@ -396,31 +396,32 @@ pub fn resolve_effective_promotion_mode(
     task: &ProjectTask,
     project_policy: &ProjectPolicy,
     require_policy_for_auto_merge: bool,
-) -> TaskPromotion {
+) -> Result<TaskPromotion, String> {
     let policy_mode = get_policy_promotion_mode(task.risk, project_policy);
     if task.promotion == TaskPromotion::ManualOnly || policy_mode == TaskPromotion::ManualOnly {
-        return TaskPromotion::ManualOnly;
+        return Ok(TaskPromotion::ManualOnly);
     }
 
     if task.promotion == TaskPromotion::PullRequest || policy_mode == TaskPromotion::PullRequest {
-        return TaskPromotion::PullRequest;
+        return Ok(TaskPromotion::PullRequest);
     }
 
     if task.risk != TaskRisk::LowRisk {
-        return TaskPromotion::PullRequest;
+        return Ok(TaskPromotion::PullRequest);
     }
 
-    if require_policy_for_auto_merge
-        && !project_policy
-            .risk_classes
-            .get(task.risk.as_str())
-            .map(|rc| rc.auto_merge_allowed)
-            .unwrap_or(false)
-    {
-        return TaskPromotion::PullRequest;
+
+    // TS parity: indexing a missing risk class throws; silently defaulting
+    // would weaken promotion gating.
+    let risk_class = project_policy
+        .risk_classes
+        .get(task.risk.as_str())
+        .ok_or_else(|| format!("Project policy is missing risk class '{}'", task.risk.as_str()))?;
+    if require_policy_for_auto_merge && !risk_class.auto_merge_allowed {
+        return Ok(TaskPromotion::PullRequest);
     }
 
-    TaskPromotion::AutoMerge
+    Ok(TaskPromotion::AutoMerge)
 }
 
 fn get_policy_promotion_mode(risk: TaskRisk, project_policy: &ProjectPolicy) -> TaskPromotion {
@@ -692,17 +693,59 @@ fn idle_result(project_alias: &str, reason: &str, model: Option<&str>) -> Schedu
     }
 }
 
-fn run_worktree_setup_command(cwd: &Path, command: &str) -> Result<i32, String> {
-    let status = std::process::Command::new("sh")
+pub enum SetupOutcome {
+    Exit(i32),
+    TimedOut,
+}
+
+/// Run the worktree setup command under the run's remaining timeout budget.
+/// Mirrors TS withTimeout: a setup that exceeds the budget is killed (with
+/// SIGKILL escalation + reaping) and fails closed.
+pub fn run_worktree_setup_command(cwd: &Path, command: &str, timeout_ms: Option<u64>) -> Result<SetupOutcome, String> {
+    let mut child = std::process::Command::new("sh")
         .arg("-c")
         .arg(command)
         .current_dir(cwd)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .status()
+        .spawn()
         .map_err(|e| e.to_string())?;
-    Ok(status.code().unwrap_or(1))
+    let deadline = timeout_ms.map(|ms| std::time::Instant::now() + std::time::Duration::from_millis(ms));
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(SetupOutcome::Exit(status.code().unwrap_or(1))),
+            Ok(None) => {
+                if let Some(deadline) = deadline {
+                    if std::time::Instant::now() >= deadline {
+                        let pid = child.id() as i32;
+                        let _ = kill_direct(pid, libc::SIGTERM);
+                        // Bounded grace, then SIGKILL; always reap.
+                        let kill_deadline = std::time::Instant::now() + std::time::Duration::from_millis(5000);
+                        loop {
+                            match child.try_wait() {
+                                Ok(Some(_)) => break,
+                                Ok(None) if std::time::Instant::now() >= kill_deadline => {
+                                    let _ = kill_direct(pid, libc::SIGKILL);
+                                    let _ = child.wait();
+                                    break;
+                                }
+                                Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
+                                Err(_) => break,
+                            }
+                        }
+                        return Ok(SetupOutcome::TimedOut);
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+}
+
+fn kill_direct(pid: i32, signal: i32) -> bool {
+    unsafe { libc::kill(pid, signal) == 0 }
 }
 
 struct VerifierOutcome {
@@ -734,7 +777,7 @@ fn write_run_transcript(control_plane_path: &Path, task_id: &str, result: &Agent
     } else {
         bytes
     };
-    let timestamp = now_iso().replace(':', "-");
+    let timestamp = now_iso().replace([':', '.'], "-");
     let path = runs_dir.join(format!("{timestamp}-{task_id}.transcript.log"));
     let _ = std::fs::write(path, clipped);
 }
@@ -1017,22 +1060,26 @@ pub fn run_project_iteration(
             // Worktrees lack gitignored build state (node_modules etc.) — allow an
             // explicit setup step. Fail closed: a failed setup aborts the run.
             if let Some(worktree_setup_command) = project_config.runtime.worktree_setup_command.as_deref() {
-                let setup_exit_code = match run_worktree_setup_command(Path::new(worktree_path), worktree_setup_command) {
-                    Ok(code) => code,
+                match run_worktree_setup_command(Path::new(worktree_path), worktree_setup_command, get_remaining_timeout_ms()) {
+                    Ok(SetupOutcome::Exit(code)) if code != 0 => {
+                        cleanup_worktree();
+                        return Err(format!(
+                            "Worktree setup command failed: {} (exit {code}). Aborting because useWorktree is enabled; refusing to fall back to the main working tree.",
+                            worktree_setup_command
+                        ));
+                    }
+                    Ok(SetupOutcome::Exit(_)) => {}
+                    Ok(SetupOutcome::TimedOut) => {
+                        cleanup_worktree();
+                        return Err("__iteration_timeout__:Run exceeded timeout during worktree setup.".to_string());
+                    }
                     Err(e) => {
                         cleanup_worktree();
                         return Err(format!(
-                            "Worktree setup command failed: {} ({}). Aborting because useWorktree is enabled; refusing to fall back to the main working tree.",
-                            worktree_setup_command, e
+                            "Worktree setup command failed: {} ({e}). Aborting because useWorktree is enabled; refusing to fall back to the main working tree.",
+                            worktree_setup_command
                         ));
                     }
-                };
-                if setup_exit_code != 0 {
-                    cleanup_worktree();
-                    return Err(format!(
-                        "Worktree setup command failed: {} (exit {}). Aborting because useWorktree is enabled; refusing to fall back to the main working tree.",
-                        worktree_setup_command, setup_exit_code
-                    ));
                 }
             }
         }
@@ -1205,7 +1252,11 @@ pub fn run_project_iteration(
                             .unwrap_or(false)
                     {
                         let reviews_dir_abs = control_plane_path.join(".openloop").join("reviews");
-                        let review_prompt = super::review::build_review_prompt(&task, &get_diff_text(&execution_path), &reviews_dir_abs);
+                        // TS parity: when the diff is unavailable (git
+                        // failure) the LLM reviewer is skipped and only
+                        // deterministic checks apply.
+                        if let Some(diff_text) = super::git::get_diff_patch(&execution_path) {
+                        let review_prompt = super::review::build_review_prompt(&task, &diff_text, &reviews_dir_abs);
                         let _ = ensure_dir(&reviews_dir_abs);
                         let reviewer_exit = match hooks.reviewer_runner.as_mut() {
                             Some(rr) => rr(&review_prompt).unwrap_or(1),
@@ -1246,6 +1297,7 @@ pub fn run_project_iteration(
                                 push_note(&mut task, "Openloop review found blocking issues; downgrading auto-merge to manual review.");
                             }
                         }
+                        }
                     }
                 }
             } else {
@@ -1278,7 +1330,7 @@ pub fn run_project_iteration(
             &task,
             &project_policy,
             project_config.risk.require_policy_for_auto_merge,
-        );
+        )?;
         let mut promotion_decision = decide_promotion(&task, &validation, effective_promotion_mode, &project_config);
         if (review_result.as_ref().map(|r| r.has_blocking || r.malformed == Some(true)).unwrap_or(false) || verifier_requires_review)
             && promotion_decision == PromotionDecision::AutoMergeEligible
@@ -1307,7 +1359,7 @@ pub fn run_project_iteration(
         // Human-approval packet for anything landing in a promotion queue: the
         // deterministic summary path is computed up front so the packet can
         // reference it before either artifact is written.
-        let summary_timestamp = now_iso().replace(':', "-");
+        let summary_timestamp = now_iso().replace([':', '.'], "-");
         let summary_path = control_plane_path
             .join(".openloop")
             .join("runs")
@@ -1430,7 +1482,8 @@ pub fn run_project_iteration(
                 &task,
                 &project_policy,
                 project_config.risk.require_policy_for_auto_merge,
-            );
+            )
+            .unwrap_or(TaskPromotion::ManualOnly);
             let promotion_action = decide_promotion_action(PromotionDecision::Blocked);
             let promotion_artifact_path = maybe_write_promotion_artifact(
                 project_path,
@@ -1523,7 +1576,7 @@ fn read_verifier_outcome(verdicts_path: &Path) -> VerifierOutcome {
         .filter(|v| v.get("verdict").and_then(|x| x.as_str()) == Some("fail"))
         .map(|v| {
             if let Some(index) = v.get("index").and_then(|x| x.as_f64()) {
-                format!("{index:.0}")
+                format_js_number(index)
             } else if let Some(criterion) = v.get("criterion").and_then(|x| x.as_str()) {
                 criterion.to_string()
             } else {
@@ -1561,4 +1614,14 @@ pub fn _unused_async_bridge() {
 
 fn get_diff_text(execution_path: &Path) -> String {
     super::git::get_diff_patch(execution_path).unwrap_or_default()
+}
+
+/// Format an f64 like JS `String(number)`: integers without a decimal part,
+/// fractions with their shortest round-trip form.
+fn format_js_number(value: f64) -> String {
+    if value.fract() == 0.0 && value.abs() < 1e15 {
+        format!("{}", value as i64)
+    } else {
+        format!("{value}")
+    }
 }

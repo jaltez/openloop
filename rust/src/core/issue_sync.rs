@@ -196,7 +196,10 @@ pub fn post_github_comment(repo: &str, issue_number: i64, body: &str, token: &st
             }
             other => format!("GitHub comment failed: {other}"),
         })?;
-    let _ = response;
+    // TS parity: only HTTP 201 counts as success.
+    if response.status() != 201 {
+        return Err(format!("GitHub comment failed ({}): expected 201", response.status()));
+    }
     Ok(())
 }
 
@@ -217,7 +220,10 @@ pub fn post_gitlab_comment(repo: &str, issue_number: i64, body: &str, token: &st
             }
             other => format!("GitLab comment failed: {other}"),
         })?;
-    let _ = response;
+    // TS parity: only HTTP 201 counts as success.
+    if response.status() != 201 {
+        return Err(format!("GitLab comment failed ({}): expected 201", response.status()));
+    }
     Ok(())
 }
 
@@ -407,7 +413,7 @@ pub fn post_task_status_to_issue(
     };
     let details_part = details.map(|d| format!("\n{d}")).unwrap_or_default();
     let body = format!(
-        "{emoji} **OpenLoop Update** — Task status: `{status}`\n{details_part}\n\n_Updated by [OpenLoop](https://github.com/openloop) daemon_"
+        "{emoji} **OpenLoop Update** — Task status: `{status}`{details_part}\n_Updated by [OpenLoop](https://github.com/openloop) daemon_"
     );
 
     if source.provider == "github" {
@@ -439,7 +445,7 @@ pub fn post_pr_link_to_issue(
 
     let branch_part = branch.map(|b| format!("\nBranch: `{b}`")).unwrap_or_default();
     let body = format!(
-        "🔗 **OpenLoop PR** — A pull request was created for this issue\n{branch_part}\n\nPR: {pr_url}\n\n_Created by [OpenLoop](https://github.com/openloop) daemon_"
+        "🔗 **OpenLoop PR** — A pull request was created for this issue{branch_part}\nPR: {pr_url}\n_Created by [OpenLoop](https://github.com/openloop) daemon_"
     );
 
     if source.provider == "github" {

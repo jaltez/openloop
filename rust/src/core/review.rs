@@ -117,12 +117,11 @@ fn count_github_tokens(text: &str) -> usize {
 
 /// -----BEGIN (RSA |EC |OPENSSH |DSA |)PRIVATE KEY-----
 fn count_private_key_blocks(text: &str) -> usize {
-    const VARIANTS: [&str; 6] = [
+    const VARIANTS: [&str; 5] = [
         "-----BEGIN RSA PRIVATE KEY-----",
         "-----BEGIN EC PRIVATE KEY-----",
         "-----BEGIN OPENSSH PRIVATE KEY-----",
         "-----BEGIN DSA PRIVATE KEY-----",
-        "-----BEGIN  PRIVATE KEY-----",
         "-----BEGIN PRIVATE KEY-----",
     ];
     VARIANTS.iter().map(|v| text.matches(v).count()).sum()

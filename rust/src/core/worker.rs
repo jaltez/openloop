@@ -27,12 +27,12 @@ fn append_log(line: &str) {
         .append(true)
         .open(daemon_log_path(None))
     {
-        let _ = writeln!(f, "[{line}]");
+        let _ = writeln!(f, "[{}] {}", super::now_iso(), line);
     }
 }
 
 fn append_log_fmt(payload: &str) {
-    append_log(&format!("{} {payload}", now_iso()));
+    append_log(payload);
 }
 
 pub fn start_worker_loop(foreground: bool) -> Result<(), String> {
@@ -476,14 +476,19 @@ pub fn run_worker_tick(started_at: &str) -> Result<DaemonState, String> {
                 if let Some(proj_config) = &proj_config {
                     if let Some(source) = &proj_config.issue_source {
                         if source.auto_sync.unwrap_or(false) && source.token.is_some() {
-                            let last_synced = source
-                                .last_synced_at
-                                .as_deref()
-                                .map(super::parse_iso_millis)
-                                .unwrap_or(0);
+                            // TS: an unparseable lastSyncedAt yields NaN and
+                            // the comparison is false (no sync); only a
+                            // missing value counts as never-synced (0).
+                            let last_synced = match source.last_synced_at.as_deref() {
+                                None => 0,
+                                Some(raw) => match chrono::DateTime::parse_from_rfc3339(raw) {
+                                    Ok(dt) => dt.timestamp_millis(),
+                                    Err(_) => i64::MAX, // invalid -> never due
+                                },
+                            };
                             let interval_ms =
                                 (source.sync_interval_minutes.unwrap_or(30) as i64) * 60_000;
-                            if now_millis() - last_synced >= interval_ms {
+                            if now_millis().saturating_sub(last_synced) >= interval_ms {
                                 let project_path = active_project.path.clone();
                                 let source = source.clone();
                                 std::thread::spawn(move || {
@@ -498,7 +503,7 @@ pub fn run_worker_tick(started_at: &str) -> Result<DaemonState, String> {
                 }
             }
             Err(error) => {
-                iteration_result = Some(error);
+                iteration_result = Some(error.trim_start_matches("__iteration_timeout__:").to_string());
                 // Handled below: timeout charges the estimate.
             }
         }
@@ -526,8 +531,11 @@ pub fn run_worker_tick(started_at: &str) -> Result<DaemonState, String> {
 
 /// Apply a budget charge as a DELTA to freshly loaded state (never a stale
 /// snapshot), rolling over the daily window when the calendar day changed.
-fn charge_budget(state: &mut DaemonState, cost_usd: f64, _now: &str) {
-    let current_date = local_date_stamp();
+fn charge_budget(state: &mut DaemonState, cost_usd: f64, daemon_started_at: &str) {
+    // TS parity: the daily window is anchored to the DAEMON's fixed start
+    // date (new Date(startedAt)), so a running daemon never rolls the window
+    // at local midnight — only a restart can.
+    let current_date = date_stamp_of(daemon_started_at);
     if state.budget_date != current_date {
         state.budget_date = current_date;
         state.budget_spent_usd = 0.0;
@@ -540,8 +548,8 @@ fn charge_budget(state: &mut DaemonState, cost_usd: f64, _now: &str) {
     }
 }
 
-fn normalize_daemon_budget_state(mut state: DaemonState, _now: &str) -> DaemonState {
-    let current_date = local_date_stamp();
+fn normalize_daemon_budget_state(mut state: DaemonState, daemon_started_at: &str) -> DaemonState {
+    let current_date = date_stamp_of(daemon_started_at);
     if state.budget_date == current_date {
         return state;
     }
@@ -549,6 +557,14 @@ fn normalize_daemon_budget_state(mut state: DaemonState, _now: &str) -> DaemonSt
     state.budget_spent_usd = 0.0;
     state.budget_blocked = false;
     state
+}
+
+/// Local calendar date stamp (YYYY-MM-DD) of an ISO timestamp, matching the
+/// TS daemon's `new Date(startedAt)` local-date semantics.
+fn date_stamp_of(iso: &str) -> String {
+    chrono::DateTime::parse_from_rfc3339(iso)
+        .map(|dt| dt.with_timezone(&chrono::Local).format("%Y-%m-%d").to_string())
+        .unwrap_or_else(|_| local_date_stamp())
 }
 
 pub fn build_lifecycle_payload(

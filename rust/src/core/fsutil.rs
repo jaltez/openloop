@@ -161,3 +161,25 @@ pub fn copy_tree(source_dir: &Path, target_dir: &Path, overwrite: bool) -> Resul
     }
     Ok(())
 }
+
+/// Read at most the last `max_bytes` of a file (aligned to a line boundary).
+pub fn read_file_tail(path: &Path, max_bytes: u64) -> Result<String, std::io::Error> {
+    use std::io::{Read, Seek, SeekFrom};
+    use std::os::unix::fs::MetadataExt;
+    let mut file = std::fs::File::open(path)?;
+    let size = file.metadata()?.size();
+    if size <= max_bytes {
+        let mut buf = String::new();
+        file.read_to_string(&mut buf)?;
+        return Ok(buf);
+    }
+    file.seek(SeekFrom::Start(size - max_bytes))?;
+    let mut raw = Vec::with_capacity(max_bytes as usize);
+    file.read_to_end(&mut raw)?;
+    // Drop the (likely partial) first line so parsing starts on a boundary.
+    let text = String::from_utf8_lossy(&raw);
+    Ok(match text.find('\n') {
+        Some(idx) => text[idx + 1..].to_string(),
+        None => text.to_string(),
+    })
+}

@@ -66,7 +66,23 @@ fn run_shell_command(project_path: &Path, command: &str, timeout_ms: Option<u64>
             Ok(None) => {
                 if let Some(deadline) = deadline {
                     if Instant::now() >= deadline {
-                        let _ = kill_pid(child.id() as i32);
+                        let pid = child.id() as i32;
+                        let _ = kill_pid(pid);
+                        // Bounded SIGTERM grace, then SIGKILL; always reap so
+                        // no zombie outlives the run (std never auto-reaps).
+                        let kill_deadline = Instant::now() + Duration::from_millis(5000);
+                        loop {
+                            match child.try_wait() {
+                                Ok(Some(_)) => break,
+                                Ok(None) if Instant::now() >= kill_deadline => {
+                                    let _ = kill_pid_kill(pid);
+                                    let _ = child.wait();
+                                    break;
+                                }
+                                Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+                                Err(_) => break,
+                            }
+                        }
                         return Err(ValidationError::Timeout(RunTimeoutError(format!(
                             "Validation command exceeded timeout of {}ms.", timeout_ms.unwrap_or(0)
                         ))));
@@ -81,4 +97,8 @@ fn run_shell_command(project_path: &Path, command: &str, timeout_ms: Option<u64>
 
 fn kill_pid(pid: i32) -> bool {
     unsafe { libc::kill(pid, libc::SIGTERM) == 0 }
+}
+
+fn kill_pid_kill(pid: i32) -> bool {
+    unsafe { libc::kill(pid, libc::SIGKILL) == 0 }
 }

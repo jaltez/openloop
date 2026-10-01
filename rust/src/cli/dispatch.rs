@@ -369,7 +369,7 @@ fn config(cmd: ConfigCommand) -> Result<(), String> {
             Ok(())
         }
         ConfigSubcommand::Set { key, value } => {
-            const SETTABLE: [(&str, &str, Option<f64>, Option<f64>); 13] = [
+            const SETTABLE: [(&str, &str, Option<f64>, Option<f64>); 11] = [
                 ("budgets.dailyCostUsd", "number", Some(0.0), None),
                 ("budgets.estimatedCostPerRunUsd", "number", Some(0.0), None),
                 ("runtime.runTimeoutSeconds", "number", Some(1.0), None),
@@ -381,41 +381,21 @@ fn config(cmd: ConfigCommand) -> Result<(), String> {
                 ("notifications.onTaskFailed", "string", None, None),
                 ("notifications.onBudgetBlocked", "string", None, None),
                 ("notifications.onAllTasksDone", "string", None, None),
-                ("__unused1", "string", None, None),
-                ("__unused2", "string", None, None),
             ];
             let Some(&(_key, type_, min, max)) = SETTABLE.iter().find(|(k, _, _, _)| *k == key) else {
                 eprintln!("Error: '{key}' is not a settable config key.");
-                let valid: Vec<&str> = SETTABLE.iter().take(11).map(|(k, _, _, _)| *k).collect();
+                let valid: Vec<&str> = SETTABLE.iter().map(|(k, _, _, _)| *k).collect();
                 eprintln!("Valid keys: {}", valid.join(", "));
                 std::process::exit(1);
             };
-            let parsed: serde_json::Value = if type_ == "number" {
-                let num: f64 = match value.parse::<f64>() {
-                    Ok(n) => n,
-                    Err(_) => {
-                        eprintln!("Error: '{value}' is not a valid number for {key}");
+            let parsed: serde_json::Value =
+                match super::coerce_config_set_value(type_, &value, min, max) {
+                    Ok(parsed) => parsed,
+                    Err(reason) => {
+                        eprintln!("Error: {reason} for {key}");
                         std::process::exit(1);
                     }
                 };
-                if let Some(min) = min {
-                    if num < min {
-                        eprintln!("Error: {key} must be >= {min}");
-                        std::process::exit(1);
-                    }
-                }
-                if let Some(max) = max {
-                    if num > max {
-                        eprintln!("Error: {key} must be <= {max}");
-                        std::process::exit(1);
-                    }
-                }
-                serde_json::json!(num)
-            } else if value == "null" {
-                serde_json::Value::Null
-            } else {
-                serde_json::json!(value)
-            };
             let mut raw = serde_json::to_value(c::global_config::load_global_config(None)?)
                 .unwrap_or_else(|_| serde_json::json!({}));
             c::global_config::set_nested_json_value(&mut raw, &key, parsed.clone());

@@ -49,27 +49,12 @@ pub fn list_promotion_artifacts(project_path: &Path) -> Result<Vec<PromotionQueu
             }
             let artifact_path = promotions_dir.join(&name);
             let path_str = artifact_path.to_string_lossy().to_string();
+            // TS parity: a corrupt promotion artifact is a hard error — it
+            // must not silently vanish from the queue (and from
+            // review-backpressure counting).
             let artifact: PromotionArtifact =
                 read_json_file(&artifact_path, serde_json::Value::Null)
-                    .ok()
-                    .and_then(|v| serde_json::from_value(v).ok())
-                    .unwrap_or_else(|| PromotionArtifact {
-                        version: 1,
-                        created_at: super::epoch_iso(),
-                        project_alias: String::new(),
-                        task_id: String::new(),
-                        base_branch: None,
-                        decision: PromotionDecision::None,
-                        action: PromotionAction::None,
-                        effective_promotion_mode: TaskPromotion::ManualOnly,
-                        validation: Vec::new(),
-                        pi_exit_code: None,
-                        outcome: RunOutcome::Error,
-                        approval_packet_path: None,
-                        status: PromotionArtifactStatus::Pending,
-                        processed_at: None,
-                        note: None,
-                    });
+                    .and_then(|v| serde_json::from_value(v).map_err(|e| e.to_string()))?;
             items.push(PromotionQueueItem {
                 artifact_path: path_str,
                 artifact,
@@ -563,8 +548,16 @@ fn attempt_pr_creation(
             .arg("-c")
             .arg(&shell_command)
             .current_dir(project_path)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
             .output()
             .map_err(|e| e.to_string())?;
+        // Mirror TS execFile semantics: a non-zero exit rejects (caught as
+        // None) — never adopt failing stdout as a PR URL.
+        if !output.status.success() {
+            return Ok(None);
+        }
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let url = stdout.trim().lines().last().map(|l| l.trim().to_string()).unwrap_or_default();
         if url.is_empty() {

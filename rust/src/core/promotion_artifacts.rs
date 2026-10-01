@@ -6,7 +6,7 @@ use super::types::*;
 pub fn write_promotion_artifact(project_path: &Path, artifact: &PromotionArtifact) -> Result<String, String> {
     let promotions_dir = project_path.join(".openloop").join("promotions");
     ensure_dir(&promotions_dir).map_err(|e| e.to_string())?;
-    let timestamp = artifact.created_at.replace(':', "-");
+    let timestamp = artifact.created_at.replace([':', '.'], "-");
     let file_path = promotions_dir.join(format!("{timestamp}-{}.json", artifact.task_id));
     write_json_file(&file_path, artifact)?;
     Ok(file_path.to_string_lossy().to_string())
@@ -18,7 +18,7 @@ pub fn write_promotion_result_artifact(
 ) -> Result<String, String> {
     let results_dir = project_path.join(".openloop").join("promotion-results");
     ensure_dir(&results_dir).map_err(|e| e.to_string())?;
-    let timestamp = artifact.created_at.replace(':', "-");
+    let timestamp = artifact.created_at.replace([':', '.'], "-");
     let file_path = results_dir.join(format!("{timestamp}-{}.json", artifact.task_id));
     write_json_file(&file_path, artifact)?;
     Ok(file_path.to_string_lossy().to_string())

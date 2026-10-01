@@ -239,7 +239,7 @@ impl ResolvedProvider {
             },
         );
 
-        Ok(with_usage(raw, parse_mode))
+        with_usage(raw, parse_mode)
     }
 }
 
@@ -268,11 +268,15 @@ struct RawRunResult {
 }
 
 const CAPTURE_LIMIT: usize = 4 * 1024 * 1024;
+// Trim in quanta: only rebuild the buffer once it drifts this far past the
+// cap, so a chatty agent costs one ~4 MiB copy per quantum instead of one
+// per 16 KiB chunk (~256x fewer memcpys).
+const CAPTURE_TRIM_QUANTUM: usize = 256 * 1024;
 
 fn append_capped(buffer: &Arc<Mutex<String>>, text: &str) {
     let mut guard = buffer.lock();
     guard.push_str(text);
-    if guard.len() > CAPTURE_LIMIT {
+    if guard.len() > CAPTURE_LIMIT + CAPTURE_TRIM_QUANTUM {
         // Keep the tail; avoid slicing mid-UTF-8 boundary.
         let mut start = guard.len() - CAPTURE_LIMIT;
         while start < guard.len() && !guard.is_char_boundary(start) {
@@ -368,17 +372,26 @@ fn spawn_and_wait(binary: &str, args: &[String], cwd: &Path, options: SpawnOptio
                 });
             }
             Ok(None) => {
+                // Shutdown flag: daemon SIGTERM/SIGINT must interrupt an active
+                // agent run promptly (TS parity: killActiveRuns + immediate exit).
+                if super::worker::SHUTDOWN.load(std::sync::atomic::Ordering::SeqCst) {
+                    kill_process_group(child_pid, libc::SIGTERM);
+                    escalate_and_reap(child, child_pid);
+                    if let Some(id) = unregister {
+                        active_runs::unregister_active_run(id);
+                    }
+                    return Err("__shutdown__:".to_string());
+                }
                 if let Some(deadline) = deadline {
                     if Instant::now() >= deadline {
-                        timed_out = true;
                         kill_process_group(child_pid, libc::SIGTERM);
-                        // Escalate after a grace period; ESRCH for already-dead
-                        // groups is fine.
-                        std::thread::spawn(move || {
-                            std::thread::sleep(Duration::from_millis(5000));
-                            kill_process_group(child_pid, libc::SIGKILL);
-                        });
-                        break;
+                        // Escalate after a grace period and reap the zombie
+                        // (std does not auto-reap children like libuv does).
+                        escalate_and_reap(child, child_pid);
+                        if let Some(id) = unregister {
+                            active_runs::unregister_active_run(id);
+                        }
+                        return Err(format!("__timeout__:{}", options.timeout_ms.unwrap_or(0)));
                     }
                 }
                 std::thread::sleep(Duration::from_millis(50));
@@ -391,15 +404,28 @@ fn spawn_and_wait(binary: &str, args: &[String], cwd: &Path, options: SpawnOptio
             }
         }
     }
+}
 
-    if let Some(id) = unregister {
-        active_runs::unregister_active_run(id);
-    }
-    if timed_out {
-        let _ = now_millis();
-        return Err(format!("__timeout__:{}", options.timeout_ms.unwrap_or(0)));
-    }
-    Err("agent run failed".to_string())
+/// SIGKILL the process group after a grace period and reap the child so no
+/// zombie is left behind. Owns the Child; blocks in its own thread.
+fn escalate_and_reap(mut child: std::process::Child, child_pid: i32) {
+    std::thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_millis(5000);
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => return, // already reaped
+                Ok(None) => {
+                    if Instant::now() >= deadline {
+                        kill_process_group(child_pid, libc::SIGKILL);
+                        let _ = child.wait(); // final reap
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                Err(_) => return,
+            }
+        }
+    });
 }
 
 pub fn kill_process_group(pgid: i32, signal: i32) {
@@ -412,27 +438,32 @@ pub fn kill_process_group(pgid: i32, signal: i32) {
 
 /// Map spawn_and_wait's timeout sentinel into a RunTimeoutError at the
 /// provider boundary; every other error propagates as-is.
-fn with_usage(raw: Result<RawRunResult, String>, parse_mode: ParseMode) -> AgentRunResult {
+fn with_usage(raw: Result<RawRunResult, String>, parse_mode: ParseMode) -> Result<AgentRunResult, String> {
     let raw = match raw {
         Ok(r) => r,
         Err(e) => {
+            if e.starts_with("__shutdown__:") {
+                // Shutdown must surface as a hard error so the tick unwinds
+                // and the daemon loop observes the flag immediately.
+                return Err(e);
+            }
             if let Some(ms) = e.strip_prefix("__timeout__:") {
                 let ms: u64 = ms.parse().unwrap_or(0);
                 // Encode the timeout for callers through a convention: exit
                 // code -1 with empty output. Handled by run_agent wrapper.
-                return AgentRunResult {
+                return Ok(AgentRunResult {
                     exit_code: if ms == u64::MAX { 0 } else { -1 },
                     stdout: format!("__run_timeout__:{ms}"),
                     stderr: String::new(),
                     usage: None,
-                };
+                });
             }
-            return AgentRunResult {
+            return Ok(AgentRunResult {
                 exit_code: -1,
                 stdout: e,
                 stderr: String::new(),
                 usage: None,
-            };
+            });
         }
     };
 
@@ -448,13 +479,14 @@ fn with_usage(raw: Result<RawRunResult, String>, parse_mode: ParseMode) -> Agent
             .and_then(|v| extract_usage(&v)),
     };
 
-    AgentRunResult {
+    Ok(AgentRunResult {
         exit_code: raw.exit_code,
         stdout: raw.stdout,
         stderr: raw.stderr,
         usage,
-    }
+    })
 }
+
 
 fn to_finite(value: Option<&serde_json::Value>) -> Option<f64> {
     value
@@ -462,7 +494,7 @@ fn to_finite(value: Option<&serde_json::Value>) -> Option<f64> {
         .filter(|n| n.is_finite())
 }
 
-fn extract_usage(obj: &serde_json::Value) -> Option<AgentUsage> {
+pub fn extract_usage(obj: &serde_json::Value) -> Option<AgentUsage> {
     let record = obj.as_object()?;
     let nested = record.get("usage").filter(|v| v.is_object());
     let get_num = |container: Option<&serde_json::Value>, keys: &[&str]| -> Option<f64> {
