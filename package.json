@@ -24,47 +24,24 @@
     "development"
   ],
   "type": "module",
-  "engines": {
-    "node": ">=22"
-  },
   "bin": {
-    "openloop": "dist/index.js"
+    "openloop": "bin/openloop.js"
   },
   "files": [
-    "dist",
-    "templates/project",
-    "README.md"
+    "bin/",
+    "scripts/"
   ],
   "scripts": {
-    "build": "bun bun-build.ts",
-    "dev": "bun src/index.ts",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "check": "tsc --noEmit",
-    "lint": "eslint src/ tests/",
-    "format": "prettier --check .",
-    "format:fix": "prettier --write .",
-    "prepack": "bun run build",
-    "release:verify": "bun scripts/release-verify.mjs",
-    "release:pack": "bun run release:verify && bun run pack"
+    "postinstall": "node scripts/postinstall.js",
+    "verify": "node scripts/release-verify.mjs"
   },
-  "dependencies": {
-    "@opentui/core": "^0.1.88",
-    "@opentui/solid": "^0.1.88",
-    "solid-js": "^1.9.11",
-    "yaml": "^2.8.1",
-    "yargs": "^17.7.2"
+  "engines": {
+    "node": ">=18"
   },
-  "devDependencies": {
-    "@eslint/js": "^9.39.4",
-    "@types/node": "^22.13.14",
-    "@types/yargs": "^17.0.33",
-    "eslint": "^9.39.4",
-    "eslint-config-prettier": "^10.1.8",
-    "prettier": "^3.8.1",
-    "tsx": "^4.23.13",
-    "typescript": "^5.8.2",
-    "typescript-eslint": "^8.57.0",
-    "vitest": "^3.0.9"
+  "dependencies": {},
+  "devDependencies": {},
+  "openloop": {
+    "binary": "openloop",
+    "source": "https://github.com/jaltez/openloop"
   }
 }

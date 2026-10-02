@@ -9,36 +9,21 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
+  verify:
     runs-on: ubuntu-latest
-    # Must match the "Environment" field registered in the npm trusted
-    # publisher settings for the openloop package.
-    environment: npm
-    permissions:
-      contents: read
-      # Lets the workflow's OIDC token be exchanged for a short-lived npm
-      # publish grant — no NPM_TOKEN secret involved.
-      id-token: write
     steps:
       - uses: actions/checkout@v5
 
-      # Node for the typecheck and the final publish; bun for everything else.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
       - uses: actions/setup-node@v5
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
-
-      # prepack builds via bun (bun bun-build.ts).
-      - uses: oven-sh/setup-bun@v2
-
-      # Install from the canonical bun.lock — a second lockfile always drifts.
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      # The npm bundled with Node 22 predates OIDC trusted publishing;
-      # npm >= 11.5 is required.
-      - name: Upgrade npm for trusted publishing
-        run: npm install -g npm@11
 
       - name: Check tag matches package version
         env:
@@ -50,10 +35,26 @@ jobs:
             exit 1
           fi
 
-      # release:verify runs typecheck, the test suite, the build, CLI smoke
-      # tests, and validates the tarball contents.
+      # release:verify runs clippy, the test suite, the release build, CLI
+      # smoke tests, and validates the tarball contents.
       - name: Verify release
-        run: npm run release:verify
+        run: npm run verify
+
+      # Build the linux-x64 binary shipped inside the npm tarball. The bin
+      # shim resolves it automatically; other platforms build from source
+      # via the postinstall script or use OPENLOOP_BIN.
+      - name: Stage prebuilt binary
+        run: |
+          mkdir -p binaries
+          cp target/release/openloop "binaries/openloop-${RUNNER_OS_LC}-${RUNNER_ARCH_LC}"
+        env:
+          RUNNER_OS_LC: linux
+          RUNNER_ARCH_LC: x64
+
+      # The npm bundled with Node 22 predates OIDC trusted publishing;
+      # npm >= 11.5 is required.
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@11
 
       - name: Publish to npm
         run: npm publish

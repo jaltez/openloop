@@ -1,35 +1,40 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
+// Release verification for the Rust openloop distribution.
+//
+// Runs the quality gates and validates the npm tarball contents before a
+// publish: clippy, the test suite, a release build, CLI smoke tests, and an
+// `npm pack --dry-run` manifest check.
 
 import { execFileSync } from "node:child_process";
 
 const requiredPackageEntries = [
   "README.md",
-  "dist/index.js",
+  "bin/openloop.js",
   "package.json",
-  "templates/project/.agents/skills/openloop/SKILL.md",
-  "templates/project/.openloop/policy.yaml",
-  "templates/project/.openloop/project.json",
-  "templates/project/.openloop/README.md",
-  "templates/project/.openloop/tasks.json",
-  "templates/project/.openloop/tasks.schema.json",
-  "templates/project/.pi/APPEND_SYSTEM.md",
-  "templates/project/.pi/SYSTEM.md",
+  "scripts/postinstall.js",
 ];
 
-const forbiddenPackageEntries = ["AGENTS.md", "BLUEPRINT.md"];
+const forbiddenPackageEntries = ["AGENTS.md", "Cargo.toml", "src", "tests", "target"];
 
-runStep("Typecheck", ["bun", ["run", "check"]]);
-runStep("Test suite", ["bun", ["run", "test"]]);
-runStep("Build", ["bun", ["run", "build"]]);
-runStep("Built CLI smoke test (bun)", ["bun", ["dist/index.js", "--version"]]);
-runStep("Built CLI smoke test (node)", ["node", ["dist/index.js", "--version"]]);
+runStep("Clippy", ["cargo", ["clippy", "--all-targets", "--", "-D", "warnings"]]);
+runStep("Test suite", ["cargo", ["test"]]);
+runStep("Release build", ["cargo", ["build", "--release"]]);
+runStep("CLI smoke test (--version)", ["cargo", ["run", "--quiet", "--release", "--", "--version"]]);
+runStep("CLI smoke test (status)", [
+  "cargo",
+  ["run", "--quiet", "--release", "--", "status", "--format", "json"],
+]);
 
 const packResult = inspectPackContents();
 const packageEntries = new Set(packResult.files.map((entry) => entry.path));
 const missingEntries = requiredPackageEntries.filter((entry) => !packageEntries.has(entry));
 const forbiddenEntries = packResult.files
   .map((entry) => entry.path)
-  .filter((entry) => forbiddenPackageEntries.includes(entry) || entry.endsWith(".map"));
+  .filter(
+    (entry) =>
+      forbiddenPackageEntries.some((forbidden) => entry === forbidden || entry.startsWith(`${forbidden}/`)) ||
+      entry.endsWith(".map"),
+  );
 
 console.log("Release package contents:");
 for (const entry of packResult.files.map((item) => item.path).sort()) {
@@ -46,10 +51,11 @@ if (forbiddenEntries.length > 0) {
 
 console.log(`Release verification passed for ${packResult.name}@${packResult.version}.`);
 
-function runStep(label, [command, args]) {
+function runStep(label, [command, args], env = {}) {
   console.log(`\n==> ${label}`);
   execFileSync(command, args, {
     stdio: "inherit",
+    env: { ...process.env, ...env },
   });
 }
 

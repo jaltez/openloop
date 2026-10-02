@@ -1,302 +1,172 @@
 # OpenLoop
 
-**Ship while you sleep.** OpenLoop turns your AI coding agent into a tireless developer that works across all your repositories — planning tasks, writing code, running validations, and promoting changes — on a loop, without manual intervention.
+A global CLI and daemon for unattended AI-driven development across linked
+project repositories. Pi is the default agent; the runtime also supports
+Claude Code, Aider, Codex, OpenCode, ka, Oh My Pi, and arbitrary shell
+commands through a provider abstraction.
 
-One CLI. One daemon. Every linked repo gets its own control plane, task ledger, and safety policy. You define the work; OpenLoop handles the rest.
+OpenLoop is written in **Rust** — a single ~4.7 MB static binary with no
+runtime dependency. It starts in ~1 ms, idles at ~5 MB RSS, and ships one
+artifact everywhere.
 
-## Quick Start
+## Install
 
-### 1. Install
+**From source (requires [Rust](https://rustup.rs)):**
 
-```bash
+```sh
+git clone https://github.com/jaltez/openloop
+cd openloop
+cargo install --path .
+```
+
+**Via cargo:**
+
+```sh
+cargo install --git https://github.com/jaltez/openloop
+```
+
+**Via npm (Linux x64 prebuilt; other platforms build from source):**
+
+```sh
 npm install -g openloop
 ```
 
-Requires Node.js 22+ (Bun also works). To run from source instead:
+The npm package is a thin shim: `bin/openloop.js` resolves a prebuilt
+binary when one ships for your platform, builds via cargo when a Rust
+toolchain and the sources are present, and otherwise points you at the
+install options. Set `OPENLOOP_BIN` to use an explicit binary.
 
-```bash
-git clone https://github.com/jaltez/openloop.git && cd openloop
-npm install
-npm run build
-npm link        # makes `openloop` available globally
-```
+## Quick start
 
-### 2. Link a project
+```sh
+# Link a repository and materialize the control plane
+openloop project add myapp /path/to/repo --init
 
-```bash
-openloop project add myapp ~/projects/my-app --init
-```
+# Add work
+openloop task add --project myapp --title "Fix the login redirect"
 
-This registers the project and materializes its control-plane files into `~/projects/my-app/.openloop/`.
-
-You can also split the two steps (`project add` then `project init`) if you want to review config before initialization.
-
-### 3. Configure validation (recommended)
-
-OpenLoop auto-detects lint, test, and typecheck commands from `package.json` during `init`. Verify they look right:
-
-```bash
-openloop config project-show myapp
-```
-
-To override, edit `~/projects/my-app/.openloop/project.json`:
-
-```json
-{
-  "validation": {
-    "lintCommand": "npm run lint",
-    "testCommand": "npm test",
-    "typecheckCommand": "npm run check"
-  }
-}
-```
-
-### 4. Add a task
-
-```bash
-openloop task add --project myapp --title "Add input validation to the signup form"
-```
-
-Or enqueue from an issue reference:
-
-```bash
-openloop enqueue --project myapp --ref "https://github.com/org/repo/issues/42"
-```
-
-### 5. Run
-
-Run a single scheduler iteration to try things out:
-
-```bash
-openloop run-once --project myapp
-```
-
-Or start the daemon for continuous, unattended operation:
-
-```bash
+# Start the unattended daemon (or: openloop service run for foreground)
 openloop service start
-openloop service status   # check progress
-openloop service stop     # shut down
-```
 
-### 6. Review and promote
+# Watch the fleet
+openloop status
+openloop watch
+openloop            # interactive TUI (9 views)
 
-Check what was done and land the results:
-
-```bash
-openloop task list --project myapp
-openloop task show --project myapp --task <task-id>
+# Review pending promotions
 openloop promotion list --project myapp
-openloop promotion apply --project myapp --task <task-id>
+openloop approval list --project myapp
 ```
 
-Low-risk tasks with passing validations can auto-merge. Everything else waits for your review.
+## What it does
 
-## Requirements
+- **Multi-project registry** (`~/.openloop/projects.json`): link repositories
+  by alias; the daemon schedules work across all of them.
+- **Control plane per project** (`.openloop/`): a task ledger with status,
+  risk, scope and acceptance criteria; a scope policy (allow/deny globs,
+  high-risk areas, promotion modes per risk class); validation commands;
+  specs; runs; promotions; approvals.
+- **Unattended scheduling**: low-risk-first with 24 h aging, `dependsOn`
+  gating, max attempts, no-progress detection, budget ceilings, review
+  backpressure, cron schedules, and crash recovery on daemon restart.
+- **Verified runs**: lint/test/typecheck gates, an independent verifier role
+  judging acceptance criteria, deterministic secret/scope-drift review, and
+  an optional LLM reviewer — all before anything is promoted.
+- **Promotion flow**: auto-merge (low-risk, all validations green), pull
+  requests via `gh` or a custom command, or manual-only; every decision
+  leaves a JSON artifact trail plus a human-approval packet with diff stat,
+  cost, and provenance.
+- **Cost governance**: per-run measured cost when the agent reports usage,
+  estimated fallback otherwise; daily budgets anchored to the daemon's start
+  date; fleet digest with spend split and a confidence-ranked review queue.
+- **Integrations**: lifecycle hooks (command/webhook), notification channels
+  (webhook/desktop), GitHub/GitLab issue sync with status comments, a
+  localhost web dashboard, and an MCP server over stdio.
 
-- Node.js 22+ (Bun also works). The interactive TUI additionally requires Bun; without it, `openloop watch` provides a no-Bun live dashboard.
-- An AI coding agent on `PATH` — Pi (default), Claude Code, Aider, Codex, OpenCode, ka, Oh My Pi (omp), or a custom command
-  - `ka`: install with `cargo install ka-agent`; unattended runs execute in guarded mode
-  - `omp` (Oh My Pi, a Pi fork): complete the interactive `/login` once before headless use
-- `git` available on `PATH`
-- `git worktree` support when `runtime.useWorktree` is enabled (opt-in isolation); `runtime.worktreeSetupCommand` can provision worktree-local build state (e.g. `npm install`)
+## CLI surface
+
+```
+openloop project    add|list|activate|show|init|remove     Linked projects
+openloop task       add|list|show|update|remove|recover|approve
+openloop promotion  list|show|history|apply|reject|refresh
+openloop approval   list|show                             Approval packets
+openloop config     show|set|set-model|set-provider|...   Global + project config
+openloop service    start|stop|status|restart|pause|resume|run
+openloop issue      set-source|sync|list|remove-source    GitHub/GitLab
+openloop dashboard  start|enable|disable|status           Web dashboard
+openloop run|run-once|enqueue|status|events|logs|watch|report|digest|doctor|setup|mcp
+```
+
+Most commands take `--format json` for scripting; tables render on TTYs by
+default. Run `openloop <command> --help` for the full surface.
+
+## Architecture
+
+```
+src/
+├── main.rs        entry point: TUI on bare TTY, CLI dispatch otherwise
+├── lib.rs         library root (core | cli | tui) — powers integration tests
+├── core/          domain logic, no terminal concerns
+│   ├── types.rs     serde contracts for every on-disk artifact
+│   ├── scheduler.rs task selection, prompts, promotion decisions,
+│   │                no-progress detection, the full run iteration
+│   ├── worker.rs    the daemon tick loop (budget, backpressure,
+│   │                schedules, recovery, hooks/notifications)
+│   ├── providers.rs subprocess engine: 8 agents, detached process groups,
+│   │                timeout kills with SIGKILL escalation + reaping,
+│   │                usage/cost parsing, 4 MiB rolling capture
+│   ├── promotion_queue.rs / promotion_artifacts.rs / approval_packets.rs
+│   ├── review.rs    deterministic secrets + scope drift (+ optional LLM)
+│   ├── policy/glob/cron/event-log/digest/report/issue-sync/hooks/...
+│   ├── dashboard.rs localhost HTTP server (GET-only, snapshot-cached)
+│   └── mcp_server.rs  stdio JSON-RPC 2.0 (9 tools)
+├── cli/           clap definitions + dispatch (17 commands)
+└── tui/           ratatui app: 9 views, tab-gated polling, inline inputs
+```
+
+Design notes:
+
+- **Pure std concurrency** — the daemon is single-threaded with detached
+  subprocesses, exactly like the product's semantics require; no async
+  runtime, no tokio.
+- **Identical state formats** to the earlier TypeScript implementation:
+  JSON ledgers/artifacts with camelCase keys, `[:.]`-sanitized filenames,
+  one `~/.openloop` home usable by either lineage.
+- **Fail-closed subprocess handling**: every timeout/shutdown kill path
+  reaps its children (SIGTERM → 5 s grace → SIGKILL → wait), and SIGTERM
+  during an agent run interrupts it within ~250 ms.
+- **Embedded templates**: `templates/project/` is compiled into the binary
+  via `include_dir`, so `project init` works from a lone executable.
 
 ## Development
 
-```bash
-npm run check     # type-check
-npm test          # run tests
-npm run build     # build CLI
+```sh
+cargo build            # debug build
+cargo test             # 68 tests across 11 suites
+cargo clippy           # zero warnings enforced in CI
+cargo fmt              # formatting
+cargo run -- status    # try it against a sandbox: OPENLOOP_HOME=/tmp/x cargo run -- status
 ```
 
-## How It Works
+The integration tests create their own sandboxes; the daemon-shutdown test
+spawns the compiled binary, a sleeping agent, and asserts the full
+SIGTERM → kill → pid-cleanup → exit sequence.
 
-OpenLoop cycles through three modes automatically:
+`npm run verify` gates a release: clippy, tests, release build, CLI smoke,
+and the npm tarball manifest.
 
-1. **Active development** — picks the next eligible task, runs your configured agent with a role-specific prompt, validates the output, and decides whether to auto-merge or create a review branch.
-2. **Self-healing** — detects and fixes lint errors, type errors, and localized test failures without being asked.
-3. **Continuous improvement** — when idle, discovers gaps like missing validations or loose scope policies and proposes tasks to address them.
+## Metrics vs the TypeScript original
 
-Each run is labeled with a worker role that shapes the agent's behavior:
+| Metric | TS (node) | Rust | Ratio |
+|---|---|---|---|
+| CLI startup | 77 ms | **1.2 ms** | ~64x |
+| Idle daemon RSS | ~71–75 MB | **5.0 MB** | ~14x |
+| CLI RSS | 79 MB | **3.4 MB** | ~23x |
+| Deployable artifact | ~377 MB (dist+deps+node) | **4.7 MB** | ~80x |
+| Runtime dependency | Node ≥ 22 / Bun | none | — |
 
-### Runtime Model
+Full port history and methodology: [docs/PORT-NOTES.md](docs/PORT-NOTES.md).
 
-- The configured agent runs as a subprocess. Supports Pi, Claude Code, Aider, Codex, OpenCode, ka, Oh My Pi (omp), or a custom command via the provider abstraction.
-- Model resolution is deterministic: CLI flag > project config > global config.
-- A single resident daemon manages scheduling across all linked projects.
-- One active worker per project at a time; the daemon sleeps between iterations.
-- Daemon state persists under `~/.openloop/run/`.
+## License
 
-### Worker Roles
-
-| Role            | When                                                      |
-| --------------- | --------------------------------------------------------- |
-| `sdd-planner`   | A task needs planning before code changes                 |
-| `implementer`   | A task is ready for implementation                        |
-| `repo-improver` | The scheduler is doing discovery or idle improvement work |
-| `ci-healer`     | The scheduler is handling ledger-driven self-healing      |
-
-### Self-Healing
-
-V1 supports automatic fixes for:
-
-- `lint-fix` — linter violations
-- `type-fix` — type-checker errors
-- `localized-test-fix` — isolated test failures
-
-Anything outside these categories is blocked rather than attempted unattended.
-
-### Risk and Promotion
-
-| Risk          | Auto-merge                                       | Human review |
-| ------------- | ------------------------------------------------ | ------------ |
-| `low-risk`    | Allowed when policy permits and validations pass | Optional     |
-| `medium-risk` | Not allowed                                      | Required     |
-| `high-risk`   | Never                                            | Required     |
-
-Tasks can declare `scope.paths`, and the runtime enforces project policy:
-
-- **allow** — `allowGlobs` whitelist
-- **block** — `denyGlobs` blacklist
-- **escalate** — `highRiskAreas` require human review
-- **default** — unknown scope is classified conservatively
-
-### Safety Guardrails
-
-| Guard                      | Default       | Details                                                                                            |
-| -------------------------- | ------------- | -------------------------------------------------------------------------------------------------- |
-| Budget ceiling             | $25/day       | Daemon pauses when exhausted                                                                       |
-| Max attempts               | 3 per task    | Task is blocked after repeated failures                                                            |
-| Run timeout                | 30 min        | Hard cap per agent invocation                                                                      |
-| No-progress detection      | On            | Blocks tasks with ineffective diffs or repeated errors                                             |
-| Scope policy               | Per-project   | `allowGlobs`, `denyGlobs`, `highRiskAreas` in `.openloop/policy.yaml`                              |
-| Auto-merge                 | Low-risk only | All validations must pass; medium/high-risk always requires review                                 |
-| Post-implementation review | Optional      | Scope-drift and secret detection on diffs; blocking findings downgrade auto-merge to manual review |
-
-## CLI Reference
-
-### Project Management
-
-| Command                               | Description                         |
-| ------------------------------------- | ----------------------------------- |
-| `project add <alias> <path> [--init]` | Register a repository               |
-| `project init <alias>`                | Materialize control-plane templates |
-| `project list`                        | List linked projects                |
-| `project show <alias>`                | Show project details                |
-
-### Tasks
-
-| Command                                     | Description                                        |
-| ------------------------------------------- | -------------------------------------------------- |
-| `task add --project <alias> --title <text>` | Add a task (accepts `--kind`, `--risk`, `--scope`) |
-| `task list --project <alias>`               | List tasks (accepts `--status`, `--risk` filters)  |
-| `task show --project <alias> --task <id>`   | Show task detail with promotion history            |
-| `enqueue --project <alias> --ref <ref>`     | Create a task from an issue or external reference  |
-
-### Execution
-
-| Command                                 | Description                      |
-| --------------------------------------- | -------------------------------- |
-| `run --project <alias> --prompt <text>` | Run Pi directly with a prompt    |
-| `run-once --project <alias>`            | Execute one scheduler iteration  |
-| `service start\|stop\|status\|restart`  | Manage the resident daemon       |
-| `pause` / `resume`                      | Pause/resume the daemon globally |
-
-### Promotion
-
-| Command                                           | Description                                   |
-| ------------------------------------------------- | --------------------------------------------- |
-| `promotion list --project <alias>`                | List promotion artifacts                      |
-| `promotion show --project <alias> --task <id>`    | Show promotion detail                         |
-| `promotion history --project <alias> --task <id>` | Chronological promotion log                   |
-| `promotion apply --project <alias> --task <id>`   | Apply a pending promotion (merge or checkout) |
-| `promotion reject --project <alias> --task <id>`  | Reject a pending promotion                    |
-
-### Configuration
-
-| Command                                      | Description                          |
-| -------------------------------------------- | ------------------------------------ |
-| `config show`                                | Show global configuration            |
-| `config set-model <model>`                   | Set default Pi model                 |
-| `config add-hook` / `config list-hooks`      | Manage global lifecycle hooks        |
-| `config project-add-hook <project>`          | Manage project-local lifecycle hooks |
-| `config project-show <project>`              | Show project-local config            |
-| `config project-set-model <project> <model>` | Set project Pi model                 |
-
-### Lifecycle Hooks
-
-OpenLoop can fire command and webhook hooks for lifecycle events including `task-complete`, `task-failed`, `validation-failed`, `task-awaiting-approval`, `promotion-auto-merge-queued`, `promotion-review-queued`, `promotion-blocked`, `all-tasks-done`, and `budget-blocked`.
-
-Global hook example:
-
-```bash
-openloop config add-hook \
-  --type command \
-  --events promotion-auto-merge-queued \
-  --command 'node scripts/review-gate.mjs'
-```
-
-Project-local hook example:
-
-```bash
-openloop config project-add-hook myapp \
-  --type webhook \
-  --events task-awaiting-approval,validation-failed \
-  --url https://example.com/openloop/hooks
-```
-
-Command hooks receive the JSON payload on stdin. Command and webhook hooks may return JSON like `{"note":"Needs security review","requireManualReview":true}` to attach a note to the run summary and downgrade a queued auto-merge to manual review.
-
-## Project Structure
-
-```
-~/.openloop/              # global state
-  config.json             # model, budgets, runtime limits
-  projects.json           # linked project registry
-  run/                    # daemon pid, state, logs
-
-<project>/.openloop/      # per-project control plane
-  project.json            # project runtime config
-  policy.yaml             # scope and risk policy
-  tasks.json              # task ledger
-  specs/                  # planning artifacts
-  runs/                   # run summaries
-  promotions/             # promotion decision artifacts
-  promotion-results/      # promotion outcome records
-
-<project>/.agents/skills/openloop/
-  SKILL.md                # agent instructions inside linked repositories
-
-<project>/.pi/
-  SYSTEM.md               # base Pi system prompt
-  APPEND_SYSTEM.md        # runtime-specific Pi rules
-```
-
-## Release
-
-Publishing to npm is automated and token-free via trusted publishing (OIDC). The repository, `publish.yml` workflow, and `npm` environment are registered as trusted publishers for the package on npmjs.com; every `v*` tag push triggers the workflow, which type-checks, tests, builds, validates the tarball, and publishes with provenance.
-
-To release:
-
-```bash
-# 1. Bump "version" in package.json and commit
-git tag -a v0.8.0 -m "openloop 0.8.0"
-git push origin v0.8.0    # workflow publishes; watch it under Actions
-```
-
-For local pre-flight checks before tagging:
-
-```bash
-npm run release:verify    # typecheck, tests, build, smoke, tarball contents
-npm run release:pack      # verify + pack
-```
-
-The npm tarball includes `README.md`, `dist/`, and `templates/project/` only. Internal docs and source maps are excluded.
-
-## Roadmap
-
-- **Approval packets** — structured review artifacts for `awaiting-approval` tasks with spec, scope, and validation plan
-- **Confidence digest** — per-run trust signal summarizing validation, review findings, and risk assessment
-- **Context packs** — persistent repo maps for faster agent context loading
-- **Scheduled execution** — cron-like triggers and event-driven runs from webhooks
-- **Inline task capture** — `OPENLOOP:` markers in source code as lightweight task intake
+MIT
