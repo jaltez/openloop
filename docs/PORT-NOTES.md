@@ -1,26 +1,24 @@
 # OpenLoop Rust Port
 
-A 1:1 functional port of the TypeScript application to Rust, living in
-`rust/`. Both versions coexist in the repository: the original TypeScript
-stays untouched at the root; the port lives under `rust/` with its own
-`Cargo.toml`.
+A 1:1 functional port of the TypeScript application to Rust. The port is
+now the sole implementation at the repository root; the TypeScript tree was
+removed in the cutover commit.
 
 ## Build
 
 ```sh
-cd rust
 cargo build --release
-# binary: rust/target/release/openloop (4.7 MB, static except libc)
+# binary: target/release/openloop (4.7 MB, system libc linked)
 ```
 
 ## Scope of the port
 
 | TS subsystem | Rust counterpart | Status |
 |---|---|---|
-| `src/core/*` (37 modules) | `rust/src/core/*` | 1:1 |
-| `src/daemon/worker.ts` | `rust/src/core/worker.rs` | 1:1 |
-| `src/cli/commands/*` (17 commands) | `rust/src/cli/*` (clap) | 1:1 |
-| `src/tui/*` (OpenTUI/Solid) | `rust/src/tui/*` (ratatui) | approximate |
+| `src/core/*` (37 modules) | `src/core/*` | 1:1 |
+| `src/daemon/worker.ts` | `src/core/worker.rs` | 1:1 |
+| `src/cli/commands/*` (17 commands) | `src/cli/*` (clap) | 1:1 |
+| `src/tui/*` (OpenTUI/Solid) | `src/tui/*` (ratatui) | approximate |
 | `templates/project/` | embedded in the binary (`include_dir`) | 1:1 |
 
 Design decisions:
@@ -119,7 +117,7 @@ produced a ranked fix list; all of it landed with regression coverage:
 
 ## Tests
 
-`cargo test` runs 67 tests across 10 suites:
+`cargo test` runs 92 tests across 14 suites:
 
 - Unit: cron (5-field matcher incl. dom/dow OR-rule), secret scanning and
   scope-drift review checks, policy glob semantics (single-star crossing,

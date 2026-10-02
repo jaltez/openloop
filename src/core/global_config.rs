@@ -115,12 +115,17 @@ pub fn load_global_config(app_home_override: Option<&str>) -> Result<GlobalConfi
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .or_else(|| Some(Vec::new())),
         dashboard: Some(DashboardConfig {
-            port: s
-                .get("dashboard")
-                .and_then(|d| d.get("port"))
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u16)
-                .unwrap_or(7399),
+            port: {
+                let raw_port = s
+                    .get("dashboard")
+                    .and_then(|d| d.get("port"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(7399);
+                // TS parity: an out-of-range port fails loudly at load time
+                // instead of silently truncating to a wrong port.
+                u16::try_from(raw_port)
+                    .map_err(|_| format!("dashboard.port {raw_port} is out of range (0-65535)"))?
+            },
             enabled: s
                 .get("dashboard")
                 .and_then(|d| d.get("enabled"))

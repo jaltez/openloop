@@ -105,7 +105,11 @@ pub fn run_lifecycle_hooks(
             }
             Err(error) => {
                 if let Some(log) = daemon_log {
-                    if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(log) {
+                    if let Ok(mut f) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(log)
+                    {
                         let _ = writeln!(
                             f,
                             "[{}] hook failure ({scope}:{}/{}): {error}",

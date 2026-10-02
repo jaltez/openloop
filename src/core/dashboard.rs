@@ -276,6 +276,13 @@ fn render_dashboard_html(snapshot: &DashboardSnapshot) -> String {
         .collect::<Vec<_>>()
         .join("\n");
 
+    let budget_class = if budget.blocked {
+        "red"
+    } else if budget.spent / budget.limit.max(f64::EPSILON) > 0.8 {
+        "yellow"
+    } else {
+        "green"
+    };
     let budget_pct = if budget.limit > 0.0 {
         format!("{:.1}", ((budget.spent / budget.limit) * 100.0).min(100.0))
     } else {
@@ -355,7 +362,7 @@ fn render_dashboard_html(snapshot: &DashboardSnapshot) -> String {
   </div>
   <div class="card">
     <div class="card-label">Budget Today</div>
-    <div class="card-value">${:.2} / ${:.2}</div>
+    <div class="card-value {budget_class}">${:.2} / ${:.2}</div>
     <div class="progress-bar"><div class="progress-fill" style="width: {budget_pct}%; background: {progress_color};"></div></div>
   </div>
   <div class="card">

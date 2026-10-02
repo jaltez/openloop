@@ -500,7 +500,7 @@ pub(super) fn events(args: EventsArgs) -> Result<(), String> {
     let events_list = c::event_log::read_recent_events(&c::event_log::ReadEventsOptions {
         since_ms: Some(parse_since_ms(&args.since)),
         project: args.project.as_deref(),
-        limit: Some(args.limit),
+        limit: (args.limit != 0).then_some(args.limit),
         ..Default::default()
     });
 
@@ -574,6 +574,11 @@ pub(super) fn watch() -> Result<(), String> {
     let _ = std::io::Write::flush(&mut std::io::stdout());
 
     extern "C" fn watch_sigint(_sig: i32) {
+        // TS parity: reset attributes + newline before exiting.
+        unsafe {
+            let msg = b"\x1b[0m\n";
+            libc::write(1, msg.as_ptr() as *const libc::c_void, msg.len());
+        }
         std::process::exit(0);
     }
     unsafe {
@@ -906,7 +911,7 @@ pub(super) fn setup() -> Result<(), String> {
     // Step 3: Detect stack and show validation commands
     println!("Step 3/4: Detecting project stack...");
     println!();
-    let detected = c::stack_detection::detect_validation_commands(Path::new(&resolved_path));
+    let detected = c::stack_detection::detect_validation_commands(Path::new(&resolved_path))?;
     println!(
         "  Lint:      {}",
         detected.lint_command.as_deref().unwrap_or("(not detected)")
@@ -1108,6 +1113,10 @@ pub(super) fn dashboard(cmd: DashboardCommand) -> Result<(), String> {
             println!("Dashboard running at http://127.0.0.1:{port}");
             println!("Press Ctrl+C to stop.");
             extern "C" fn dash_sigint(_sig: i32) {
+                unsafe {
+                    let msg = b"\x1b[0m\n";
+                    libc::write(1, msg.as_ptr() as *const libc::c_void, msg.len());
+                }
                 std::process::exit(0);
             }
             unsafe {

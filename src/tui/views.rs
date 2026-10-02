@@ -1123,7 +1123,13 @@ pub fn events(app: &mut App, frame: &mut Frame, area: Rect) {
         )));
     }
     for event in &app.events {
-        let time: String = event.ts.chars().skip(11).take(8).collect();
+        let time: String = chrono::DateTime::parse_from_rfc3339(&event.ts)
+            .map(|t| {
+                t.with_timezone(&chrono::Local)
+                    .format("%H:%M:%S")
+                    .to_string()
+            })
+            .unwrap_or_else(|_| "??:??:??".to_string());
         let event_color = if event.event.contains("complete") || event.event.contains("promoted") {
             app.theme.green
         } else if event.event.contains("fail") || event.event.contains("error") {

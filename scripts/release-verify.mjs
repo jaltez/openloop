@@ -11,6 +11,9 @@ const requiredPackageEntries = [
   "README.md",
   "bin/openloop.js",
   "binaries/openloop-linux-x64",
+  "binaries/openloop-linux-arm64",
+  "binaries/openloop-darwin-x64",
+  "binaries/openloop-darwin-arm64",
   "package.json",
   "scripts/postinstall.js",
 ];

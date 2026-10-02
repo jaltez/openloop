@@ -9,8 +9,63 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            binary_name: openloop-linux-x64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            binary_name: openloop-linux-arm64
+            cross: true
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            binary_name: openloop-darwin-x64
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            binary_name: openloop-darwin-arm64
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release --locked --target ${{ matrix.target }}
+        env:
+          # aarch64-linux builds via `cross` (glibc cross-link toolchain)
+          USE_CROSS: ${{ matrix.cross == true && '1' || '0' }}
+
+      - name: Install cross for aarch64-linux
+        if: matrix.cross
+        run: |
+          cargo install cross --locked
+          cross build --release --locked --target ${{ matrix.target }}
+
+      - name: Stage binary
+        run: |
+          mkdir -p binaries
+          cp target/${{ matrix.target }}/release/openloop binaries/${{ matrix.binary_name }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.binary_name }}
+          path: binaries/${{ matrix.binary_name }}
+          if-no-files-found: error
+
   verify:
     runs-on: ubuntu-latest
+    needs: build
     # Must match the "Environment" field registered in the npm trusted
     # publisher settings for the openloop package.
     environment: npm
@@ -43,21 +98,26 @@ jobs:
             exit 1
           fi
 
-      - name: Build release binary
-        run: cargo build --release --locked
+      # Collect every prebuilt platform binary. The npm tarball ships only
+      # these; for other platforms, install from source (git clone + cargo
+      # build) or point OPENLOOP_BIN at an existing binary — registry tarballs
+      # contain no Rust sources, so postinstall cannot build there.
+      - name: Download prebuilt binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: binaries
+          merge-multiple: true
 
-      # Stage the linux-x64 binary BEFORE verification so the pack-manifest
-      # gate can require it. The npm tarball ships only this prebuilt; for
-      # other platforms, install from source (git clone + cargo build) or
-      # point OPENLOOP_BIN at an existing binary — registry tarballs contain
-      # no Rust sources, so postinstall cannot build there.
-      - name: Stage prebuilt binary
+      - name: Verify staged binaries
         run: |
-          mkdir -p binaries
-          cp target/release/openloop binaries/openloop-linux-x64
+          ls -la binaries/
+          for expected in openloop-linux-x64 openloop-linux-arm64 openloop-darwin-x64 openloop-darwin-arm64; do
+            test -x "binaries/$expected" || { echo "::error::missing binaries/$expected"; exit 1; }
+          done
+          ./binaries/openloop-linux-x64 --version
 
       # release:verify runs clippy, the test suite, CLI smoke tests, and
-      # validates the tarball contents (including the staged binary).
+      # validates the tarball contents (including the staged binaries).
       - name: Verify release
         run: npm run verify
 

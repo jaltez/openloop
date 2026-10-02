@@ -7,6 +7,7 @@ use super::promotion_artifacts::*;
 use super::task_ledger::with_task_ledger;
 use super::types::*;
 
+#[derive(Debug)]
 pub struct PromotionQueueItem {
     pub artifact_path: String,
     pub artifact: PromotionArtifact,
@@ -138,8 +139,15 @@ pub fn apply_promotion_artifact(
                 && item.artifact.status == PromotionArtifactStatus::Pending
         })
         .ok_or_else(|| format!("No pending promotion artifact found for task: {task_id}"))?;
-    let task = super::task_ledger::get_task(project_path, task_id)
-        .map_err(|_| format!("No task found for promotion artifact: {task_id}"))?;
+    let task = super::task_ledger::get_task(project_path, task_id).map_err(|e| {
+        // Distinguish "task missing" from a corrupt/unreadable ledger so
+        // corruption surfaces with its original error (TS parity).
+        if e.starts_with("Unknown task id") {
+            format!("No task found for promotion artifact: {task_id}")
+        } else {
+            e
+        }
+    })?;
 
     if matched.artifact.action == PromotionAction::QueueReview {
         let branch_name = prepare_review_branch(project_path, task_id)?;
@@ -256,6 +264,7 @@ pub fn dry_run_promotion_apply(
     };
     let task = match super::task_ledger::get_task(project_path, task_id) {
         Ok(t) => t,
+        Err(e) if !e.starts_with("Unknown task id") => return Err(e),
         Err(_) => {
             return Ok(DryRunOutcome {
                 would_apply: false,

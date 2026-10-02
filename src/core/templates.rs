@@ -84,7 +84,7 @@ pub fn initialize_project_from_templates(
         "initializedAt": now_iso(),
     });
     project_config["project"] = project_object;
-    let detected = detect_validation_commands(project_path);
+    let detected = detect_validation_commands(project_path)?;
     project_config["validation"] = serde_json::json!({
         "lintCommand": detected.lint_command,
         "testCommand": detected.test_command,

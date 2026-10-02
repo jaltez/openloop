@@ -977,9 +977,9 @@ pub fn run_project_iteration(
 
     let Some(mut task) = selection.task.clone() else {
         let result = idle_result(&project.alias, &selection.reason, model.as_deref());
-        let summary = super::run_summaries::write_run_summary(project_path, &result, None)?;
-        let mut result = result;
-        result.run_summary_path = Some(summary);
+        // Summary file is written (TS does too) but runSummaryPath stays
+        // None so hook notes never append to idle summaries.
+        let _ = super::run_summaries::write_run_summary(project_path, &result, None)?;
         return Ok(result);
     };
 
@@ -1024,11 +1024,7 @@ pub fn run_project_iteration(
         result.role = Some(role);
         result.task_status = Some(task.status);
         result.promoted_at = task.promoted_at.clone();
-        result.run_summary_path = Some(super::run_summaries::write_run_summary(
-            project_path,
-            &result,
-            None,
-        )?);
+        let _ = super::run_summaries::write_run_summary(project_path, &result, None)?;
         return Ok(result);
     }
 
@@ -1051,11 +1047,7 @@ pub fn run_project_iteration(
         result.role = Some(role);
         result.task_status = Some(task.status);
         result.promoted_at = task.promoted_at.clone();
-        result.run_summary_path = Some(super::run_summaries::write_run_summary(
-            project_path,
-            &result,
-            None,
-        )?);
+        let _ = super::run_summaries::write_run_summary(project_path, &result, None)?;
         return Ok(result);
     }
 
@@ -1084,11 +1076,7 @@ pub fn run_project_iteration(
         result.task_status = Some(task.status);
         result.promoted_at = task.promoted_at.clone();
         result.attempt_number = Some(task.attempts + 1);
-        result.run_summary_path = Some(super::run_summaries::write_run_summary(
-            project_path,
-            &result,
-            None,
-        )?);
+        let _ = super::run_summaries::write_run_summary(project_path, &result, None)?;
         return Ok(result);
     }
 

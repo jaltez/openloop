@@ -11,8 +11,32 @@ pub fn app_home(override_home: Option<&str>) -> PathBuf {
             return PathBuf::from(env);
         }
     }
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    // TS os.homedir() parity: fall back to the passwd entry when $HOME is
+    // unset (e.g. systemd units, `env -i`), never to the current directory.
+    let home = std::env::var("HOME")
+        .ok()
+        .filter(|h| !h.is_empty())
+        .or_else(passwd_home)
+        .unwrap_or_else(|| ".".to_string());
     Path::new(&home).join(".openloop")
+}
+
+fn passwd_home() -> Option<String> {
+    unsafe {
+        let uid = libc::getuid();
+        let pw = libc::getpwuid(uid);
+        if pw.is_null() {
+            return None;
+        }
+        let dir = (*pw).pw_dir;
+        if dir.is_null() {
+            return None;
+        }
+        std::ffi::CStr::from_ptr(dir)
+            .to_str()
+            .ok()
+            .map(|s| s.to_string())
+    }
 }
 
 pub fn global_config_path(override_home: Option<&str>) -> PathBuf {

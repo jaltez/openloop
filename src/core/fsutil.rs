@@ -21,8 +21,10 @@ pub fn read_json_file<T: DeserializeOwned>(file_path: &Path, fallback: T) -> Res
     if !file_exists(file_path) {
         return Ok(fallback);
     }
+    // TS parity: I/O failures (EACCES, EISDIR, ...) surface as read errors;
+    // only parse failures carry the "back up or delete" recovery advice.
     let raw = fs::read_to_string(file_path)
-        .map_err(|e| format!("Corrupt JSON in {}. Back up or delete the file and re-run. Original content preserved at the same path. ({e})", file_path.display()))?;
+        .map_err(|e| format!("Cannot read {}: {e}", file_path.display()))?;
     serde_json::from_str(&raw).map_err(|e| {
         format!(
             "Corrupt JSON in {}. Back up or delete the file and re-run. Original content preserved at the same path. ({e})",

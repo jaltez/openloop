@@ -416,11 +416,10 @@ impl App {
             ),
         ];
         let right = format!("openloop v{} │ ? help │ q quit", self.version);
-        line_spans.push(Span::raw(format!(
-            "{:>width$}",
-            right,
-            width = (right.len() + 2) as usize
-        )));
+        // Right-align against the rendered area (TS justifyContent=space-between).
+        let left_width: usize = line_spans.iter().map(|s| s.to_string().len()).sum();
+        let pad = (area.width as usize).saturating_sub(left_width + right.len());
+        line_spans.push(Span::raw(format!("{}{}", " ".repeat(pad), right)));
         let paragraph = Paragraph::new(Line::from(line_spans));
         frame.render_widget(
             paragraph.style(Style::default().bg(self.theme.bg_panel)),
@@ -555,7 +554,7 @@ impl App {
         let len = match self.active_tab {
             0 | 1 => self.projects.len(),
             2 => self.filtered_tasks().len(),
-            6 => self.promotions.len(),
+            7 => self.events.len(),
             _ if self.active_tab == 8 && self.log_tab => self.run_files.len(),
             4 => self.config_entries.len(),
             _ => 0,

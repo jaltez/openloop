@@ -51,8 +51,10 @@ fn project(cmd: ProjectCommand) -> Result<(), String> {
             init,
             force,
         } => {
+            // TS path.resolve parity: absolute + lexically normalized
+            // (drops `..`, `.`, and trailing slashes before persisting).
             let resolved = std::path::absolute(&project_path)
-                .map(|p| p.to_string_lossy().to_string())
+                .map(|p| normalize_lexical(&p).to_string_lossy().to_string())
                 .unwrap_or_else(|_| project_path.clone());
             if c::project_registry::project_exists(&alias, None)? {
                 if !force {
@@ -371,8 +373,9 @@ fn build_hook_config(
 }
 
 mod url {
+    /// TS `new URL(url)` parity: any parseable absolute URL passes.
     pub fn is_valid(url: &str) -> bool {
-        url.starts_with("http://") || url.starts_with("https://")
+        url::Url::parse(url).is_ok()
     }
 }
 
@@ -1034,7 +1037,12 @@ fn logs(args: LogsArgs) -> Result<(), String> {
     }
     let content = std::fs::read_to_string(&log_path).unwrap_or_default();
     let lines: Vec<&str> = content.split('\n').collect();
-    let start = lines.len().saturating_sub(args.lines);
+    // TS slice(-lines): --lines 0 is slice(-0) === slice(0) → everything.
+    let start = if args.lines == 0 {
+        0
+    } else {
+        lines.len().saturating_sub(args.lines)
+    };
     println!("{}", lines[start..].join("\n"));
     Ok(())
 }
@@ -1192,4 +1200,20 @@ fn enqueue(args: EnqueueArgs) -> Result<(), String> {
         .unwrap_or_default()
     );
     Ok(())
+}
+
+/// Lexically normalize a path (resolve `.`/`..` components, drop trailing
+/// slashes) without touching the filesystem — mirrors Node's path.resolve.
+fn normalize_lexical(path: &std::path::Path) -> std::path::PathBuf {
+    let mut normalized = std::path::PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    normalized
 }

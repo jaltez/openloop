@@ -5,9 +5,9 @@ project repositories. Pi is the default agent; the runtime also supports
 Claude Code, Aider, Codex, OpenCode, ka, Oh My Pi, and arbitrary shell
 commands through a provider abstraction.
 
-OpenLoop is written in **Rust** — a single ~4.7 MB static binary with no
-runtime dependency. It starts in ~1 ms, idles at ~5 MB RSS, and ships one
-artifact everywhere.
+OpenLoop is written in **Rust** — a single ~4.7 MB self-contained binary
+(system libc linked, no runtime dependency). It starts in ~1 ms, idles at
+~5 MB RSS, and ships one artifact everywhere.
 
 ## Install
 
@@ -120,7 +120,7 @@ src/
 │   ├── policy/glob/cron/event-log/digest/report/issue-sync/hooks/...
 │   ├── dashboard.rs localhost HTTP server (GET-only, snapshot-cached)
 │   └── mcp_server.rs  stdio JSON-RPC 2.0 (9 tools)
-├── cli/           clap definitions + dispatch (17 commands)
+├── cli/           clap definitions + dispatch (20 visible commands)
 └── tui/           ratatui app: 9 views, tab-gated polling, inline inputs
 ```
 
@@ -142,7 +142,7 @@ Design notes:
 
 ```sh
 cargo build            # debug build
-cargo test             # 68 tests across 11 suites
+cargo test             # 92 tests across 14 suites
 cargo clippy           # zero warnings enforced in CI
 cargo fmt              # formatting
 cargo run -- status    # try it against a sandbox: OPENLOOP_HOME=/tmp/x cargo run -- status

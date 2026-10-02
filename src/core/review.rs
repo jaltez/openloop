@@ -189,7 +189,9 @@ fn count_generic_secret(text: &str) -> usize {
                     }
                     j += 1;
                 }
-                if j < chars.len() && chars[j] == quote && j - value_start >= 32 {
+                // TS regex parity: the closing quote may differ from the opening one.
+                if j < chars.len() && (chars[j] == '"' || chars[j] == '\'') && j - value_start >= 32
+                {
                     count += 1;
                 }
             }
