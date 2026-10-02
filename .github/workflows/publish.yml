@@ -11,6 +11,14 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    # Must match the "Environment" field registered in the npm trusted
+    # publisher settings for the openloop package.
+    environment: npm
+    permissions:
+      contents: read
+      # Lets the workflow's OIDC token be exchanged for a short-lived npm
+      # publish grant — no NPM_TOKEN secret involved.
+      id-token: write
     steps:
       - uses: actions/checkout@v5
 
@@ -35,21 +43,23 @@ jobs:
             exit 1
           fi
 
-      # release:verify runs clippy, the test suite, the release build, CLI
-      # smoke tests, and validates the tarball contents.
-      - name: Verify release
-        run: npm run verify
+      - name: Build release binary
+        run: cargo build --release --locked
 
-      # Build the linux-x64 binary shipped inside the npm tarball. The bin
-      # shim resolves it automatically; other platforms build from source
-      # via the postinstall script or use OPENLOOP_BIN.
+      # Stage the linux-x64 binary BEFORE verification so the pack-manifest
+      # gate can require it. The npm tarball ships only this prebuilt; for
+      # other platforms, install from source (git clone + cargo build) or
+      # point OPENLOOP_BIN at an existing binary — registry tarballs contain
+      # no Rust sources, so postinstall cannot build there.
       - name: Stage prebuilt binary
         run: |
           mkdir -p binaries
-          cp target/release/openloop "binaries/openloop-${RUNNER_OS_LC}-${RUNNER_ARCH_LC}"
-        env:
-          RUNNER_OS_LC: linux
-          RUNNER_ARCH_LC: x64
+          cp target/release/openloop binaries/openloop-linux-x64
+
+      # release:verify runs clippy, the test suite, CLI smoke tests, and
+      # validates the tarball contents (including the staged binary).
+      - name: Verify release
+        run: npm run verify
 
       # The npm bundled with Node 22 predates OIDC trusted publishing;
       # npm >= 11.5 is required.

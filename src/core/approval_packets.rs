@@ -82,38 +82,39 @@ pub fn write_approval_packet(
     Ok(file_path.to_string_lossy().to_string())
 }
 
-pub fn read_approval_packet(control_plane_path: &Path, task_id: &str) -> Option<ApprovalPacket> {
+pub fn read_approval_packet(
+    control_plane_path: &Path,
+    task_id: &str,
+) -> Result<Option<ApprovalPacket>, String> {
     let file_path = approval_packet_path(control_plane_path, task_id);
     if !file_exists(&file_path) {
-        return None;
+        return Ok(None);
     }
+    // TS parity: corrupt approval JSON is a hard error, never a silent miss.
     read_json_file(&file_path, serde_json::Value::Null)
-        .ok()
-        .and_then(|v| serde_json::from_value(v).ok())
+        .and_then(|v| serde_json::from_value(v).map_err(|e| e.to_string()))
+        .map(Some)
 }
 
-pub fn list_approval_packets(control_plane_path: &Path) -> Vec<(String, ApprovalPacket)> {
+pub fn list_approval_packets(
+    control_plane_path: &Path,
+) -> Result<Vec<(String, ApprovalPacket)>, String> {
     let approvals_dir = control_plane_path.join(".openloop").join("approvals");
     if !file_exists(&approvals_dir) {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let mut items = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&approvals_dir) {
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if !entry.metadata().map(|m| m.is_file()).unwrap_or(false) || !name.ends_with(".json") {
-                continue;
-            }
-            let packet_path = approvals_dir.join(&name);
-            if let Some(packet) =
-                read_json_file::<serde_json::Value>(&packet_path, serde_json::Value::Null)
-                    .ok()
-                    .and_then(|v| serde_json::from_value::<ApprovalPacket>(v).ok())
-            {
-                items.push((packet_path.to_string_lossy().to_string(), packet));
-            }
+    let entries = std::fs::read_dir(&approvals_dir).map_err(|e| e.to_string())?;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !entry.metadata().map(|m| m.is_file()).unwrap_or(false) || !name.ends_with(".json") {
+            continue;
         }
+        let packet_path = approvals_dir.join(&name);
+        let packet: ApprovalPacket = read_json_file(&packet_path, serde_json::Value::Null)
+            .and_then(|v| serde_json::from_value(v).map_err(|e| e.to_string()))?;
+        items.push((packet_path.to_string_lossy().to_string(), packet));
     }
     items.sort_by(|a, b| b.1.created_at.cmp(&a.1.created_at));
-    items
+    Ok(items)
 }

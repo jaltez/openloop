@@ -10,6 +10,7 @@ import { execFileSync } from "node:child_process";
 const requiredPackageEntries = [
   "README.md",
   "bin/openloop.js",
+  "binaries/openloop-linux-x64",
   "package.json",
   "scripts/postinstall.js",
 ];

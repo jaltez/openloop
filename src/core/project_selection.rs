@@ -17,7 +17,10 @@ pub fn load_project_queue_states(
     let projects = list_projects(app_home_override)?;
     let mut states = Vec::new();
     for project in projects {
-        let ledger = load_task_ledeger_lossy(&project.path);
+        // TS parity: a corrupt task ledger fails the load loudly (which the
+        // worker surfaces as a tick error and eventually pauses the daemon)
+        // instead of silently treating the project as empty.
+        let ledger = load_task_ledger(std::path::Path::new(&project.path))?;
         let (queue_size, blocked_tasks) = summarize_queue(&ledger);
         states.push(ProjectQueueState {
             project,
@@ -26,14 +29,6 @@ pub fn load_project_queue_states(
         });
     }
     Ok(states)
-}
-
-fn load_task_ledeger_lossy(project_path: &str) -> super::types::TaskLedger {
-    load_task_ledger(std::path::Path::new(project_path)).unwrap_or(super::types::TaskLedger {
-        version: 1,
-        updated_at: String::new(),
-        tasks: Vec::new(),
-    })
 }
 
 pub fn select_next_project(

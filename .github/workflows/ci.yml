@@ -43,3 +43,4 @@ jobs:
           ./target/release/openloop --version
           ./target/release/openloop status --format json
           ./target/release/openloop doctor --format json
+          node bin/openloop.js --version

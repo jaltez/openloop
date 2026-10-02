@@ -494,7 +494,7 @@ pub fn run_worker_tick(started_at: &str) -> Result<DaemonState, String> {
                 if let (Some(task_id), Some(artifact_path)) =
                     (&result.task_id, &result.promotion_result_artifact_path)
                 {
-                    if let Some(artifact) =
+                    if let Ok(Some(artifact)) =
                         super::promotion_artifacts::read_promotion_result_artifact(artifact_path)
                     {
                         if let Some(pr_url) = artifact.pr_url {
@@ -544,20 +544,22 @@ pub fn run_worker_tick(started_at: &str) -> Result<DaemonState, String> {
                 }
             }
             Err(error) => {
+                // Detect the timeout BEFORE stripping the sentinel so the
+                // budget charge matches every timeout path (agent run,
+                // validation, worktree setup — all four carry the prefix or
+                // a "exceeded timeout" message).
+                if error.starts_with("__iteration_timeout__")
+                    || error.contains("exceeded timeout")
+                    || error.contains("Run exceeded timeout")
+                {
+                    charge_usd = config.budgets.estimated_cost_per_run_usd.unwrap_or(0.0);
+                }
                 iteration_result = Some(
                     error
                         .trim_start_matches("__iteration_timeout__:")
                         .to_string(),
                 );
-                // Handled below: timeout charges the estimate.
             }
-        }
-    }
-
-    // A timed-out run consumed budget (no parseable usage) — charge the estimate.
-    if let Some(err) = &iteration_result {
-        if err.starts_with("__iteration_timeout__") || err.contains("Run exceeded timeout") {
-            charge_usd = config.budgets.estimated_cost_per_run_usd.unwrap_or(0.0);
         }
     }
 

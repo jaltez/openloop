@@ -181,7 +181,7 @@ pub enum ProjectSubcommand {
     },
     /// List linked projects
     List {
-        #[arg(long)]
+        #[arg(long, value_parser = ["table", "json"])]
         format: Option<String>,
     },
     /// Set the active project preference for the daemon
@@ -216,7 +216,7 @@ pub enum PromotionSubcommand {
         task: Option<String>,
         #[arg(long, value_parser = validate_promotion_status)]
         status: Option<String>,
-        #[arg(long)]
+        #[arg(long, value_parser = ["table", "json"])]
         format: Option<String>,
     },
     /// Show promotion artifact details for a task
@@ -295,8 +295,8 @@ pub enum ConfigSubcommand {
     },
     /// Add a global lifecycle hook
     AddHook {
-        #[arg(long)]
-        hook_type: String, // command | webhook
+        #[arg(long = "type", value_parser = ["command", "webhook"])]
+        hook_type: String,
         #[arg(long, default_value = "*")]
         events: String,
         #[arg(long)]
@@ -313,7 +313,7 @@ pub enum ConfigSubcommand {
     /// Add a project-local lifecycle hook
     ProjectAddHook {
         project: String,
-        #[arg(long)]
+        #[arg(long = "type", value_parser = ["command", "webhook"])]
         hook_type: String,
         #[arg(long, default_value = "*")]
         events: String,
@@ -330,7 +330,7 @@ pub enum ConfigSubcommand {
     ProjectListHooks { project: String },
     /// Add a notification channel (webhook or desktop)
     AddChannel {
-        #[arg(long)]
+        #[arg(long = "type", value_parser = ["webhook", "desktop"])]
         channel_type: String,
         #[arg(long)]
         url: Option<String>,
@@ -450,7 +450,7 @@ pub enum TaskSubcommand {
         status: Option<String>,
         #[arg(long, value_parser = validate_task_risk)]
         risk: Option<String>,
-        #[arg(long)]
+        #[arg(long, value_parser = ["table", "json"])]
         format: Option<String>,
     },
     /// Show a task from a linked project
@@ -508,7 +508,7 @@ pub enum ApprovalSubcommand {
     List {
         #[arg(short = 'p', long)]
         project: String,
-        #[arg(long)]
+        #[arg(long, value_parser = ["table", "json"])]
         format: Option<String>,
     },
     /// Show the approval packet for a task
@@ -522,7 +522,7 @@ pub enum ApprovalSubcommand {
 
 #[derive(Debug, Args)]
 pub struct StatusArgs {
-    #[arg(long)]
+    #[arg(long, value_parser = ["table", "json"])]
     pub format: Option<String>,
 }
 
@@ -544,7 +544,7 @@ pub struct EventsArgs {
 
 #[derive(Debug, Args)]
 pub struct DoctorArgs {
-    #[arg(long)]
+    #[arg(long, value_parser = ["table", "json"])]
     pub format: Option<String>,
 }
 
@@ -553,7 +553,7 @@ pub struct ReportArgs {
     /// Report period in hours (default: 24)
     #[arg(long, default_value = "24")]
     pub hours: f64,
-    #[arg(long)]
+    #[arg(long, value_parser = ["table", "json"])]
     pub format: Option<String>,
 }
 
@@ -562,7 +562,7 @@ pub struct DigestArgs {
     /// Digest window in hours (default: 24)
     #[arg(long = "since-hours", default_value = "24")]
     pub since_hours: f64,
-    #[arg(long)]
+    #[arg(long, value_parser = ["table", "json"])]
     pub format: Option<String>,
 }
 
@@ -593,8 +593,11 @@ pub enum IssueSubcommand {
         #[arg(long, default_value = "false")]
         auto_sync: bool,
         /// Post status updates as issue comments
-        #[arg(long, default_value = "true")]
+        #[arg(long = "post-comments", default_value = "true", action = clap::ArgAction::Set, num_args = 0..=1)]
         post_comments: bool,
+        /// Disable status updates as issue comments (--no-post-comments)
+        #[arg(long = "no-post-comments")]
+        no_post_comments: bool,
     },
     /// Sync issues from the configured source into tasks
     Sync {
@@ -608,7 +611,7 @@ pub enum IssueSubcommand {
     List {
         #[arg(short = 'p', long)]
         project: String,
-        #[arg(long)]
+        #[arg(long, value_parser = ["table", "json"])]
         format: Option<String>,
     },
     /// Remove the issue source configuration from a project

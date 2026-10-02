@@ -1079,6 +1079,11 @@ pub fn run_project_iteration(
         result.task_id = Some(task.id.clone());
         result.mode = mode.clone();
         result.role = Some(role);
+        // TS parity: taskStatus/promotedAt/attemptNumber are reported on the
+        // max-attempts-blocked result like on the other blocked paths.
+        result.task_status = Some(task.status);
+        result.promoted_at = task.promoted_at.clone();
+        result.attempt_number = Some(task.attempts + 1);
         result.run_summary_path = Some(super::run_summaries::write_run_summary(
             project_path,
             &result,

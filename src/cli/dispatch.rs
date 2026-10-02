@@ -433,6 +433,13 @@ fn config(cmd: ConfigCommand) -> Result<(), String> {
                         std::process::exit(1);
                     }
                 };
+            // Integer-typed config fields (u64/u32) cannot round-trip a
+            // fractional value; reject it cleanly instead of leaking the raw
+            // serde error. budgets.* fields keep f64 and accept fractions.
+            if parsed.is_f64() && !key.starts_with("budgets.") {
+                eprintln!("Error: '{value}' is not a whole number for {key}");
+                std::process::exit(1);
+            }
             let mut raw = serde_json::to_value(c::global_config::load_global_config(None)?)
                 .unwrap_or_else(|_| serde_json::json!({}));
             c::global_config::set_nested_json_value(&mut raw, &key, parsed.clone());

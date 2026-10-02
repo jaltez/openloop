@@ -125,8 +125,27 @@ pub fn list_tasks(
 }
 
 pub fn summarize_tasks(tasks: &[ProjectTask]) -> TaskListSummary {
-    let mut by_status: BTreeMap<String, usize> = BTreeMap::new();
-    let mut by_risk: BTreeMap<String, usize> = BTreeMap::new();
+    // TS parity: every status/risk key is always present (zero-filled), so
+    // consumers of `task list --format json` can index any key.
+    let mut by_status: BTreeMap<String, usize> = [
+        "proposed",
+        "planned",
+        "ready",
+        "awaiting-approval",
+        "in_progress",
+        "blocked",
+        "done",
+        "failed",
+        "cancelled",
+        "promoted",
+    ]
+    .iter()
+    .map(|s| (s.to_string(), 0))
+    .collect();
+    let mut by_risk: BTreeMap<String, usize> = ["low-risk", "medium-risk", "high-risk"]
+        .iter()
+        .map(|s| (s.to_string(), 0))
+        .collect();
     for task in tasks {
         *by_status
             .entry(task.status.as_str().to_string())

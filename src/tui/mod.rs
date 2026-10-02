@@ -12,6 +12,13 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use crate::core as c;
 
 pub fn run() -> Result<(), String> {
+    // A panic must restore the terminal (raw mode + alternate screen) even
+    // though the release profile aborts without unwinding.
+    std::panic::set_hook(Box::new(|info| {
+        let _ = disable_raw_mode();
+        let _ = execute!(std::io::stdout(), LeaveAlternateScreen);
+        eprintln!("{info}");
+    }));
     enable_raw_mode().map_err(|e| e.to_string())?;
     let mut stdout = std::io::stdout();
     execute!(stdout, EnterAlternateScreen).map_err(|e| e.to_string())?;
@@ -70,12 +77,20 @@ fn handle_global_keys(app: &mut app::App, key: &KeyEvent) -> bool {
                 }
             }
         }
-        if key.code == KeyCode::Tab {
-            if key.modifiers.contains(KeyModifiers::SHIFT) {
-                app.active_tab = (app.active_tab + app::TABS.len() - 1) % app::TABS.len();
-            } else {
-                app.active_tab = (app.active_tab + 1) % app::TABS.len();
-            }
+        // Tab cycles tabs, except on views that own Tab as a sub-panel
+        // toggle (Config: global/project, Logs: daemon/project-runs).
+        // BackTab is how crossterm reports Shift+Tab on standard terminals
+        // (the kitty protocol is not enabled), so treat both.
+        let tab_owned_by_view = app.active_tab == 4 || app.active_tab == 8;
+        if key.code == KeyCode::Tab && !tab_owned_by_view {
+            app.active_tab = (app.active_tab + 1) % app::TABS.len();
+            app.selected = 0;
+            return true;
+        }
+        if (key.code == KeyCode::BackTab)
+            || (key.code == KeyCode::Tab && key.modifiers.contains(KeyModifiers::SHIFT))
+        {
+            app.active_tab = (app.active_tab + app::TABS.len() - 1) % app::TABS.len();
             app.selected = 0;
             return true;
         }

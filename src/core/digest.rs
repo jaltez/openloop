@@ -252,7 +252,7 @@ fn build_project_digest(
         if item.artifact.status != PromotionArtifactStatus::Pending {
             continue;
         }
-        let packet = read_approval_packet(project_path, &item.artifact.task_id);
+        let packet = read_approval_packet(project_path, &item.artifact.task_id)?;
         let task = ledger
             .tasks
             .iter()

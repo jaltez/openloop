@@ -1,6 +1,6 @@
 [package]
 name = "openloop"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 description = "Global CLI and service for unattended Pi-driven development across linked repositories."
 license = "MIT"

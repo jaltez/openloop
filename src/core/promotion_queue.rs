@@ -323,9 +323,10 @@ pub fn get_promotion_detail(project_path: &Path, task_id: &str) -> Result<Promot
         .as_ref()
         .and_then(|t| t.last_run.as_ref())
         .and_then(|lr| lr.promotion_result_artifact_path.clone());
-    let result_artifact = result_artifact_path
-        .as_deref()
-        .and_then(read_promotion_result_artifact);
+    let result_artifact = match result_artifact_path.as_deref() {
+        None => None,
+        Some(path) => read_promotion_result_artifact(path)?,
+    };
     Ok(PromotionDetail {
         artifact_path: matched.artifact_path,
         artifact: matched.artifact,
@@ -355,7 +356,7 @@ pub fn get_promotion_history(
         }
     }
 
-    for (artifact_path, artifact) in list_promotion_result_artifacts(project_path, Some(task_id)) {
+    for (artifact_path, artifact) in list_promotion_result_artifacts(project_path, Some(task_id))? {
         history.push(PromotionHistoryEntry {
             created_at: artifact.created_at.clone(),
             kind: "result",

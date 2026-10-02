@@ -294,7 +294,7 @@ pub(super) fn approval(cmd: ApprovalCommand) -> Result<(), String> {
     match cmd.command {
         ApprovalSubcommand::List { project, format } => {
             let project = c::project_registry::get_project(&project, None)?;
-            let packets = c::approval_packets::list_approval_packets(Path::new(&project.path));
+            let packets = c::approval_packets::list_approval_packets(Path::new(&project.path))?;
             match c::table::resolve_output_format(format.as_deref()) {
                 c::table::OutputFormat::Table => {
                     let rows: Vec<c::table::Row> = packets
@@ -337,7 +337,7 @@ pub(super) fn approval(cmd: ApprovalCommand) -> Result<(), String> {
         }
         ApprovalSubcommand::Show { project, task } => {
             let project = c::project_registry::get_project(&project, None)?;
-            match c::approval_packets::read_approval_packet(Path::new(&project.path), &task) {
+            match c::approval_packets::read_approval_packet(Path::new(&project.path), &task)? {
                 Some(packet) => {
                     println!(
                         "{}",
@@ -994,6 +994,7 @@ pub(super) fn issue(cmd: IssueCommand) -> Result<(), String> {
             token,
             auto_sync,
             post_comments,
+            no_post_comments,
         } => {
             let provider = if github.is_some() {
                 "github".to_string()
@@ -1012,7 +1013,7 @@ pub(super) fn issue(cmd: IssueCommand) -> Result<(), String> {
                 token,
                 auto_sync: Some(auto_sync),
                 sync_interval_minutes: Some(30),
-                post_status_comments: Some(post_comments),
+                post_status_comments: Some(post_comments && !no_post_comments),
                 last_synced_at: None,
             };
             config.issue_source = Some(source.clone());

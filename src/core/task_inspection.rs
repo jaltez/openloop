@@ -27,7 +27,7 @@ pub fn get_task_inspection(project_path: &Path, task_id: &str) -> Result<TaskIns
     let promotion_requests =
         super::promotion_queue::list_promotion_artifacts_for_task(project_path, task_id)?;
     let promotion_results =
-        super::promotion_artifacts::list_promotion_result_artifacts(project_path, Some(task_id));
+        super::promotion_artifacts::list_promotion_result_artifacts(project_path, Some(task_id))?;
 
     let mut promotion_history: Vec<TaskInspectionHistoryEntry> = Vec::new();
     for item in &promotion_requests {

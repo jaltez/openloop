@@ -11,7 +11,7 @@ pub fn refresh(project_alias: &str, task_id: &str) -> Result<(), String> {
     let project = c::project_registry::get_project(project_alias, None)?;
     let project_path = Path::new(&project.path);
     let results =
-        c::promotion_artifacts::list_promotion_result_artifacts(project_path, Some(task_id));
+        c::promotion_artifacts::list_promotion_result_artifacts(project_path, Some(task_id))?;
     let with_pr = results
         .iter()
         .find(|(_, artifact)| artifact.pr_url.is_some());
@@ -118,7 +118,7 @@ pub fn refresh(project_alias: &str, task_id: &str) -> Result<(), String> {
         .collect();
 
     if state.as_deref() == Some("MERGED") {
-        let _ = c::task_ledger::with_task_ledger(project_path, |ledger| {
+        c::task_ledger::with_task_ledger(project_path, |ledger| {
             if let Some(task) = ledger
                 .tasks
                 .iter_mut()
@@ -132,7 +132,7 @@ pub fn refresh(project_alias: &str, task_id: &str) -> Result<(), String> {
                 task.updated_at = c::now_iso();
             }
             Ok(())
-        });
+        })?;
     } else if state.as_deref() == Some("CLOSED") {
         let rejection = c::promotion_queue::update_promotion_artifact(
             project_path,
@@ -141,7 +141,7 @@ pub fn refresh(project_alias: &str, task_id: &str) -> Result<(), String> {
             Some(&format!("PR closed: {pr_url}")),
         );
         if rejection.is_err() {
-            let _ = c::task_ledger::with_task_ledger(project_path, |ledger| {
+            c::task_ledger::with_task_ledger(project_path, |ledger| {
                 if let Some(task) = ledger
                     .tasks
                     .iter_mut()
@@ -153,13 +153,13 @@ pub fn refresh(project_alias: &str, task_id: &str) -> Result<(), String> {
                     task.updated_at = c::now_iso();
                 }
                 Ok(())
-            });
+            })?;
         }
     }
 
     if !failed_checks.is_empty() {
         let note = format!("PR checks failed: {}", failed_checks.join(", "));
-        let _ = c::task_ledger::with_task_ledger(project_path, |ledger| {
+        c::task_ledger::with_task_ledger(project_path, |ledger| {
             if let Some(task) = ledger
                 .tasks
                 .iter_mut()
@@ -171,7 +171,7 @@ pub fn refresh(project_alias: &str, task_id: &str) -> Result<(), String> {
                 task.updated_at = c::now_iso();
             }
             Ok(())
-        });
+        })?;
         if let Ok(config) = c::global_config::load_global_config(None) {
             let payload = c::worker::build_lifecycle_payload(
                 "promotion-ci-failed",

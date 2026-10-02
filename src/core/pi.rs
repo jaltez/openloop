@@ -74,7 +74,7 @@ pub fn run_agent(
             .and_then(|a| a.extra_args.as_deref()),
     })?;
     // Translate the timeout sentinel into an Err(RunTimeoutError) signal.
-    if let Some(rest) = result.stdout.strip_prefix("__run_timeout__") {
+    if let Some(rest) = result.stdout.strip_prefix("__run_timeout__:") {
         let ms = rest.trim().parse::<u64>().unwrap_or(0);
         return Err(format!("__timeout__:{ms}"));
     }

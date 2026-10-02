@@ -547,10 +547,19 @@ pub fn resolve_provider(
                 custom_command: Some(command.to_string()),
             };
         }
+        // TS parity: resolveProvider fell back to the pi provider when the
+        // type was "custom" but no command was configured (its provider map
+        // has no "custom" entry). Spawning `sh -c` with the prompt as the
+        // command name would just fail with exit 127.
     }
 
+    let effective_name = if name == "custom" {
+        "pi"
+    } else {
+        name.as_str()
+    };
     ResolvedProvider {
-        name: ProviderName::parse(&name).unwrap_or(ProviderName::Pi),
+        name: ProviderName::parse(effective_name).unwrap_or(ProviderName::Pi),
         custom_command: None,
     }
 }

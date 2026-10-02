@@ -688,10 +688,21 @@ impl App {
                 self.config_refreshed = Instant::now() - std::time::Duration::from_secs(10);
             }
             InputMode::RunPrompt => {
+                if value.is_empty() {
+                    self.status_msg = "Prompt is required".to_string();
+                    self.input_mode = InputMode::None;
+                    self.input_value.clear();
+                    return;
+                }
                 self.run_output.clear();
-                self.run_output
-                    .push(format!("> Prompt: {}", &value[..value.len().min(80)]));
-                let _ = &value;
+                // Char-boundary-safe truncation (TS slice semantics).
+                let prefix: String = value.chars().take(80).collect();
+                let suffix = if value.chars().count() > 80 {
+                    "..."
+                } else {
+                    ""
+                };
+                self.run_output.push(format!("> Prompt: {prefix}{suffix}"));
                 self.run_prompt_value = value;
                 self.input_value.clear();
                 self.input_mode = InputMode::RunModel;
@@ -896,19 +907,28 @@ impl App {
 
     fn handle_service_key(&mut self, key: &KeyEvent) {
         const ACTIONS: [&str; 3] = ["Pause", "Resume", "View Logs"];
-        if key.code == KeyCode::Enter {
-            let action = ACTIONS[self.service_action.min(2)];
-            if action == "Pause" {
-                if c::daemon_state::pause_daemon(None).is_ok() {
-                    self.status_msg = "Daemon paused".to_string();
-                }
-            } else if action == "Resume" {
-                if c::daemon_state::resume_daemon(None).is_ok() {
-                    self.status_msg = "Daemon resumed".to_string();
-                }
-            } else {
-                self.log_refreshed = Instant::now() - std::time::Duration::from_secs(10);
+        match key.code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.service_action = self.service_action.saturating_sub(1);
             }
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.service_action = (self.service_action + 1).min(ACTIONS.len() - 1);
+            }
+            KeyCode::Enter => {
+                let action = ACTIONS[self.service_action.min(2)];
+                if action == "Pause" {
+                    if c::daemon_state::pause_daemon(None).is_ok() {
+                        self.status_msg = "Daemon paused".to_string();
+                    }
+                } else if action == "Resume" {
+                    if c::daemon_state::resume_daemon(None).is_ok() {
+                        self.status_msg = "Daemon resumed".to_string();
+                    }
+                } else {
+                    self.log_refreshed = Instant::now() - std::time::Duration::from_secs(10);
+                }
+            }
+            _ => {}
         }
     }
 

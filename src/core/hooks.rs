@@ -8,6 +8,7 @@ use super::now_iso;
 use super::types::{GlobalConfig, LifecycleHookConfig, ProjectConfig, ValidationSummary};
 
 #[derive(Debug, Clone, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LifecycleHookPayload {
     pub event: String,
     pub project: String,
@@ -170,7 +171,23 @@ fn run_command_hook(
             Ok(Some(status)) => break Some(status),
             Ok(None) => {
                 if Instant::now() >= deadline {
-                    let _ = kill_pid(child.id() as i32);
+                    let pid = child.id() as i32;
+                    let _ = kill_pid(pid);
+                    // Bounded grace, then SIGKILL; always reap so no zombie
+                    // outlives the run (std never auto-reaps children).
+                    let kill_deadline = Instant::now() + Duration::from_millis(5000);
+                    loop {
+                        match child.try_wait() {
+                            Ok(Some(_)) => break,
+                            Ok(None) if Instant::now() >= kill_deadline => {
+                                let _ = kill_pid_kill(pid);
+                                let _ = child.wait();
+                                break;
+                            }
+                            Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+                            Err(_) => break,
+                        }
+                    }
                     return Err(format!("Hook timed out after {timeout_seconds}s."));
                 }
                 std::thread::sleep(Duration::from_millis(20));
@@ -270,3 +287,7 @@ fn run_webhook_hook(
 }
 
 pub fn _unused(_p: &Path) {}
+
+fn kill_pid_kill(pid: i32) -> bool {
+    unsafe { libc::kill(pid, libc::SIGKILL) == 0 }
+}
