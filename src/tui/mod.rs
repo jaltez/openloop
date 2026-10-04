@@ -78,6 +78,16 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Res
 }
 
 fn handle_global_keys(app: &mut app::App, key: &KeyEvent) -> bool {
+    // A confirm/picker modal owns ALL routing while armed — global keys must
+    // not hide it ('?') or act underneath it (digits/Tab switch views, 'y'
+    // would execute an invisible destructive action on the next draw).
+    if app.confirm.is_some() || app.picker.is_some() {
+        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            app.quit_requested = true;
+            return true;
+        }
+        return false;
+    }
     // Number keys jump to tabs (unless an input field is capturing).
     if !app.input_capturing() {
         if let KeyCode::Char(ch) = key.code {

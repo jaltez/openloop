@@ -820,7 +820,7 @@ pub fn service(app: &mut App, frame: &mut Frame, area: Rect) {
     let state_block = panel(&app.theme, "Daemon state");
     let state_inner = state_block.inner(chunks[0]);
     frame.render_widget(state_block, chunks[0]);
-    let state_lines = vec![
+    let mut state_lines = vec![
         Line::from(vec![
             Span::styled(
                 status_label,
@@ -874,6 +874,13 @@ pub fn service(app: &mut App, frame: &mut Frame, area: Rect) {
             }),
         ]),
     ];
+    // Action feedback (e.g. the run-once refusal) lives on this tab.
+    if !app.status_msg.is_empty() {
+        state_lines.push(Line::from(Span::styled(
+            app.status_msg.clone(),
+            Style::default().fg(app.theme.yellow),
+        )));
+    }
     frame.render_widget(Paragraph::new(state_lines), state_inner);
 
     // Actions list.

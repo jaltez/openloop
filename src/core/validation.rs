@@ -69,6 +69,28 @@ fn run_shell_command(
                 return Ok(status.code().unwrap_or(1));
             }
             Ok(None) => {
+                // Daemon shutdown during a long validation must not park the
+                // tick until the command's own timeout elapses (TS exited in
+                // the signal handler); the sentinel flows into the scheduler
+                // shutdown arm, which books nothing.
+                if super::worker::SHUTDOWN.load(std::sync::atomic::Ordering::SeqCst) {
+                    let pid = child.id() as i32;
+                    let _ = kill_pid(pid);
+                    let kill_deadline = Instant::now() + Duration::from_millis(5000);
+                    loop {
+                        match child.try_wait() {
+                            Ok(Some(_)) => break,
+                            Ok(None) if Instant::now() >= kill_deadline => {
+                                let _ = kill_pid_kill(pid);
+                                let _ = child.wait();
+                                break;
+                            }
+                            Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+                            Err(_) => break,
+                        }
+                    }
+                    return Err(ValidationError::Other("__shutdown__:".to_string()));
+                }
                 if let Some(deadline) = deadline {
                     if Instant::now() >= deadline {
                         let pid = child.id() as i32;

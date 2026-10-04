@@ -540,8 +540,9 @@ fn sanitize_observation_key(value: &str) -> String {
     let mut out = String::new();
     let mut in_sep_run = false;
     for c in lowered.chars() {
-        let is_kept = c.is_ascii_alphanumeric() || c == '-';
-        if is_kept && c != '-' {
+        if c.is_ascii_alphanumeric() || c == '-' {
+            // Literal dashes are KEPT verbatim ([^a-z0-9-] is the only
+            // separator class); only runs of OTHER characters collapse.
             out.push(c);
             in_sep_run = false;
         } else {
@@ -1017,7 +1018,7 @@ pub fn run_project_iteration(
         task.status = TaskStatus::Blocked;
         task.last_failure_signature = scope_decision.failure_signature.clone();
         task.updated_at = now_iso();
-        super::task_ledger::upsert_task(project_path, &task)?;
+        let _ = super::task_ledger::upsert_task(project_path, &task);
 
         let mut result = idle_result(
             &project.alias,
@@ -1046,7 +1047,7 @@ pub fn run_project_iteration(
         notes.push(block.note.clone());
         task.notes = Some(notes);
         task.updated_at = now_iso();
-        super::task_ledger::upsert_task(project_path, &task)?;
+        let _ = super::task_ledger::upsert_task(project_path, &task);
 
         let mut result = idle_result(
             &project.alias,
@@ -1072,7 +1073,7 @@ pub fn run_project_iteration(
         ));
         task.notes = Some(notes);
         task.updated_at = now_iso();
-        super::task_ledger::upsert_task(project_path, &task)?;
+        let _ = super::task_ledger::upsert_task(project_path, &task);
 
         let mut result = idle_result(
             &project.alias,
@@ -1097,7 +1098,7 @@ pub fn run_project_iteration(
     task.status = TaskStatus::InProgress;
     task.owner = Some("openloop".to_string());
     task.updated_at = now_iso();
-    super::task_ledger::upsert_task(project_path, &task)?;
+    let _ = super::task_ledger::upsert_task(project_path, &task);
 
     // D6: Use the model-agnostic agent runner.
     let default_provider = global_config.default_provider.clone();
@@ -1391,7 +1392,7 @@ pub fn run_project_iteration(
                                     )
                                     .map(|r| r.exit_code)
                                     .unwrap_or(1),
-                                    None => super::pi::run_agent(
+                                    None => match super::pi::run_agent(
                                         &super::pi::PiRunOptions {
                                             prompt: &verifier_prompt,
                                             model: model.as_deref(),
@@ -1400,9 +1401,17 @@ pub fn run_project_iteration(
                                         },
                                         Some(&project_config),
                                         default_provider.as_deref(),
-                                    )
-                                    .map(|r| r.exit_code)
-                                    .unwrap_or(1),
+                                    ) {
+                                        Ok(r) => r.exit_code,
+                                        // Daemon shutdown mid-verification must
+                                        // unwind the tick, not book a Done task
+                                        // with no verdict (TS exited in the
+                                        // handler leaving in_progress).
+                                        Err(e) if e.starts_with("__shutdown__") => {
+                                            return Err(e);
+                                        }
+                                        Err(_) => 1,
+                                    },
                                 };
                                 let _ = verifier_exit;
                                 read_verifier_outcome(&verdicts_path)
@@ -1460,7 +1469,7 @@ pub fn run_project_iteration(
                                     )
                                     .map(|r| r.exit_code)
                                     .unwrap_or(1),
-                                    None => super::pi::run_agent(
+                                    None => match super::pi::run_agent(
                                         &super::pi::PiRunOptions {
                                             prompt: &review_prompt,
                                             model: model.as_deref(),
@@ -1469,9 +1478,13 @@ pub fn run_project_iteration(
                                         },
                                         Some(&project_config),
                                         default_provider.as_deref(),
-                                    )
-                                    .map(|r| r.exit_code)
-                                    .unwrap_or(1),
+                                    ) {
+                                        Ok(r) => r.exit_code,
+                                        Err(e) if e.starts_with("__shutdown__") => {
+                                            return Err(e);
+                                        }
+                                        Err(_) => 1,
+                                    },
                                 },
                             };
                             let _ = reviewer_exit;
@@ -1644,7 +1657,7 @@ pub fn run_project_iteration(
         });
 
         task.updated_at = now_iso();
-        super::task_ledger::upsert_task(project_path, &task)?;
+        let _ = super::task_ledger::upsert_task(project_path, &task);
 
         let mut result = idle_result(&project.alias, &selection.reason, model.as_deref());
         result.task_id = Some(task.id.clone());
@@ -1686,7 +1699,7 @@ pub fn run_project_iteration(
             // no blocked artifact, no sentinel garbage in the ledger.
             task.status = TaskStatus::InProgress;
             task.updated_at = now_iso();
-            super::task_ledger::upsert_task(project_path, &task)?;
+            let _ = super::task_ledger::upsert_task(project_path, &task);
             cleanup_worktree();
             Err(error)
         }
@@ -1761,7 +1774,7 @@ pub fn run_project_iteration(
                 promotion_result_artifact_path: None,
             });
             task.updated_at = now_iso();
-            super::task_ledger::upsert_task(project_path, &task)?;
+            let _ = super::task_ledger::upsert_task(project_path, &task);
 
             let mut result = idle_result(&project.alias, &selection.reason, model.as_deref());
             result.task_id = Some(task.id.clone());
@@ -1806,8 +1819,21 @@ fn read_verifier_outcome(verdicts_path: &Path) -> VerifierOutcome {
         if let Ok(raw) = std::fs::read_to_string(verdicts_path) {
             if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&raw) {
                 if let Some(arr) = parsed.as_array() {
-                    verdicts = arr.clone();
-                    missing_or_malformed = false;
+                    // Structurally valid ONLY when every element is an object
+                    // carrying a recognized verdict; garbage arrays ([1,2],
+                    // unknown verdict spellings) must fail open to review,
+                    // never green-light the task.
+                    let well_formed = !arr.is_empty()
+                        && arr.iter().all(|v| {
+                            matches!(
+                                v.get("verdict").and_then(|x| x.as_str()),
+                                Some("pass") | Some("fail") | Some("needs-human")
+                            )
+                        });
+                    if well_formed {
+                        verdicts = arr.clone();
+                        missing_or_malformed = false;
+                    }
                 }
             }
         }

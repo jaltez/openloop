@@ -276,6 +276,10 @@ fn needs_human_verdict_completes_the_task_but_downgrades_to_manual_review() {
 
     let result = run_iteration(target, None);
 
+    // Distinguish a DELIVERED needs-human verdict from the missing-file
+    // fail-open: both end in ManualReview, but delivery proves the prompt
+    // contract held.
+    assert!(verdicts_path(target).exists());
     assert_eq!(result.task_status, Some(TaskStatus::Done));
     // Without the verdict this low-risk auto-merge task with a passing test
     // command would be auto-merge-eligible; needs-human downgrades it.

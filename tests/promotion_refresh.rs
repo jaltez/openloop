@@ -20,7 +20,7 @@ use std::os::unix::fs::PermissionsExt;
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 struct Sandbox {
-    home: PathBuf,
+    base: Option<PathBuf>,
     project_root: PathBuf,
     bin: PathBuf,
     saved_home: Option<String>,
@@ -29,6 +29,10 @@ struct Sandbox {
 
 impl Drop for Sandbox {
     fn drop(&mut self) {
+        // base is the parent of the sandbox tree — one removal suffices.
+        if let Some(base) = self.base.as_ref() {
+            let _ = fs::remove_dir_all(base);
+        }
         match self.saved_home.take() {
             Some(prev) => std::env::set_var("OPENLOOP_HOME", prev),
             None => std::env::remove_var("OPENLOOP_HOME"),
@@ -37,9 +41,6 @@ impl Drop for Sandbox {
             Some(prev) => std::env::set_var("PATH", prev),
             None => std::env::remove_var("PATH"),
         }
-        let _ = fs::remove_dir_all(&self.home);
-        let _ = fs::remove_dir_all(&self.project_root);
-        let _ = fs::remove_dir_all(&self.bin);
     }
 }
 
@@ -93,7 +94,7 @@ fn seed(name: &str) -> Sandbox {
     std::env::set_var("PATH", &bin);
 
     Sandbox {
-        home,
+        base: Some(base),
         project_root,
         bin,
         saved_home,

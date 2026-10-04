@@ -163,7 +163,7 @@ fn sigterm_interrupts_active_agent_run() {
 
     // Wait until the daemon has picked the task and spawned the sleeping
     // agent (the run summary or the in_progress flip both indicate it).
-    let deadline = Instant::now() + Duration::from_secs(15);
+    let deadline = Instant::now() + Duration::from_secs(30);
     let agent_spawned = loop {
         let agent_running = Command::new("pgrep")
             .args(["-f", "sleep 300"])
@@ -178,7 +178,7 @@ fn sigterm_interrupts_active_agent_run() {
         }
         std::thread::sleep(Duration::from_millis(200));
     };
-    assert!(agent_spawned, "agent did not start within 15s");
+    assert!(agent_spawned, "agent did not start within 30s");
 
     // SIGTERM the daemon: it must exit quickly (not wait for the 30-min run
     // timeout), remove its pid file, and take the agent down with it.

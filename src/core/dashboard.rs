@@ -15,10 +15,9 @@ struct TaskSnapshot {
     risk: String,
     kind: String,
     updated_at: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    // TS emits explicit nulls for never-run tasks (key always present).
     estimated_cost_usd: Option<f64>,
     attempts: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
     last_run: Option<LastRunSnapshot>,
 }
 
@@ -473,7 +472,14 @@ fn handle_api_request(
 fn handle_connection(mut stream: TcpStream) {
     // Drop connections that connect and never send (node's requestTimeout
     // parity): without this, idle clients hold threads and fds forever.
+    // Linux clears O_NONBLOCK in accept(2), but macOS inherits it from the
+    // listener — without this reset every read would return WouldBlock
+    // before request bytes arrive and every request would 405.
+    let _ = stream.set_nonblocking(false);
     let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(10)));
+    // A client that stops reading mid-response must not hold the thread
+    // once the send buffer fills (localhost-only, but still a leak).
+    let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(10)));
 
     let mut buffer = [0u8; 8192];
     let read = stream.read(&mut buffer).unwrap_or(0);

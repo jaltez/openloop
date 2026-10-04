@@ -460,6 +460,10 @@ impl App {
                     self.config_entries = flatten(&raw);
                 }
             }
+        } else {
+            // Project panel with no active project: stale global entries must
+            // not linger under the project label.
+            self.config_entries.clear();
         }
     }
 
@@ -1455,6 +1459,9 @@ impl App {
             KeyCode::Tab => {
                 self.config_panel = !self.config_panel;
                 self.selected = 0;
+                // Force a load for the freshly selected panel instead of
+                // showing the previous panel's entries under the new label.
+                self.config_refreshed = Instant::now() - std::time::Duration::from_secs(10);
             }
             KeyCode::Enter => {
                 if let Some((_, value, editable)) = self
@@ -1883,7 +1890,10 @@ impl App {
                 }
             }
             MouseEventKind::Down(_)
-                if mouse.row == 0 && !self.input_capturing() && self.picker.is_none() =>
+                if mouse.row == 0
+                    && !self.input_capturing()
+                    && self.picker.is_none()
+                    && self.confirm.is_none() =>
             {
                 if let Some(index) = self
                     .tab_spans

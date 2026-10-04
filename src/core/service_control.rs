@@ -47,9 +47,16 @@ fn is_process_alive(pid: i32) -> bool {
 }
 
 fn is_likely_openloop_daemon(pid: i32) -> bool {
+    // Both daemon invocation shapes write the pid file: the detached
+    // `daemon worker` and the foreground `service run`. Matching by exact
+    // argv suffix avoids false positives from arbitrary cmdlines.
+    fn matches_cmdline(cmdline: &str) -> bool {
+        let args: Vec<&str> = cmdline.split('\0').filter(|s| !s.is_empty()).collect();
+        args.ends_with(&["daemon", "worker"]) || args.ends_with(&["service", "run"])
+    }
     if cfg!(target_os = "linux") {
         return std::fs::read_to_string(format!("/proc/{pid}/cmdline"))
-            .map(|cmdline| cmdline.replace('\0', " ").trim().contains("daemon worker"))
+            .map(|cmdline| matches_cmdline(&cmdline))
             .unwrap_or(false);
     }
     if cfg!(target_os = "macos") {
@@ -57,9 +64,8 @@ fn is_likely_openloop_daemon(pid: i32) -> bool {
             .args(["-p", &pid.to_string(), "-o", "command="])
             .output()
             .map(|o| {
-                String::from_utf8_lossy(&o.stdout)
-                    .trim()
-                    .contains("daemon worker")
+                let cmd = String::from_utf8_lossy(&o.stdout);
+                matches_cmdline(cmd.trim())
             })
             .unwrap_or(false);
     }
@@ -155,6 +161,7 @@ pub fn stop_service() -> Result<String, String> {
 /// `stopIfRunning` removed both the pid file and the log before respawning).
 pub fn restart_service() -> Result<String, String> {
     assert_default_provider_available()?;
+    let mut was_running = false;
     match inspect_daemon_process()? {
         DaemonInspection::Missing => {}
         DaemonInspection::Stale(_) => {
@@ -166,6 +173,7 @@ pub fn restart_service() -> Result<String, String> {
             ));
         }
         DaemonInspection::Running(pid) => {
+            was_running = true;
             unsafe {
                 libc::kill(pid, libc::SIGTERM);
             }
@@ -185,7 +193,11 @@ pub fn restart_service() -> Result<String, String> {
             let _ = std::fs::remove_file(c::paths::daemon_pid_path(None));
         }
     }
-    let _ = std::fs::remove_file(c::paths::daemon_log_path(None));
+    // TS stopIfRunning removed the log only after killing a live daemon;
+    // a stale/missing daemon's log is crash evidence and stays.
+    if was_running {
+        let _ = std::fs::remove_file(c::paths::daemon_log_path(None));
+    }
     start_and_wait()
 }
 

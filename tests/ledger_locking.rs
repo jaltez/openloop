@@ -11,11 +11,32 @@ use openloop::core::task_ledger::{
 };
 use openloop::core::types::*;
 
-fn sandbox(name: &str) -> PathBuf {
+fn sandbox(name: &str) -> Sandbox {
     let dir = std::env::temp_dir().join(format!("ol-lock-{name}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(dir.join(".openloop")).unwrap();
-    dir
+    Sandbox(dir)
+}
+
+struct Sandbox(PathBuf);
+
+impl Drop for Sandbox {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+use std::ops::{Deref, DerefMut};
+impl Deref for Sandbox {
+    type Target = PathBuf;
+    fn deref(&self) -> &PathBuf {
+        &self.0
+    }
+}
+impl DerefMut for Sandbox {
+    fn deref_mut(&mut self) -> &mut PathBuf {
+        &mut self.0
+    }
 }
 
 fn make_task(id: &str, status: TaskStatus) -> ProjectTask {

@@ -51,13 +51,19 @@ pub fn json_payload<T: Serialize>(value: &T) -> String {
     s
 }
 
-/// Rewrite every finite f64 with a zero fraction as a u64 JSON number.
+/// Rewrite every finite float with a zero fraction and magnitude <= 2^53
+/// as an i64 JSON number (JSON.stringify renders integral floats without
+/// a trailing ".0"; exact integers are left untouched).
 fn normalize_integral_floats(value: &mut serde_json::Value) {
     match value {
         serde_json::Value::Number(number) => {
-            if let Some(f) = number.as_f64() {
-                if f.is_finite() && f.fract() == 0.0 && f.abs() <= 9.007_199_254_740_992e15 {
-                    *number = serde_json::Number::from(f as i64);
+            // Only numbers actually stored as floats — an exact i64/u64
+            // must never pass through an f64 round-trip.
+            if number.is_f64() {
+                if let Some(f) = number.as_f64() {
+                    if f.is_finite() && f.fract() == 0.0 && f.abs() <= 9.007_199_254_740_992e15 {
+                        *number = serde_json::Number::from(f as i64);
+                    }
                 }
             }
         }

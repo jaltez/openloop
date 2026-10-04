@@ -490,12 +490,22 @@ fn parse_since_ms(since: &str) -> i64 {
     let Ok(value) = digits.parse::<i64>() else {
         return 60 * 60 * 1000;
     };
+    // checked chain: an absurd input ("999999999999999d") must not panic
+    // (debug) or wrap (release) — fall back to the default window.
     match unit {
-        "m" => value * 60 * 1000,
-        "h" => value * 60 * 60 * 1000,
-        "d" => value * 24 * 60 * 60 * 1000,
-        _ => 60 * 60 * 1000,
+        "m" => value.checked_mul(60).and_then(|v| v.checked_mul(1000)),
+        "h" => value
+            .checked_mul(60)
+            .and_then(|v| v.checked_mul(60))
+            .and_then(|v| v.checked_mul(1000)),
+        "d" => value
+            .checked_mul(24)
+            .and_then(|v| v.checked_mul(60))
+            .and_then(|v| v.checked_mul(60))
+            .and_then(|v| v.checked_mul(1000)),
+        _ => None,
     }
+    .unwrap_or(60 * 60 * 1000)
 }
 
 pub(super) fn events(args: EventsArgs) -> Result<(), String> {

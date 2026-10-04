@@ -326,25 +326,40 @@ fn spawn_and_wait(
     fn spawn_reader<R: std::io::Read + Send + 'static>(
         handle: Option<R>,
         buf: Arc<Mutex<String>>,
+        eof: std::sync::mpsc::Sender<()>,
     ) -> std::thread::JoinHandle<()> {
         std::thread::spawn(move || {
             let mut handle = handle;
             let Some(handle) = handle.as_mut() else {
+                let _ = eof.send(());
                 return;
             };
             let mut chunk = [0u8; 16384];
             loop {
                 match handle.read(&mut chunk) {
-                    Ok(0) | Err(_) => break,
+                    Ok(0) | Err(_) => {
+                        let _ = eof.send(());
+                        break;
+                    }
                     Ok(n) => append_capped(&buf, &String::from_utf8_lossy(&chunk[..n])),
                 }
             }
         })
     }
-    let mut readers: Vec<std::thread::JoinHandle<()>> = Vec::new();
-    readers.push(spawn_reader(stdout_handle, stdout_buf.clone()));
-    readers.push(spawn_reader(stderr_handle, stderr_buf.clone()));
+    let (eof_tx_out, rx_out) = std::sync::mpsc::channel::<()>();
+    let (eof_tx_err, rx_err) = std::sync::mpsc::channel::<()>();
+    let readers: Vec<(std::thread::JoinHandle<()>, std::sync::mpsc::Receiver<()>)> = vec![
+        (
+            spawn_reader(stdout_handle, stdout_buf.clone(), eof_tx_out),
+            rx_out,
+        ),
+        (
+            spawn_reader(stderr_handle, stderr_buf.clone(), eof_tx_err),
+            rx_err,
+        ),
+    ];
 
+    let spawn_started = Instant::now();
     let unregister = options
         .project_alias
         .as_deref()
@@ -356,13 +371,54 @@ fn spawn_and_wait(
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
+                // Drain until pipe EOF (TS 'close' semantics: capture all
+                // output, including grandchildren writing after the child
+                // exits) — but BOUNDED: TS kept its timeout armed until
+                // 'close', so a hung grandchild holding the pipe open can
+                // only consume the remaining budget, never park the daemon
+                // thread forever.
+                let drain_cap = match options.timeout_ms {
+                    Some(ms) => {
+                        let elapsed_ms = spawn_started.elapsed().as_millis() as u64;
+                        Duration::from_millis(ms.saturating_sub(elapsed_ms))
+                    }
+                    None => Duration::from_secs(5),
+                }
+                .max(Duration::from_millis(100));
+                let drain_started = Instant::now();
+                let mut drained = true;
+                for (_, rx) in readers.iter() {
+                    let left = drain_cap.saturating_sub(drain_started.elapsed());
+                    match rx.recv_timeout(left) {
+                        Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {}
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                            drained = false;
+                            break;
+                        }
+                    }
+                    // The try_wait loop below cannot see shutdown once the
+                    // child is gone; honor the flag here so the daemon can
+                    // still exit promptly.
+                    if super::worker::SHUTDOWN.load(std::sync::atomic::Ordering::SeqCst) {
+                        drained = false;
+                        break;
+                    }
+                }
+                if !drained {
+                    // Close late pipes the hard way (kills in-group
+                    // grandchildren), then give stragglers one second to
+                    // observe EOF.
+                    kill_process_group(child_pid, libc::SIGKILL);
+                    let kill_started = Instant::now();
+                    for (_, rx) in readers.iter() {
+                        let _ = rx.recv_timeout(
+                            Duration::from_secs(1).saturating_sub(kill_started.elapsed()),
+                        );
+                    }
+                }
+                drop(readers);
                 if let Some(id) = unregister {
                     active_runs::unregister_active_run(id);
-                }
-                // Drain until pipe EOF (TS 'close' semantics: all output,
-                // including grandchildren writing after the child exits).
-                for reader in readers.drain(..) {
-                    let _ = reader.join();
                 }
                 return Ok(RawRunResult {
                     exit_code: status.code().unwrap_or(1),

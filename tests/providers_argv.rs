@@ -331,6 +331,7 @@ fn provider_emitting_garbage_stdout_reports_no_usage() {
 
 #[test]
 fn custom_provider_runs_shell_wrapped_command_with_prompt_env() {
+    let _guard = PATH_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let dir = TempDir::new("custom-env");
     fake_bin(
         dir.path(),
@@ -373,6 +374,7 @@ fn provider_exit_code_passes_through() {
 
 #[test]
 fn custom_provider_captures_output_written_after_direct_child_exits() {
+    let _guard = PATH_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let dir = TempDir::new("late-output");
     let config = base_config(Some(agent_config(
         "custom",

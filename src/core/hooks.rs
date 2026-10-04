@@ -206,11 +206,11 @@ fn run_command_hook(
             Err(e) => return Err(e.to_string()),
         }
     };
-    if let Some(writer) = stdin_writer {
-        // The child has exited (or was killed); the pipe is closed, so the
-        // writer thread cannot block for long. Drop it silently on panic.
-        let _ = writer.join();
-    }
+    // Detach (never join) the stdin writer: an orphaned hook child can hold
+    // the pipe open indefinitely; the writer exits on its own once every
+    // pipe end closes. Dropping the JoinHandle leaks nothing — the thread
+    // owns only its own state.
+    drop(stdin_writer);
 
     let stdout = stdout_buf.join().unwrap_or_default();
     let stderr = stderr_buf.join().unwrap_or_default();
