@@ -144,7 +144,7 @@ Design notes:
 
 ```sh
 cargo build            # debug build
-cargo test             # 92 tests across 14 suites
+cargo test             # 247 tests across 30 suites
 cargo clippy           # zero warnings enforced in CI
 cargo fmt              # formatting
 cargo run -- status    # try it against a sandbox: OPENLOOP_HOME=/tmp/x cargo run -- status

@@ -117,7 +117,7 @@ produced a ranked fix list; all of it landed with regression coverage:
 
 ## Tests
 
-`cargo test` runs 92 tests across 14 suites:
+`cargo test` runs 247 tests across 30 suites:
 
 - Unit: cron (5-field matcher incl. dom/dow OR-rule), secret scanning and
   scope-drift review checks, policy glob semantics (single-star crossing,
