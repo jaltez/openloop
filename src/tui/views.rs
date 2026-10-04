@@ -374,16 +374,47 @@ pub fn projects(app: &mut App, frame: &mut Frame, area: Rect) {
     let mut rows = Vec::new();
     for project in &app.projects {
         let active = app.active_alias.as_deref() == Some(project.alias.as_str());
+        let git_entry = app
+            .git_states
+            .iter()
+            .find(|(alias, _)| alias == &project.alias);
+        let git_state = git_entry.and_then(|(_, state)| state.as_ref());
+        let path_exists = std::path::Path::new(&project.path).is_dir();
+        let branch = git_state
+            .and_then(|s| s.current_branch.clone())
+            .unwrap_or_else(|| "—".into());
+        let (state_label, state_color) = if !path_exists {
+            ("missing".to_string(), app.theme.red)
+        } else if git_entry.is_none() {
+            ("…".to_string(), app.theme.text_dim)
+        } else if git_state.is_none() {
+            ("not a repo".to_string(), app.theme.red)
+        } else if let Some(state) = git_state.filter(|s| s.dirty) {
+            (format!("dirty ({})", state.changed_files), app.theme.yellow)
+        } else {
+            ("clean".to_string(), app.theme.green)
+        };
         rows.push(Row::new(vec![
-            Cell::from(if active { "●" } else { " " }).style(Style::default().fg(if active {
+            Cell::from(if active {
+                "●".into()
+            } else {
+                " ".to_string()
+            })
+            .style(Style::default().fg(if active {
                 app.theme.green
             } else {
                 app.theme.text_dim
             })),
-            Cell::from(project.alias.clone()).style(Style::default().fg(app.theme.text)),
+            Cell::from(project.alias.clone()).style(if active {
+                Style::default()
+                    .fg(app.theme.accent_bright)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(app.theme.text)
+            }),
             Cell::from(project.path.clone()).style(Style::default().fg(app.theme.text_dim)),
-            Cell::from(project.default_branch.clone().unwrap_or_else(|| "—".into()))
-                .style(Style::default().fg(app.theme.text_dim)),
+            Cell::from(branch).style(Style::default().fg(app.theme.text)),
+            Cell::from(state_label).style(Style::default().fg(state_color)),
             Cell::from(if project.initialized { "yes" } else { "no" }).style(Style::default().fg(
                 if project.initialized {
                     app.theme.green
@@ -396,36 +427,43 @@ pub fn projects(app: &mut App, frame: &mut Frame, area: Rect) {
     let table = selection_table(
         &app.theme,
         "Linked projects",
-        &["", "ALIAS", "PATH", "BRANCH", "READY"],
+        &["", "ALIAS", "PATH", "BRANCH", "STATE", "READY"],
         &[
             Constraint::Length(2),
-            Constraint::Percentage(18),
-            Constraint::Percentage(48),
+            Constraint::Percentage(14),
+            Constraint::Percentage(34),
             Constraint::Percentage(16),
-            Constraint::Percentage(12),
+            Constraint::Percentage(16),
+            Constraint::Percentage(10),
         ],
         rows,
         "No projects yet — press [a] to add one.",
     );
     frame.render_stateful_widget(table, chunks[0], &mut app.table_state);
 
-    // Detail card for the selected project.
-    let detail_block = panel(&app.theme, "Details");
+    // Repo detail card for the selected project.
+    let detail_block = panel(&app.theme, "Repo details");
     let inner = detail_block.inner(chunks[1]);
     frame.render_widget(detail_block, chunks[1]);
-    let detail = match app
+    let selected = app
         .projects
-        .get(app.selected.min(app.projects.len().saturating_sub(1)))
-    {
+        .get(app.selected.min(app.projects.len().saturating_sub(1)));
+    let detail: Vec<Line> = match selected {
         Some(project) => {
             let state = app
                 .daemon
                 .projects
                 .iter()
                 .find(|p| p.alias == project.alias);
-            vec![
+            let git_entry = app
+                .git_states
+                .iter()
+                .find(|(alias, _)| alias == &project.alias);
+            let git_state = git_entry.and_then(|(_, state)| state.as_ref());
+            let path_exists = std::path::Path::new(&project.path).is_dir();
+            let mut lines = vec![
                 Line::from(vec![
-                    Span::styled("alias   ", Style::default().fg(app.theme.text_dim)),
+                    Span::styled("alias    ", Style::default().fg(app.theme.text_dim)),
                     Span::styled(
                         project.alias.clone(),
                         Style::default().fg(app.theme.accent_bright),
@@ -436,27 +474,70 @@ pub fn projects(app: &mut App, frame: &mut Frame, area: Rect) {
                     ),
                 ]),
                 Line::from(vec![
-                    Span::styled("queue   ", Style::default().fg(app.theme.text_dim)),
-                    Span::styled(
-                        state
-                            .map(|p| p.queue_size.to_string())
-                            .unwrap_or_else(|| "?".into()),
-                        Style::default().fg(app.theme.text),
-                    ),
-                    Span::styled(
-                        format!(
-                            "   blocked {}   last result {}",
-                            state
-                                .map(|p| p.blocked_tasks.to_string())
-                                .unwrap_or_else(|| "?".into()),
-                            state
-                                .and_then(|p| p.last_result.clone())
-                                .unwrap_or_else(|| "—".into()),
-                        ),
-                        Style::default().fg(app.theme.text_dim),
-                    ),
+                    Span::styled("branches ", Style::default().fg(app.theme.text_dim)),
+                    Span::raw(format!(
+                        "current {} · default {}",
+                        git_state
+                            .and_then(|s| s.current_branch.clone())
+                            .unwrap_or_else(|| "—".into()),
+                        project.default_branch.clone().unwrap_or_else(|| "—".into()),
+                    )),
                 ]),
-            ]
+            ];
+            // Working tree / agent line.
+            let tree = if !path_exists {
+                (
+                    "working tree missing (path not on disk)".to_string(),
+                    app.theme.red,
+                )
+            } else if git_entry.is_none() {
+                ("reading git state…".to_string(), app.theme.text_dim)
+            } else if git_state.is_none() {
+                ("not a git repository".to_string(), app.theme.red)
+            } else if let Some(state) = git_state.filter(|s| s.dirty) {
+                (
+                    format!(
+                        "working tree dirty — {} changed file{}",
+                        state.changed_files,
+                        if state.changed_files == 1 { "" } else { "s" }
+                    ),
+                    app.theme.yellow,
+                )
+            } else {
+                ("working tree clean".to_string(), app.theme.green)
+            };
+            let agent = match &app.project_detail {
+                Some((alias, config)) if alias == &project.alias => {
+                    let agent_type = config
+                        .agent
+                        .as_ref()
+                        .and_then(|a| a.agent_type.clone())
+                        .unwrap_or_else(|| "pi (default)".into());
+                    let model = config.pi.model.clone().unwrap_or_else(|| "—".into());
+                    format!(" · agent {agent_type} · model {model}")
+                }
+                _ => String::new(),
+            };
+            lines.push(Line::from(vec![
+                Span::styled(tree.0, Style::default().fg(tree.1)),
+                Span::styled(agent, Style::default().fg(app.theme.text_dim)),
+            ]));
+            lines.push(Line::from(Span::styled(
+                format!(
+                    "queue {} · blocked {} · last result {}",
+                    state
+                        .map(|p| p.queue_size.to_string())
+                        .unwrap_or_else(|| "?".into()),
+                    state
+                        .map(|p| p.blocked_tasks.to_string())
+                        .unwrap_or_else(|| "?".into()),
+                    state
+                        .and_then(|p| p.last_result.clone())
+                        .unwrap_or_else(|| "—".into()),
+                ),
+                Style::default().fg(app.theme.text_dim),
+            )));
+            lines
         }
         None => vec![Line::from(Span::styled(
             "Nothing selected.",
@@ -472,6 +553,7 @@ pub fn projects(app: &mut App, frame: &mut Frame, area: Rect) {
                 ("↑/↓", "navigate"),
                 ("Enter", "set active"),
                 ("a", "add"),
+                ("i", "init templates"),
                 ("x", "remove"),
             ],
         ),

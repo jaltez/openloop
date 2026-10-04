@@ -32,6 +32,7 @@ pub enum ConfirmAction {
     RejectPromotion { task_id: String },
     StopDaemon,
     RestartDaemon,
+    ReinitProject { alias: String },
 }
 
 /// Option-picker state (task status selection).
@@ -106,6 +107,11 @@ pub struct App {
 
     // Redesign state
     pub table_state: TableState,
+    // Per-project git working-tree state (None = path missing / not a repo).
+    pub git_states: Vec<(String, Option<c::git::GitWorkingTreeState>)>,
+    pub git_states_refreshed: Instant,
+    // Project config (agent/model) for the selected project, Projects tab.
+    pub project_detail: Option<(String, c::types::ProjectConfig)>,
     pub confirm: Option<ConfirmAction>,
     pub picker: Option<PickerState>,
     pub global_config: GlobalConfig,
@@ -165,6 +171,9 @@ impl App {
             config_panel: false,
             config_entries: Vec::new(),
             config_refreshed: Instant::now() - std::time::Duration::from_secs(10),
+            git_states: Vec::new(),
+            git_states_refreshed: Instant::now() - std::time::Duration::from_secs(10),
+            project_detail: None,
             table_state: TableState::default(),
             confirm: None,
             picker: None,
@@ -255,6 +264,40 @@ impl App {
                     Err(e) => self.status_msg = format!("Tick failed: {e}"),
                 }
             }
+        }
+        // Repo state for the Projects view: one git invocation pair per
+        // project, so it is polled only while that tab is visible.
+        if self.active_tab == 1
+            && self.git_states_refreshed.elapsed() >= std::time::Duration::from_secs(5)
+        {
+            self.git_states = self
+                .projects
+                .iter()
+                .map(|project| {
+                    let state = if std::path::Path::new(&project.path).is_dir() {
+                        c::git::get_git_working_tree_state(std::path::Path::new(&project.path)).ok()
+                    } else {
+                        None
+                    };
+                    (project.alias.clone(), state)
+                })
+                .collect();
+            let selected_alias = self
+                .projects
+                .get(self.selected)
+                .map(|project| project.alias.clone());
+            self.project_detail = selected_alias.and_then(|alias| {
+                let path = self
+                    .projects
+                    .iter()
+                    .find(|p| p.alias == alias)?
+                    .path
+                    .clone();
+                c::project_config::load_project_config(std::path::Path::new(&path))
+                    .ok()
+                    .map(|config| (alias, config))
+            });
+            self.git_states_refreshed = Instant::now();
         }
         // Tab-gated polling: only the data source the active view renders is
         // refreshed (TS polls per-view via onCleanup; the port used to poll
@@ -454,6 +497,12 @@ impl App {
                 ConfirmAction::RestartDaemon => (
                     "Restart daemon",
                     "Restart the daemon now?".to_string(),
+                ),
+                ConfirmAction::ReinitProject { alias } => (
+                    "Re-initialize templates",
+                    format!(
+                        "Re-materialize control-plane files for '{alias}'? Existing files are backed up to .openloop/backup/."
+                    ),
                 ),
             };
             super::ui::confirm_modal(frame, frame.area(), &self.theme, title, &message);
@@ -817,15 +866,28 @@ impl App {
                 let alias = self.input_pending_alias.trim().to_string();
                 if alias.is_empty() || value.is_empty() {
                     self.status_msg = "Alias and path are required".to_string();
+                } else if !std::path::Path::new(&value).is_dir() {
+                    self.status_msg = format!("Path is not a directory: {value}");
                 } else {
-                    match c::project_registry::add_project(&alias, &value, None) {
-                        Ok(_) => self.status_msg = format!("Added: {alias}"),
+                    // TS path.resolve parity: absolute + lexically normalized.
+                    let resolved_str = std::path::absolute(&value)
+                        .map(|p| {
+                            c::fsutil::normalize_lexical_path(&p)
+                                .to_string_lossy()
+                                .to_string()
+                        })
+                        .unwrap_or_else(|_| value.clone());
+                    match c::project_registry::add_project(&alias, &resolved_str, None) {
+                        Ok(_) => {
+                            self.status_msg = format!("Added: {alias} -> {resolved_str}");
+                        }
                         Err(e) => self.status_msg = e,
                     }
                 }
                 self.input_mode = InputMode::None;
                 self.input_value.clear();
                 self.projects_refreshed = Instant::now() - std::time::Duration::from_secs(10);
+                self.git_states_refreshed = Instant::now() - std::time::Duration::from_secs(10);
             }
             InputMode::AddTaskTitle => {
                 let Some(path) = self.active_project_path() else {
@@ -1038,16 +1100,30 @@ impl App {
             }
             KeyCode::Char('i') => {
                 if let Some(project) = self.projects.get(self.selected).cloned() {
-                    if c::templates::initialize_project_from_templates(
+                    match c::templates::initialize_project_from_templates(
                         &std::path::PathBuf::from("."),
                         &project,
                         false,
-                    )
-                    .is_ok()
-                    {
-                        let _ = c::project_registry::mark_project_initialized(&project.alias, None);
-                        self.status_msg = format!("Initialized: {}", project.alias);
+                    ) {
+                        Ok(()) => {
+                            let _ =
+                                c::project_registry::mark_project_initialized(&project.alias, None);
+                            self.status_msg = format!(
+                                "Initialized {} — .openloop/ templates materialized",
+                                project.alias
+                            );
+                            self.projects_refreshed =
+                                Instant::now() - std::time::Duration::from_secs(10);
+                        }
+                        Err(e) => self.status_msg = e,
                     }
+                }
+            }
+            KeyCode::Char('I') => {
+                if let Some(project) = self.projects.get(self.selected) {
+                    self.confirm = Some(ConfirmAction::ReinitProject {
+                        alias: project.alias.clone(),
+                    });
                 }
             }
             _ => {}
@@ -1448,6 +1524,25 @@ impl App {
                     Err(e) => self.status_msg = e,
                 }
                 self.daemon_refreshed = Instant::now() - std::time::Duration::from_secs(10);
+            }
+            ConfirmAction::ReinitProject { alias } => {
+                let result = c::project_registry::get_project(&alias, None).and_then(|project| {
+                    c::templates::initialize_project_from_templates(
+                        &std::path::PathBuf::from("."),
+                        &project,
+                        true,
+                    )?;
+                    c::project_registry::mark_project_initialized(&alias, None)
+                });
+                match result {
+                    Ok(_) => {
+                        self.status_msg =
+                            format!("Re-initialized {alias} — backup in .openloop/backup/");
+                        self.projects_refreshed =
+                            Instant::now() - std::time::Duration::from_secs(10);
+                    }
+                    Err(e) => self.status_msg = e,
+                }
             }
         }
     }

@@ -9,7 +9,7 @@ redesign and the design contract the views now follow.
 |---|---|---|---|
 | Multi-project overview | `status` | read-only table | weak: no run/budget/blocked signal |
 | Project add / list | `project add/list` | add + list | ok |
-| Project activate / remove | `project activate/remove` | — | gap |
+| Project activate / remove / init | `project activate/remove/init` | add + list only | gap — plus no git visibility |
 | Task add / list / filter / delete | `task …` | yes | ok |
 | **Task approve** | `task approve` | — | **critical gap** — the core human-in-the-loop action was CLI-only |
 | Task update (status/risk) | `task update` | — | gap — retrying a blocked task meant leaving the TUI |
@@ -23,6 +23,7 @@ redesign and the design contract the views now follow.
 | Logs / run summaries | `logs` | yes | ok |
 | Ad-hoc agent run | `run` | Ctrl+R prompt + model | ok |
 | Doctor / report / digest / setup / issue / dashboard / mcp | yes | — | accepted gaps: one-shot or server surfaces, CLI is the right home |
+| Raw git mutations (stage/commit/branch ops) | internal (agent flow) | — | accepted gap: the daemon owns the git lifecycle; the TUI surfaces state, humans decide |
 
 ## 2. UX findings (why it felt compact and unfriendly)
 
@@ -70,8 +71,12 @@ Selection style: full-row background + `▌` gutter marker.
 - **Dashboard**: stat cards row (daemon, budget gauge, current run) →
   projects table (`PROJECT QUEUE BLOCKED LAST RESULT AGE`) → recent
   activity strip (last events, colored).
-- **Projects**: table + detail panel (path, branch, agent, queue, last
-  result). `Enter` activates, `x` removes (confirm), `a` adds.
+- **Projects**: table with live git columns (current branch, working-tree
+  state: clean / dirty (n) / not a repo / missing) + detail panel (default
+  vs current branch, changed-file count, agent + model from project config,
+  queue/blocked/last result). `Enter` activates, `a` adds (path resolved and
+  validated like the CLI), `i` materializes templates, `I` force re-init
+  with backup (confirm), `x` removes (confirm).
 - **Tasks**: table + rich detail (kind/risk/branch/attempts/dependsOn/
   promotion/cost/notes/last run). `y` approves awaiting-approval tasks,
   `u` opens a status picker, `d` deletes (confirm).

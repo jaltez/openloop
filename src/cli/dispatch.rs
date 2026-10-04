@@ -54,7 +54,11 @@ fn project(cmd: ProjectCommand) -> Result<(), String> {
             // TS path.resolve parity: absolute + lexically normalized
             // (drops `..`, `.`, and trailing slashes before persisting).
             let resolved = std::path::absolute(&project_path)
-                .map(|p| normalize_lexical(&p).to_string_lossy().to_string())
+                .map(|p| {
+                    c::fsutil::normalize_lexical_path(&p)
+                        .to_string_lossy()
+                        .to_string()
+                })
                 .unwrap_or_else(|_| project_path.clone());
             if c::project_registry::project_exists(&alias, None)? {
                 if !force {
@@ -1026,20 +1030,4 @@ fn enqueue(args: EnqueueArgs) -> Result<(), String> {
         .unwrap_or_default()
     );
     Ok(())
-}
-
-/// Lexically normalize a path (resolve `.`/`..` components, drop trailing
-/// slashes) without touching the filesystem — mirrors Node's path.resolve.
-fn normalize_lexical(path: &std::path::Path) -> std::path::PathBuf {
-    let mut normalized = std::path::PathBuf::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => {
-                normalized.pop();
-            }
-            other => normalized.push(other.as_os_str()),
-        }
-    }
-    normalized
 }

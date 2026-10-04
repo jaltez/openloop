@@ -186,3 +186,19 @@ pub fn read_file_tail(path: &Path, max_bytes: u64) -> Result<String, std::io::Er
         None => text.to_string(),
     })
 }
+
+/// Lexically normalize a path (resolve `.` and `..` without touching the
+/// filesystem), mirroring TS path.resolve's normalization step.
+pub fn normalize_lexical_path(path: &std::path::Path) -> std::path::PathBuf {
+    let mut normalized = std::path::PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    normalized
+}

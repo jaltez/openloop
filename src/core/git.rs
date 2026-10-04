@@ -5,6 +5,8 @@ use std::process::{Command, Stdio};
 pub struct GitWorkingTreeState {
     pub current_branch: Option<String>,
     pub dirty: bool,
+    /// Number of changed/untracked entries in the porcelain status.
+    pub changed_files: usize,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -57,6 +59,7 @@ pub fn checkout_handoff_branch(project_path: &Path, branch_name: &str) -> Result
 pub fn get_git_working_tree_state(project_path: &Path) -> Result<GitWorkingTreeState, String> {
     let (branch, _) = run_git(project_path, &["branch", "--show-current"])?;
     let (status, _) = run_git(project_path, &["status", "--porcelain"])?;
+    let changed_files = status.lines().filter(|l| !l.trim().is_empty()).count();
     Ok(GitWorkingTreeState {
         current_branch: {
             let b = branch.trim().to_string();
@@ -66,7 +69,8 @@ pub fn get_git_working_tree_state(project_path: &Path) -> Result<GitWorkingTreeS
                 Some(b)
             }
         },
-        dirty: !status.trim().is_empty(),
+        dirty: changed_files > 0,
+        changed_files,
     })
 }
 
