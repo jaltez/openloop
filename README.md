@@ -51,7 +51,7 @@ openloop service start
 # Watch the fleet
 openloop status
 openloop watch
-openloop            # interactive TUI (9 views)
+openloop            # interactive TUI (9 views, mouse support)
 
 # Review pending promotions
 openloop promotion list --project myapp
@@ -121,7 +121,9 @@ src/
 │   ├── dashboard.rs localhost HTTP server (GET-only, snapshot-cached)
 │   └── mcp_server.rs  stdio JSON-RPC 2.0 (9 tools)
 ├── cli/           clap definitions + dispatch (20 visible commands)
-└── tui/           ratatui app: 9 views, tab-gated polling, inline inputs
+└── tui/           ratatui app: 9 views, tab-gated polling, shared
+                    modals (input/confirm/picker), mouse support
+                    (docs/TUI-REDESIGN.md)
 ```
 
 Design notes:

@@ -27,6 +27,7 @@ pub mod review;
 pub mod run_report;
 pub mod run_summaries;
 pub mod scheduler;
+pub mod service_control;
 pub mod stack_detection;
 pub mod table;
 pub mod task_inspection;

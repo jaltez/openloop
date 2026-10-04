@@ -18,7 +18,7 @@ cargo build --release
 | `src/core/*` (37 modules) | `src/core/*` | 1:1 |
 | `src/daemon/worker.ts` | `src/core/worker.rs` | 1:1 |
 | `src/cli/commands/*` (17 commands) | `src/cli/*` (clap) | 1:1 |
-| `src/tui/*` (OpenTUI/Solid) | `src/tui/*` (ratatui) | approximate |
+| `src/tui/*` (OpenTUI/Solid) | `src/tui/*` (ratatui) | approximate — redesigned beyond parity, see TUI-REDESIGN.md |
 | `templates/project/` | embedded in the binary (`include_dir`) | 1:1 |
 
 Design decisions:

@@ -1,666 +1,807 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
+use ratatui::widgets::{Cell, Paragraph, Row, Table, Wrap};
 use ratatui::Frame;
 
-use super::app::{elapsed_str, App, InputMode};
+use super::app::{elapsed_str, App};
 use super::theme::status_color;
+use super::ui::{bar, key_hint_line, panel, stat_card};
 use crate::core as c;
 
-fn pad(s: &str, len: usize) -> String {
-    if s.chars().count() >= len {
-        s.chars().take(len).collect()
+/// Relative age for timestamps: "12s", "3m", "2h", "4d", or "—".
+fn age_str(from: &str) -> String {
+    if from.is_empty() {
+        return "—".into();
+    }
+    let ms = c::now_millis() - c::parse_iso_millis(from);
+    if ms < 0 {
+        return "—".into();
+    }
+    if ms < 60_000 {
+        format!("{}s", ms / 1000)
+    } else if ms < 3_600_000 {
+        format!("{}m", ms / 60_000)
+    } else if ms < 86_400_000 {
+        format!("{}h", ms / 3_600_000)
     } else {
-        format!("{s}{}", " ".repeat(len - s.chars().count()))
+        format!("{}d", ms / 86_400_000)
     }
 }
 
-fn header_line(theme: &ratatui::style::Color, cells: &[(&str, usize)]) -> Line<'static> {
-    let mut spans = Vec::new();
-    for (index, (text, width)) in cells.iter().enumerate() {
-        if index > 0 {
-            spans.push(Span::raw("  "));
-        }
-        spans.push(Span::styled(
-            pad(text, *width),
-            Style::default().fg(*theme).add_modifier(Modifier::BOLD),
-        ));
-    }
-    Line::from(spans)
+fn event_line(theme: &super::theme::Theme, event: &c::types::OpenLoopEvent) -> Line<'static> {
+    let time = chrono::DateTime::parse_from_rfc3339(&event.ts)
+        .map(|t| {
+            t.with_timezone(&chrono::Local)
+                .format("%H:%M:%S")
+                .to_string()
+        })
+        .unwrap_or_else(|_| "??:??:??".to_string());
+    let color = if event.event.contains("complete") || event.event.contains("promoted") {
+        theme.green
+    } else if event.event.contains("fail") || event.event.contains("error") {
+        theme.red
+    } else if event.event.contains("start") || event.event.contains("running") {
+        theme.cyan
+    } else if event.event.contains("pause") || event.event.contains("budget") {
+        theme.yellow
+    } else {
+        theme.text
+    };
+    Line::from(vec![
+        Span::styled(time, Style::default().fg(theme.text_dim)),
+        Span::raw("  "),
+        Span::styled(event.event.clone(), Style::default().fg(color)),
+        Span::raw("  "),
+        Span::styled(
+            event.project.clone().unwrap_or_else(|| "—".into()),
+            Style::default().fg(theme.accent),
+        ),
+        Span::raw("  "),
+        Span::styled(
+            event.task_id.clone().unwrap_or_default(),
+            Style::default().fg(theme.text_dim),
+        ),
+    ])
 }
 
-fn key_hint(frame: &mut Frame, area: Rect, hints: &[(&str, &str)], theme: &ratatui::style::Color) {
-    let mut spans = Vec::new();
-    for (key, label) in hints {
-        if !spans.is_empty() {
-            spans.push(Span::raw("  "));
-        }
-        spans.push(Span::styled(
-            *key,
-            Style::default().fg(*theme).add_modifier(Modifier::BOLD),
-        ));
-        spans.push(Span::styled(
-            format!(" {label}"),
-            Style::default().fg(theme_dim(theme)),
-        ));
+/// Standard selection table: rounded panel + sticky header + scrollable rows
+/// driven by the shared TableState in App.
+fn selection_table<'a>(
+    theme: &super::theme::Theme,
+    title: &str,
+    header: &'a [&'a str],
+    widths: &'a [Constraint],
+    rows: Vec<Row<'a>>,
+    empty_message: &str,
+) -> Table<'a> {
+    let header_cells: Vec<Cell> = header
+        .iter()
+        .map(|h| {
+            Cell::from(Span::styled(
+                (*h).to_string(),
+                Style::default()
+                    .fg(theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            ))
+        })
+        .collect();
+    if rows.is_empty() && !empty_message.is_empty() {
+        return Table::new(
+            vec![Row::new(vec![Cell::from(Span::styled(
+                empty_message.to_string(),
+                Style::default().fg(theme.text_dim),
+            ))])],
+            &[Constraint::Percentage(100)],
+        )
+        .block(panel(theme, title))
+        .row_highlight_style(Style::default().bg(theme.bg_selected));
     }
-    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+    Table::new(rows, widths)
+        .header(Row::new(header_cells))
+        .block(panel(theme, title))
+        .row_highlight_style(
+            Style::default()
+                .bg(theme.bg_selected)
+                .fg(theme.accent_bright),
+        )
+        .highlight_symbol("▌ ")
 }
 
-fn theme_dim(_accent: &ratatui::style::Color) -> ratatui::style::Color {
-    // The dim color is stable across views; pull it from the theme constant.
-    ratatui::style::Color::Rgb(0x64, 0x74, 0x8b)
-}
+// ---------------------------------------------------------------------------
+// Dashboard
+// ---------------------------------------------------------------------------
 
 pub fn dashboard(app: &mut App, frame: &mut Frame, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(2),
-            Constraint::Min(1),
-            Constraint::Length(1),
+            Constraint::Length(5), // stat cards
+            Constraint::Min(8),    // projects
+            Constraint::Length(7), // recent activity
         ])
         .split(area);
 
-    // Header
     let daemon = &app.daemon;
-    let status = if daemon.paused {
-        "PAUSED".to_string()
+
+    // --- Stat cards row ---------------------------------------------------
+    let cards = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(32),
+            Constraint::Percentage(34),
+            Constraint::Percentage(34),
+        ])
+        .split(chunks[0]);
+
+    let status_label = if daemon.paused {
+        "⏸ PAUSED"
     } else if daemon.pid != 0 {
-        format!("RUNNING (PID {})", daemon.pid)
+        "● RUNNING"
     } else {
-        "STOPPED".to_string()
+        "○ STOPPED"
+    };
+    let status_color = if daemon.paused {
+        app.theme.yellow
+    } else if daemon.pid != 0 {
+        app.theme.green
+    } else {
+        app.theme.text_dim
     };
     let uptime = if daemon.started_at.is_empty() {
-        String::new()
+        "—".to_string()
     } else {
-        format!(" │ uptime: {}", elapsed_str(&daemon.started_at))
+        elapsed_str(&daemon.started_at)
     };
-    let budget = format!(" │ ${:.4} spent today", daemon.budget_spent_usd);
-    let header = vec![
-        Line::from(vec![
-            Span::styled(
-                "Dashboard",
+    let tick = app
+        .global_config
+        .runtime
+        .tick_interval_seconds
+        .map(|s| format!("{s}s"))
+        .unwrap_or_else(|| "30s".into());
+    stat_card(
+        frame,
+        cards[0],
+        &app.theme,
+        "DAEMON",
+        vec![
+            Line::from(Span::styled(
+                status_label,
                 Style::default()
-                    .fg(app.theme.accent)
+                    .fg(status_color)
                     .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                " — live multi-project overview",
+            )),
+            Line::from(Span::styled(
+                format!("pid {} · uptime {}", daemon.pid, uptime),
                 Style::default().fg(app.theme.text_dim),
-            ),
-        ]),
-        Line::from(vec![
-            Span::styled(
-                format!("Daemon: {status}"),
-                Style::default().fg(if daemon.paused {
-                    app.theme.yellow
-                } else if daemon.pid != 0 {
-                    app.theme.green
+            )),
+            Line::from(Span::styled(
+                format!("tick every {tick}"),
+                Style::default().fg(app.theme.text_dim),
+            )),
+        ],
+    );
+
+    let limit = app.global_config.budgets.daily_cost_usd;
+    let spent = daemon.budget_spent_usd;
+    let (budget_line, gauge_color) = if limit > 0.0 {
+        let pct = (spent / limit * 100.0).round() as i64;
+        let color = if pct >= 100 {
+            app.theme.red
+        } else if pct >= 80 {
+            app.theme.yellow
+        } else {
+            app.theme.green
+        };
+        (format!("${spent:.4} / ${limit:.2} · {pct}%"), color)
+    } else {
+        (format!("${spent:.4} today · no limit"), app.theme.green)
+    };
+    let gauge_width = cards[1].width.saturating_sub(6) as usize;
+    stat_card(
+        frame,
+        cards[1],
+        &app.theme,
+        "BUDGET",
+        vec![
+            Line::from(Span::styled(
+                budget_line,
+                Style::default()
+                    .fg(gauge_color)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(Span::styled(
+                bar(if limit > 0.0 { spent / limit } else { 0.0 }, gauge_width),
+                Style::default().fg(gauge_color),
+            )),
+            Line::from(Span::styled(
+                if daemon.budget_blocked {
+                    "blocked — over limit"
+                } else {
+                    "ok"
+                },
+                Style::default().fg(if daemon.budget_blocked {
+                    app.theme.red
                 } else {
                     app.theme.text_dim
                 }),
-            ),
-            Span::styled(
-                format!("{uptime}{budget}"),
-                Style::default().fg(app.theme.text_dim),
-            ),
-        ]),
-    ];
-    frame.render_widget(Paragraph::new(header), chunks[0]);
-
-    // Table
-    let mut lines = vec![header_line(
-        &app.theme.accent,
-        &[
-            ("PROJECT", 16),
-            ("QUEUE", 8),
-            ("ACTIVE TASK", 24),
-            ("STATUS", 12),
-            ("LAST RUN", 20),
+            )),
         ],
-    )];
-    lines.push(Line::from(Span::styled(
-        "─".repeat(84),
-        Style::default().fg(app.theme.border),
-    )));
-    if app.projects.is_empty() {
-        lines.push(Line::from(Span::styled(
-            "No linked projects. Use 'openloop project add' to register one.",
+    );
+
+    let run_lines: Vec<Line> = match &app.daemon.current_run {
+        Some(current) => {
+            let elapsed = elapsed_str(&current.started_at);
+            let task = current.task_id.clone().unwrap_or_else(|| "—".into());
+            let remaining = age_str(&current.deadline_at).replace('—', "?");
+            vec![
+                Line::from(Span::styled(
+                    format!("{} · {}", current.project_alias, task),
+                    Style::default().fg(app.theme.accent_bright),
+                )),
+                Line::from(Span::styled(
+                    format!(
+                        "{} · attempt {} · {} elapsed",
+                        current.mode, current.attempt_number, elapsed
+                    ),
+                    Style::default().fg(app.theme.text_dim),
+                )),
+                Line::from(Span::styled(
+                    format!("deadline in {remaining}"),
+                    Style::default().fg(app.theme.text_dim),
+                )),
+            ]
+        }
+        None => vec![Line::from(Span::styled(
+            "idle — no active run",
             Style::default().fg(app.theme.text_dim),
-        )));
-    }
-    for (index, project) in app.projects.iter().enumerate() {
-        let is_selected = index == app.selected;
+        ))],
+    };
+    stat_card(frame, cards[2], &app.theme, "ACTIVE RUN", run_lines);
+
+    // --- Projects table ---------------------------------------------------
+    let mut rows = Vec::new();
+    for project in &app.projects {
+        let state = app
+            .daemon
+            .projects
+            .iter()
+            .find(|p| p.alias == project.alias);
         let is_active = app
             .daemon
             .current_run
             .as_ref()
             .map(|r| r.project_alias == project.alias)
             .unwrap_or(false);
-        let proj_state = app
-            .daemon
-            .projects
-            .iter()
-            .find(|p| p.alias == project.alias);
-        let queue_size = proj_state
+        let queue = state
             .map(|p| p.queue_size.to_string())
             .unwrap_or_else(|| "?".into());
-        let active_task = if is_active {
-            app.daemon
-                .current_run
-                .as_ref()
-                .and_then(|r| r.task_id.clone())
-                .unwrap_or_else(|| "--".into())
-        } else {
-            "--".to_string()
-        };
-        let (status_label, status_color) = if is_active {
-            ("running", app.theme.green)
-        } else if app.daemon.paused {
-            ("paused", app.theme.yellow)
-        } else {
-            ("idle", app.theme.text_dim)
-        };
-        let last_run: String = proj_state
+        let blocked = state
+            .map(|p| p.blocked_tasks.to_string())
+            .unwrap_or_else(|| "?".into());
+        let last_result = state
             .and_then(|p| p.last_result.clone())
-            .map(|s| s.chars().take(20).collect())
-            .unwrap_or_else(|| "--".into());
-        lines.push(Line::from(vec![
-            Span::styled(
-                pad(&project.alias, 16),
+            .unwrap_or_else(|| "—".into());
+        let last_at = state
+            .and_then(|p| p.last_iteration_at.clone())
+            .unwrap_or_default();
+        rows.push(Row::new(vec![
+            Cell::from(project.alias.clone()).style(if is_active {
                 Style::default()
-                    .fg(if is_selected {
-                        app.theme.accent_bright
-                    } else {
-                        app.theme.text
-                    })
-                    .bg(if is_selected {
-                        app.theme.bg_selected
-                    } else {
-                        ratatui::style::Color::Reset
-                    }),
-            ),
-            Span::raw("  "),
-            Span::styled(pad(&queue_size, 8), Style::default()),
-            Span::raw("  "),
-            Span::styled(pad(&active_task, 24), Style::default()),
-            Span::raw("  "),
-            Span::styled(pad(status_label, 12), Style::default().fg(status_color)),
-            Span::raw("  "),
-            Span::styled(last_run, Style::default().fg(app.theme.text_dim)),
+                    .fg(app.theme.green)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(app.theme.text)
+            }),
+            Cell::from(queue).style(Style::default().fg(
+                if state.map(|p| p.queue_size).unwrap_or(0) > 0 {
+                    app.theme.text
+                } else {
+                    app.theme.text_dim
+                },
+            )),
+            Cell::from(blocked).style(Style::default().fg(
+                if state.map(|p| p.blocked_tasks).unwrap_or(0) > 0 {
+                    app.theme.red
+                } else {
+                    app.theme.text_dim
+                },
+            )),
+            Cell::from(last_result).style(Style::default().fg(
+                match state.and_then(|p| p.last_result.as_deref()) {
+                    Some("failed") => app.theme.red,
+                    Some("promoted") | Some("applied") => app.theme.green,
+                    _ => app.theme.text_dim,
+                },
+            )),
+            Cell::from(age_str(&last_at)).style(Style::default().fg(app.theme.text_dim)),
         ]));
     }
-    frame.render_widget(Paragraph::new(lines), chunks[1]);
-
-    key_hint(
-        frame,
-        chunks[2],
-        &[("↑/↓", "navigate"), ("Tab", "next view")],
-        &app.theme.accent,
+    let empty = if app.projects.is_empty() {
+        "No linked projects yet — press [a] on the Projects tab to add your first repository."
+    } else {
+        ""
+    };
+    let table = selection_table(
+        &app.theme,
+        "Projects",
+        &["PROJECT", "QUEUE", "BLOCKED", "LAST RESULT", "AGE"],
+        &[
+            Constraint::Percentage(28),
+            Constraint::Percentage(12),
+            Constraint::Percentage(14),
+            Constraint::Percentage(28),
+            Constraint::Percentage(18),
+        ],
+        rows,
+        empty,
     );
+    frame.render_stateful_widget(table, chunks[1], &mut app.table_state);
+
+    // --- Recent activity --------------------------------------------------
+    let activity_block = panel(&app.theme, "Recent activity");
+    let inner = activity_block.inner(chunks[2]);
+    frame.render_widget(activity_block, chunks[2]);
+    let lines: Vec<Line> = if app.events.is_empty() {
+        vec![Line::from(Span::styled(
+            "No events yet — they appear here as the daemon works.",
+            Style::default().fg(app.theme.text_dim),
+        ))]
+    } else {
+        app.events
+            .iter()
+            .take(4)
+            .map(|e| event_line(&app.theme, e))
+            .collect()
+    };
+    frame.render_widget(Paragraph::new(lines), inner);
 }
+
+// ---------------------------------------------------------------------------
+// Projects
+// ---------------------------------------------------------------------------
 
 pub fn projects(app: &mut App, frame: &mut Frame, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Min(1),
+            Constraint::Min(8),
+            Constraint::Length(8),
             Constraint::Length(1),
         ])
         .split(area);
 
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(
-                "Projects",
-                Style::default()
-                    .fg(app.theme.accent)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                " — linked repositories",
-                Style::default().fg(app.theme.text_dim),
-            ),
-        ])),
-        chunks[0],
-    );
-    if !app.status_msg.is_empty() {
-        frame.render_widget(
-            Paragraph::new(app.status_msg.clone()).style(Style::default().fg(app.theme.yellow)),
-            chunks[1],
-        );
-    }
-
-    let columns = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
-        .split(chunks[2]);
-
-    // Left: project list
-    let mut lines = vec![header_line(
-        &app.theme.accent,
-        &[("ALIAS", 16), ("INIT", 6), ("ACTIVE", 8)],
-    )];
-    lines.push(Line::from(Span::styled(
-        "─".repeat(34),
-        Style::default().fg(app.theme.border),
-    )));
-    if app.projects.is_empty() {
-        lines.push(Line::from(Span::styled(
-            "No projects. Press 'a' to add.",
-            Style::default().fg(app.theme.text_dim),
-        )));
-    }
-    for (index, project) in app.projects.iter().enumerate() {
-        let is_selected = index == app.selected;
-        let is_active = app.active_alias.as_deref() == Some(project.alias.as_str());
-        lines.push(Line::from(vec![
-            Span::styled(
-                pad(&project.alias, 16),
-                Style::default()
-                    .fg(if is_selected {
-                        app.theme.accent_bright
-                    } else {
-                        app.theme.text
-                    })
-                    .bg(if is_selected {
-                        app.theme.bg_selected
-                    } else {
-                        ratatui::style::Color::Reset
-                    }),
-            ),
-            Span::raw("  "),
-            Span::styled(
-                pad(if project.initialized { "yes" } else { "no" }, 6),
-                Style::default(),
-            ),
-            Span::raw("  "),
-            Span::styled(
-                if is_active { "●" } else { " " },
-                Style::default().fg(if is_active {
+    let mut rows = Vec::new();
+    for project in &app.projects {
+        let active = app.active_alias.as_deref() == Some(project.alias.as_str());
+        rows.push(Row::new(vec![
+            Cell::from(if active { "●" } else { " " }).style(Style::default().fg(if active {
+                app.theme.green
+            } else {
+                app.theme.text_dim
+            })),
+            Cell::from(project.alias.clone()).style(Style::default().fg(app.theme.text)),
+            Cell::from(project.path.clone()).style(Style::default().fg(app.theme.text_dim)),
+            Cell::from(project.default_branch.clone().unwrap_or_else(|| "—".into()))
+                .style(Style::default().fg(app.theme.text_dim)),
+            Cell::from(if project.initialized { "yes" } else { "no" }).style(Style::default().fg(
+                if project.initialized {
                     app.theme.green
                 } else {
-                    app.theme.text_dim
-                }),
-            ),
+                    app.theme.yellow
+                },
+            )),
         ]));
     }
-    frame.render_widget(Paragraph::new(lines), columns[0]);
-
-    // Right: detail
-    let detail_block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(app.theme.border));
-    let inner_detail = detail_block.inner(columns[1]);
-    frame.render_widget(detail_block, columns[1]);
-    let detail_lines = match app.projects.get(app.selected) {
-        Some(project) => vec![
-            Line::from(Span::styled(
-                &project.alias,
-                Style::default()
-                    .fg(app.theme.accent)
-                    .add_modifier(Modifier::BOLD),
-            )),
-            Line::from(vec![
-                Span::styled("Path: ", Style::default().fg(app.theme.text_dim)),
-                Span::styled(&project.path, Style::default().fg(app.theme.text)),
-            ]),
-            Line::from(vec![
-                Span::styled("Branch: ", Style::default().fg(app.theme.text_dim)),
-                Span::styled(
-                    project.default_branch.as_deref().unwrap_or("—"),
-                    Style::default().fg(app.theme.text),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled("Initialized: ", Style::default().fg(app.theme.text_dim)),
-                Span::styled(
-                    if project.initialized { "yes" } else { "no" },
-                    Style::default().fg(app.theme.text),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled("Created: ", Style::default().fg(app.theme.text_dim)),
-                Span::styled(&project.created_at, Style::default().fg(app.theme.text)),
-            ]),
-            Line::from(vec![
-                Span::styled("Updated: ", Style::default().fg(app.theme.text_dim)),
-                Span::styled(&project.updated_at, Style::default().fg(app.theme.text)),
-            ]),
+    let table = selection_table(
+        &app.theme,
+        "Linked projects",
+        &["", "ALIAS", "PATH", "BRANCH", "READY"],
+        &[
+            Constraint::Length(2),
+            Constraint::Percentage(18),
+            Constraint::Percentage(48),
+            Constraint::Percentage(16),
+            Constraint::Percentage(12),
         ],
+        rows,
+        "No projects yet — press [a] to add one.",
+    );
+    frame.render_stateful_widget(table, chunks[0], &mut app.table_state);
+
+    // Detail card for the selected project.
+    let detail_block = panel(&app.theme, "Details");
+    let inner = detail_block.inner(chunks[1]);
+    frame.render_widget(detail_block, chunks[1]);
+    let detail = match app
+        .projects
+        .get(app.selected.min(app.projects.len().saturating_sub(1)))
+    {
+        Some(project) => {
+            let state = app
+                .daemon
+                .projects
+                .iter()
+                .find(|p| p.alias == project.alias);
+            vec![
+                Line::from(vec![
+                    Span::styled("alias   ", Style::default().fg(app.theme.text_dim)),
+                    Span::styled(
+                        project.alias.clone(),
+                        Style::default().fg(app.theme.accent_bright),
+                    ),
+                    Span::styled(
+                        format!("   path {}", project.path),
+                        Style::default().fg(app.theme.text_dim),
+                    ),
+                ]),
+                Line::from(vec![
+                    Span::styled("queue   ", Style::default().fg(app.theme.text_dim)),
+                    Span::styled(
+                        state
+                            .map(|p| p.queue_size.to_string())
+                            .unwrap_or_else(|| "?".into()),
+                        Style::default().fg(app.theme.text),
+                    ),
+                    Span::styled(
+                        format!(
+                            "   blocked {}   last result {}",
+                            state
+                                .map(|p| p.blocked_tasks.to_string())
+                                .unwrap_or_else(|| "?".into()),
+                            state
+                                .and_then(|p| p.last_result.clone())
+                                .unwrap_or_else(|| "—".into()),
+                        ),
+                        Style::default().fg(app.theme.text_dim),
+                    ),
+                ]),
+            ]
+        }
         None => vec![Line::from(Span::styled(
-            "Select a project to view details",
+            "Nothing selected.",
             Style::default().fg(app.theme.text_dim),
         ))],
     };
-    frame.render_widget(Paragraph::new(detail_lines), inner_detail);
+    frame.render_widget(Paragraph::new(detail), inner);
 
-    // Input form when adding
-    if app.input_mode == InputMode::AddProjectAlias || app.input_mode == InputMode::AddProjectPath {
-        let label = if app.input_mode == InputMode::AddProjectAlias {
-            "Alias:"
-        } else {
-            "Path:"
-        };
-        let input_block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(app.theme.accent))
-            .title("Add Project");
-        let area = Rect {
-            x: columns[0].x,
-            y: columns[0].y,
-            width: 50.min(columns[0].width),
-            height: 3,
-        };
-        frame.render_widget(ratatui::widgets::Clear, area);
-        frame.render_widget(input_block, area);
-        frame.render_widget(
-            Paragraph::new(format!("{label} {}", app.input_value)),
-            Rect {
-                x: area.x + 1,
-                y: area.y + 1,
-                width: area.width.saturating_sub(2),
-                height: 1,
-            },
-        );
-    }
-
-    key_hint(
-        frame,
-        chunks[3],
-        &[
-            ("↑/↓", "navigate"),
-            ("Enter", "activate"),
-            ("a", "add"),
-            ("d", "remove"),
-            ("i", "init"),
-        ],
-        &app.theme.accent,
+    frame.render_widget(
+        key_hint_line(
+            &app.theme,
+            &[
+                ("↑/↓", "navigate"),
+                ("Enter", "set active"),
+                ("a", "add"),
+                ("x", "remove"),
+            ],
+        ),
+        chunks[2],
     );
 }
+
+// ---------------------------------------------------------------------------
+// Tasks
+// ---------------------------------------------------------------------------
 
 pub fn tasks(app: &mut App, frame: &mut Frame, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Min(1),
-            Constraint::Length(1),
-        ])
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(area);
+    let columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
+        .split(chunks[0]);
 
     let summary = c::task_ledger::summarize_tasks(&app.ledger.tasks);
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(
-                "Tasks",
-                Style::default()
-                    .fg(app.theme.accent)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!(" — {}", app.active_alias.as_deref().unwrap_or("no project")),
-                Style::default().fg(app.theme.text_dim),
-            ),
-        ])),
-        chunks[0],
-    );
+    let awaiting = summary
+        .by_status
+        .get("awaiting-approval")
+        .copied()
+        .unwrap_or(0);
     let filter_label = app
         .task_filter
         .map(|f| f.as_str().to_string())
         .unwrap_or_else(|| "all".to_string());
-    let header_right = format!(
-        "total:{} ready:{} done:{} filter:{}",
+    let title = format!(
+        "Tasks — {} · total {} · ready {} · done {} · awaiting {} · filter: {}",
+        app.active_alias.as_deref().unwrap_or("no project"),
         summary.total,
         summary.by_status.get("ready").copied().unwrap_or(0),
         summary.by_status.get("done").copied().unwrap_or(0),
+        awaiting,
         filter_label,
     );
-    let header = Line::from(vec![
-        Span::styled(
-            "Tasks",
-            Style::default()
-                .fg(app.theme.accent)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::raw("  "),
-        Span::styled(header_right, Style::default().fg(app.theme.text_dim)),
-    ]);
-    frame.render_widget(Paragraph::new(header), chunks[0]);
-    if !app.status_msg.is_empty() {
-        frame.render_widget(
-            Paragraph::new(app.status_msg.clone()).style(Style::default().fg(app.theme.yellow)),
-            chunks[1],
-        );
-    }
-
-    let columns = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(chunks[2]);
 
     let filtered = app.filtered_tasks();
-    let mut lines = vec![header_line(
-        &app.theme.accent,
-        &[("ID", 20), ("STATUS", 12), ("RISK", 8), ("TITLE", 30)],
-    )];
-    lines.push(Line::from(Span::styled(
-        "─".repeat(74),
-        Style::default().fg(app.theme.border),
-    )));
-    if filtered.is_empty() {
-        lines.push(Line::from(Span::styled(
-            "No tasks. Press 'a' to add.",
-            Style::default().fg(app.theme.text_dim),
-        )));
-    }
-    for (index, task) in filtered.iter().enumerate() {
-        let is_selected = index == app.selected;
-        lines.push(Line::from(vec![
-            Span::styled(
-                pad(&task.id, 20),
-                Style::default()
-                    .fg(if is_selected {
-                        app.theme.accent_bright
+    let rows: Vec<Row> = filtered
+        .iter()
+        .map(|task| {
+            Row::new(vec![
+                Cell::from(task.id.clone()).style(Style::default().fg(app.theme.text)),
+                Cell::from(task.status.as_str().to_string())
+                    .style(Style::default().fg(status_color(&app.theme, task.status.as_str()))),
+                Cell::from(task.risk.as_str().to_string()).style(Style::default().fg(
+                    if task.risk.as_str() == "high-risk" {
+                        app.theme.orange
                     } else {
-                        app.theme.text
-                    })
-                    .bg(if is_selected {
-                        app.theme.bg_selected
-                    } else {
-                        ratatui::style::Color::Reset
-                    }),
-            ),
-            Span::raw("  "),
-            Span::styled(
-                pad(task.status.as_str(), 12),
-                Style::default().fg(status_color(&app.theme, task.status.as_str())),
-            ),
-            Span::raw("  "),
-            Span::styled(pad(task.risk.as_str(), 8), Style::default()),
-            Span::raw("  "),
-            Span::styled(
-                task.title.chars().take(30).collect::<String>(),
-                Style::default().fg(app.theme.text),
-            ),
-        ]));
-    }
-    frame.render_widget(Paragraph::new(lines), columns[0]);
-
-    // Right: detail
-    let detail_block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(app.theme.border));
+                        app.theme.text_dim
+                    },
+                )),
+                Cell::from(task.title.clone()).style(Style::default().fg(app.theme.text)),
+            ])
+        })
+        .collect();
+    let empty = if app.active_alias.is_none() {
+        "No active project — activate one in Projects."
+    } else {
+        "No tasks — [a] add or [f] change filter."
+    };
+    let table = selection_table(
+        &app.theme,
+        &title,
+        &["ID", "STATUS", "RISK", "TITLE"],
+        &[
+            Constraint::Length(22),
+            Constraint::Length(18),
+            Constraint::Length(12),
+            Constraint::Min(10),
+        ],
+        rows,
+        empty,
+    );
+    // Detail panel (built before the stateful render releases the borrow).
+    let detail_block = panel(&app.theme, "Task details");
     let inner = detail_block.inner(columns[1]);
     frame.render_widget(detail_block, columns[1]);
-    let detail_lines = match filtered.get(app.selected) {
+    let mut lines: Vec<Line> = match filtered.get(app.selected) {
         Some(task) => {
             let mut lines = vec![
                 Line::from(Span::styled(
-                    task.title.as_str(),
+                    task.title.clone(),
                     Style::default()
-                        .fg(app.theme.accent)
+                        .fg(app.theme.accent_bright)
                         .add_modifier(Modifier::BOLD),
                 )),
-                Line::from(format!("ID: {}", task.id)),
-                Line::from(format!("Kind: {}", task.kind.as_str())),
-                Line::from(format!("Status: {}", task.status.as_str())),
-                Line::from(format!("Risk: {}", task.risk.as_str())),
-                Line::from(format!("Branch: {}", task.branch.as_deref().unwrap_or("—"))),
-                Line::from(format!("Attempts: {}", task.attempts)),
-                Line::from(format!(
-                    "Source: {} / {}",
-                    task.source.source_type, task.source.r#ref
-                )),
-                Line::from(format!("Created: {}", task.created_at)),
+                Line::from(vec![
+                    Span::styled("id      ", Style::default().fg(app.theme.text_dim)),
+                    Span::raw(task.id.clone()),
+                ]),
+                Line::from(vec![
+                    Span::styled("status  ", Style::default().fg(app.theme.text_dim)),
+                    Span::styled(
+                        task.status.as_str().to_string(),
+                        Style::default().fg(status_color(&app.theme, task.status.as_str())),
+                    ),
+                    Span::styled(
+                        format!("   {} · {}", task.kind.as_str(), task.risk.as_str()),
+                        Style::default().fg(app.theme.text_dim),
+                    ),
+                ]),
+                Line::from(vec![
+                    Span::styled("branch  ", Style::default().fg(app.theme.text_dim)),
+                    Span::raw(task.branch.clone().unwrap_or_else(|| "—".into())),
+                ]),
+                Line::from(vec![
+                    Span::styled("source  ", Style::default().fg(app.theme.text_dim)),
+                    Span::raw(format!("{}/{}", task.source.source_type, task.source.r#ref)),
+                ]),
+                Line::from(vec![
+                    Span::styled("attempts", Style::default().fg(app.theme.text_dim)),
+                    Span::raw(format!(
+                        " {}   promotion {}   cost {}",
+                        task.attempts,
+                        task.promotion.as_str(),
+                        task.estimated_cost_usd
+                            .map(|v| format!("${v:.4}"))
+                            .unwrap_or_else(|| "—".into()),
+                    )),
+                ]),
             ];
-            if !task.acceptance_criteria.is_empty() {
-                lines.push(Line::from("Acceptance criteria:"));
-                for ac in &task.acceptance_criteria {
-                    lines.push(Line::from(format!(" • {ac}")));
-                }
+            if let Some(depends) = &task.depends_on {
+                lines.push(Line::from(vec![
+                    Span::styled("waits on", Style::default().fg(app.theme.text_dim)),
+                    Span::raw(format!(" {}", depends.join(", "))),
+                ]));
             }
             if let Some(last_run) = &task.last_run {
-                lines.push(Line::from(format!(
-                    "Last run: {} @ {}",
-                    last_run.outcome.as_str(),
-                    last_run.completed_at
+                lines.push(Line::from(vec![
+                    Span::styled("last run", Style::default().fg(app.theme.text_dim)),
+                    Span::styled(
+                        format!(" {} ", last_run.outcome.as_str()),
+                        Style::default().fg(status_color(
+                            &app.theme,
+                            match last_run.outcome.as_str() {
+                                "success" => "done",
+                                "failure" => "failed",
+                                other => other,
+                            },
+                        )),
+                    ),
+                    Span::styled(
+                        format!("{} ago", age_str(&last_run.completed_at)),
+                        Style::default().fg(app.theme.text_dim),
+                    ),
+                ]));
+            }
+            if !task.acceptance_criteria.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    "acceptance",
+                    Style::default().fg(app.theme.text_dim),
                 )));
+                for ac in task.acceptance_criteria.iter().take(4) {
+                    lines.push(Line::from(format!("  • {ac}")));
+                }
+            }
+            if let Some(notes) = &task.notes {
+                if !notes.is_empty() {
+                    lines.push(Line::from(Span::styled(
+                        "notes",
+                        Style::default().fg(app.theme.text_dim),
+                    )));
+                    for note in notes.iter().rev().take(3) {
+                        lines.push(Line::from(Span::styled(
+                            format!("  · {note}"),
+                            Style::default().fg(app.theme.text_dim),
+                        )));
+                    }
+                }
             }
             lines
         }
         None => vec![Line::from(Span::styled(
-            "Select a task",
+            "Select a task to inspect it.",
             Style::default().fg(app.theme.text_dim),
         ))],
     };
-    frame.render_widget(Paragraph::new(detail_lines), inner);
-
-    if app.input_mode == InputMode::AddTaskTitle {
-        let area = Rect {
-            x: columns[0].x,
-            y: columns[0].y,
-            width: 50.min(columns[0].width),
-            height: 3,
-        };
-        frame.render_widget(ratatui::widgets::Clear, area);
-        frame.render_widget(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(app.theme.accent))
-                .title("Add Task"),
-            area,
-        );
-        frame.render_widget(
-            Paragraph::new(format!("Title: {}", app.input_value)),
-            Rect {
-                x: area.x + 1,
-                y: area.y + 1,
-                width: area.width.saturating_sub(2),
-                height: 1,
-            },
-        );
+    if !app.status_msg.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            app.status_msg.clone(),
+            Style::default().fg(app.theme.yellow),
+        )));
     }
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+    frame.render_stateful_widget(table, columns[0], &mut app.table_state);
 
-    key_hint(
-        frame,
-        chunks[3],
-        &[
-            ("↑/↓", "navigate"),
-            ("f", "filter status"),
-            ("a", "add"),
-            ("d", "delete"),
-            ("r", "recover stuck"),
-        ],
-        &app.theme.accent,
+    frame.render_widget(
+        key_hint_line(
+            &app.theme,
+            &[
+                ("↑/↓", "navigate"),
+                ("a", "add"),
+                ("y", "approve"),
+                ("u", "status"),
+                ("f", "filter"),
+                ("d", "delete"),
+                ("r", "recover stuck"),
+            ],
+        ),
+        chunks[1],
     );
 }
+
+// ---------------------------------------------------------------------------
+// Service
+// ---------------------------------------------------------------------------
+
+pub const SERVICE_ACTIONS: [&str; 7] = [
+    "Start daemon",
+    "Stop daemon",
+    "Restart daemon",
+    "Pause",
+    "Resume",
+    "Run one iteration now",
+    "View daemon logs",
+];
 
 pub fn service(app: &mut App, frame: &mut Frame, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(9),
-            Constraint::Length(5),
-            Constraint::Min(1),
-            Constraint::Length(1),
+            Constraint::Length(6),  // state panel
+            Constraint::Length(10), // actions
+            Constraint::Min(4),     // log tail
+            Constraint::Length(1),  // hints
         ])
         .split(area);
 
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
+    // State panel.
+    let daemon = &app.daemon;
+    let status_label = if daemon.paused {
+        "⏸ paused"
+    } else if daemon.pid != 0 {
+        "● running"
+    } else {
+        "○ stopped"
+    };
+    let status_color = if daemon.paused {
+        app.theme.yellow
+    } else if daemon.pid != 0 {
+        app.theme.green
+    } else {
+        app.theme.text_dim
+    };
+    let limit = app.global_config.budgets.daily_cost_usd;
+    let budget = if limit > 0.0 {
+        format!(
+            "${:.4} / ${:.2} today ({:.0}%)",
+            daemon.budget_spent_usd,
+            limit,
+            daemon.budget_spent_usd / limit * 100.0
+        )
+    } else {
+        format!("${:.4} today · no limit", daemon.budget_spent_usd)
+    };
+    let state_block = panel(&app.theme, "Daemon state");
+    let state_inner = state_block.inner(chunks[0]);
+    frame.render_widget(state_block, chunks[0]);
+    let state_lines = vec![
+        Line::from(vec![
             Span::styled(
-                "Service",
+                status_label,
                 Style::default()
-                    .fg(app.theme.accent)
+                    .fg(status_color)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                " — daemon management",
+                format!(
+                    "  pid {} · uptime {} · tick every {}",
+                    daemon.pid,
+                    if daemon.started_at.is_empty() {
+                        "—".to_string()
+                    } else {
+                        elapsed_str(&daemon.started_at)
+                    },
+                    app.global_config
+                        .runtime
+                        .tick_interval_seconds
+                        .map(|s| format!("{s}s"))
+                        .unwrap_or_else(|| "30s".into()),
+                ),
                 Style::default().fg(app.theme.text_dim),
             ),
-        ])),
-        chunks[0],
-    );
-    if !app.status_msg.is_empty() {
-        frame.render_widget(
-            Paragraph::new(app.status_msg.clone()).style(Style::default().fg(app.theme.yellow)),
-            chunks[1],
-        );
-    }
-
-    let state_block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(app.theme.border));
-    let state_inner = state_block.inner(chunks[2]);
-    frame.render_widget(state_block, chunks[2]);
-    let daemon = &app.daemon;
-    let status_value = if daemon.paused {
-        ("paused".to_string(), app.theme.yellow)
-    } else if daemon.pid != 0 {
-        ("running".to_string(), app.theme.green)
-    } else {
-        ("stopped".to_string(), app.theme.text_dim)
-    };
-    let state_lines = vec![
-        Line::from(Span::styled(
-            "Daemon State",
-            Style::default()
-                .fg(app.theme.accent)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(format!("PID: {}", daemon.pid)),
-        Line::from(vec![
-            Span::raw("Status: "),
-            Span::styled(status_value.0, Style::default().fg(status_value.1)),
         ]),
-        Line::from(format!("Started: {}", daemon.started_at)),
-        Line::from(format!(
-            "Uptime: {}",
-            if daemon.started_at.is_empty() {
+        Line::from(vec![
+            Span::styled("budget ", Style::default().fg(app.theme.text_dim)),
+            Span::styled(
+                budget,
+                Style::default().fg(if daemon.budget_blocked {
+                    app.theme.red
+                } else {
+                    app.theme.text
+                }),
+            ),
+            Span::styled(
+                if daemon.budget_blocked {
+                    "  ⚠ blocked — raises the daily limit or wait for the window to roll over"
+                } else {
+                    ""
+                },
+                Style::default().fg(app.theme.yellow),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("started ", Style::default().fg(app.theme.text_dim)),
+            Span::raw(if daemon.started_at.is_empty() {
                 "—".to_string()
             } else {
-                elapsed_str(&daemon.started_at)
-            }
-        )),
-        Line::from(format!("Budget: ${:.4} today", daemon.budget_spent_usd)),
+                daemon.started_at.clone()
+            }),
+        ]),
     ];
     frame.render_widget(Paragraph::new(state_lines), state_inner);
 
-    const ACTIONS: [&str; 3] = ["Pause", "Resume", "View Logs"];
-    let actions: Vec<ListItem> = ACTIONS
+    // Actions list.
+    let actions_block = panel(&app.theme, "Actions");
+    let actions_inner = actions_block.inner(chunks[1]);
+    frame.render_widget(actions_block, chunks[1]);
+    let action_lines: Vec<Line> = SERVICE_ACTIONS
         .iter()
         .enumerate()
         .map(|(index, action)| {
             let selected = index == app.service_action;
-            ListItem::new(Line::from(Span::styled(
+            Line::from(Span::styled(
                 format!("{} {action}", if selected { "▸" } else { " " }),
                 Style::default()
                     .fg(if selected {
@@ -673,23 +814,21 @@ pub fn service(app: &mut App, frame: &mut Frame, area: Rect) {
                     } else {
                         ratatui::style::Color::Reset
                     }),
-            )))
+            ))
         })
         .collect();
-    frame.render_stateful_widget(
-        List::new(actions),
-        chunks[3],
-        &mut ratatui::widgets::ListState::default(),
+    frame.render_widget(
+        Paragraph::new(action_lines).wrap(Wrap { trim: false }),
+        actions_inner,
     );
 
-    let log_block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(app.theme.border));
-    let log_inner = log_block.inner(chunks[4]);
-    frame.render_widget(log_block, chunks[4]);
+    // Log tail.
+    let log_block = panel(&app.theme, "Daemon log (tail)");
+    let log_inner = log_block.inner(chunks[2]);
+    frame.render_widget(log_block, chunks[2]);
     let log_lines: Vec<Line> = if app.daemon_log_lines.is_empty() {
         vec![Line::from(Span::styled(
-            "(no daemon log)",
+            "(no daemon log yet)",
             Style::default().fg(app.theme.text_dim),
         ))]
     } else {
@@ -705,66 +844,46 @@ pub fn service(app: &mut App, frame: &mut Frame, area: Rect) {
     };
     frame.render_widget(Paragraph::new(log_lines), log_inner);
 
-    key_hint(
-        frame,
-        chunks[5],
-        &[("↑/↓", "select action"), ("Enter", "execute")],
-        &app.theme.accent,
+    frame.render_widget(
+        key_hint_line(
+            &app.theme,
+            &[("↑/↓", "select action"), ("Enter", "execute")],
+        ),
+        chunks[3],
     );
 }
+
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
 
 pub fn config(app: &mut App, frame: &mut Frame, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Min(1),
-            Constraint::Length(1),
+            Constraint::Length(1), // segmented control
+            Constraint::Min(1),    // entries
+            Constraint::Length(1), // hints
         ])
         .split(area);
 
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(
-                "Config",
-                Style::default()
-                    .fg(app.theme.accent)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!(
-                    " — {}",
-                    if app.config_panel {
-                        app.active_alias.as_deref().unwrap_or("no project")
-                    } else {
-                        "global"
-                    }
-                ),
-                Style::default().fg(app.theme.text_dim),
-            ),
-        ])),
-        chunks[0],
-    );
-    if !app.status_msg.is_empty() {
-        frame.render_widget(
-            Paragraph::new(app.status_msg.clone()).style(Style::default().fg(app.theme.yellow)),
-            chunks[1],
-        );
-    }
+    let scope = if app.config_panel {
+        app.active_alias.as_deref().unwrap_or("no project")
+    } else {
+        "global"
+    };
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(
                 " Global ",
                 Style::default()
                     .fg(if !app.config_panel {
-                        app.theme.accent
+                        app.theme.bg_panel
                     } else {
                         app.theme.text_dim
                     })
                     .bg(if !app.config_panel {
-                        app.theme.bg_selected
+                        app.theme.accent
                     } else {
                         ratatui::style::Color::Reset
                     })
@@ -774,558 +893,368 @@ pub fn config(app: &mut App, frame: &mut Frame, area: Rect) {
                 " Project ",
                 Style::default()
                     .fg(if app.config_panel {
-                        app.theme.accent
+                        app.theme.bg_panel
                     } else {
                         app.theme.text_dim
                     })
                     .bg(if app.config_panel {
-                        app.theme.bg_selected
+                        app.theme.accent
                     } else {
                         ratatui::style::Color::Reset
                     })
                     .add_modifier(Modifier::BOLD),
             ),
+            Span::styled(
+                format!("  — showing {scope}"),
+                Style::default().fg(app.theme.text_dim),
+            ),
         ])),
-        chunks[2],
+        chunks[0],
     );
 
-    let mut lines = vec![header_line(
-        &app.theme.accent,
-        &[("KEY", 40), ("VALUE", 40)],
-    )];
-    lines.push(Line::from(Span::styled(
-        "─".repeat(80),
-        Style::default().fg(app.theme.border),
-    )));
-    for (index, (key, value, editable)) in app.config_entries.iter().enumerate() {
-        let is_selected = index == app.selected;
-        lines.push(Line::from(vec![
-            Span::styled(
-                pad(key, 40),
-                Style::default()
-                    .fg(if is_selected {
-                        app.theme.accent_bright
-                    } else if *editable {
-                        app.theme.text
-                    } else {
-                        app.theme.text_dim
-                    })
-                    .bg(if is_selected {
-                        app.theme.bg_selected
-                    } else {
-                        ratatui::style::Color::Reset
-                    }),
-            ),
-            Span::raw("  "),
-            Span::styled(
-                if *editable {
+    let rows: Vec<Row> = app
+        .config_entries
+        .iter()
+        .map(|(key, value, editable)| {
+            Row::new(vec![
+                Cell::from(key.clone()).style(Style::default().fg(if *editable {
+                    app.theme.text
+                } else {
+                    app.theme.text_muted
+                })),
+                Cell::from(if *editable {
                     value.clone()
                 } else {
-                    format!("{value} (read-only)")
-                },
-                Style::default().fg(if is_selected {
-                    app.theme.accent_bright
-                } else {
+                    format!("{value}  (read-only)")
+                })
+                .style(Style::default().fg(if *editable {
                     app.theme.text
-                }),
-            ),
-        ]));
-    }
-    frame.render_widget(Paragraph::new(lines), chunks[3]);
+                } else {
+                    app.theme.text_muted
+                })),
+            ])
+        })
+        .collect();
+    let table = selection_table(
+        &app.theme,
+        "Configuration",
+        &["KEY", "VALUE"],
+        &[Constraint::Percentage(45), Constraint::Percentage(55)],
+        rows,
+        "No configuration entries.",
+    );
+    frame.render_stateful_widget(table, chunks[1], &mut app.table_state);
 
-    if app.input_mode == InputMode::EditConfigValue {
-        let index = app.selected.min(app.config_entries.len().saturating_sub(1));
-        if let Some((key, _, _)) = app.config_entries.get(index) {
-            let label = format!("{key}: {}", app.input_value);
-            frame.render_widget(
-                Paragraph::new(label).style(Style::default().fg(app.theme.accent)),
-                Rect {
-                    x: chunks[3].x,
-                    y: chunks[3].y,
-                    width: chunks[3].width.min(60),
-                    height: 1,
-                },
-            );
-        }
-    }
-
-    key_hint(
-        frame,
-        chunks[4],
-        &[
-            ("↑/↓", "navigate"),
-            ("Tab", "global/project"),
-            ("Enter", "edit"),
-            ("R", "reload"),
-        ],
-        &app.theme.accent,
+    frame.render_widget(
+        key_hint_line(
+            &app.theme,
+            &[
+                ("↑/↓", "navigate"),
+                ("Tab", "global/project"),
+                ("Enter", "edit"),
+                ("R", "reload"),
+            ],
+        ),
+        chunks[2],
     );
 }
+
+// ---------------------------------------------------------------------------
+// Run
+// ---------------------------------------------------------------------------
 
 pub fn run(app: &mut App, frame: &mut Frame, area: Rect) {
     app.poll_run_result();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(4),
-            Constraint::Min(1),
-            Constraint::Length(1),
-        ])
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(area);
 
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(
-                "Run",
-                Style::default()
-                    .fg(app.theme.accent)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!(
-                    " — direct agent invocation on {}",
-                    app.active_alias.as_deref().unwrap_or("no project")
-                ),
-                Style::default().fg(app.theme.text_dim),
-            ),
-        ])),
-        chunks[0],
-    );
-    if !app.status_msg.is_empty() {
-        frame.render_widget(
-            Paragraph::new(app.status_msg.clone()).style(Style::default().fg(app.theme.yellow)),
-            chunks[1],
-        );
-    }
-
-    let input_label = match app.input_mode {
-        InputMode::RunPrompt => format!("Prompt: {}", app.input_value),
-        InputMode::RunModel => format!("Model: {}", app.input_value),
-        _ => "Ctrl+R to start a run".to_string(),
-    };
-    frame.render_widget(
-        Paragraph::new(vec![
-            Line::from(input_label),
-            Line::from(Span::styled(
-                if app.run_running {
-                    "running..."
-                } else {
-                    "idle"
-                },
-                Style::default().fg(if app.run_running {
-                    app.theme.yellow
-                } else {
-                    app.theme.text_dim
-                }),
-            )),
-        ]),
-        chunks[2],
-    );
-
-    let output_block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(app.theme.border));
-    let output_inner = output_block.inner(chunks[3]);
-    frame.render_widget(output_block, chunks[3]);
-    let mut lines: Vec<Line> = app
-        .run_output
-        .iter()
-        .map(|l| {
-            Line::from(Span::styled(
-                l.clone(),
-                Style::default().fg(if l.starts_with('>') {
-                    app.theme.cyan
-                } else {
-                    app.theme.text
-                }),
-            ))
-        })
-        .collect();
-    if let Some(code) = app.run_exit_code {
-        lines.push(Line::from(Span::styled(
-            format!("Process exited with code {code}"),
-            Style::default().fg(if code == 0 {
-                app.theme.green
+    let output_block = panel(
+        &app.theme,
+        &format!(
+            "Agent run — {}",
+            if app.run_running {
+                "running…"
+            } else if app.run_exit_code.is_some() {
+                "finished"
             } else {
-                app.theme.red
-            }),
-        )));
-    }
-    if lines.is_empty() {
-        lines.push(Line::from(Span::styled(
-            "(no output yet)",
+                "idle"
+            }
+        ),
+    );
+    let inner = output_block.inner(chunks[0]);
+    frame.render_widget(output_block, chunks[0]);
+    let lines: Vec<Line> = if app.run_output.is_empty() {
+        vec![Line::from(Span::styled(
+            "Run the default agent ad-hoc against the active project. Press Ctrl+R to start.",
             Style::default().fg(app.theme.text_dim),
-        )));
-    }
-    frame.render_widget(Paragraph::new(lines), output_inner);
+        ))]
+    } else {
+        app.run_output
+            .iter()
+            .map(|l| Line::from(Span::styled(l.clone(), Style::default().fg(app.theme.text))))
+            .collect()
+    };
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
 
-    key_hint(frame, chunks[4], &[("Ctrl+R", "run")], &app.theme.accent);
+    frame.render_widget(
+        key_hint_line(&app.theme, &[("Ctrl+R", "new run")]),
+        chunks[1],
+    );
 }
+
+// ---------------------------------------------------------------------------
+// Promotions
+// ---------------------------------------------------------------------------
 
 pub fn promotions(app: &mut App, frame: &mut Frame, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Min(1),
-            Constraint::Length(1),
-        ])
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(area);
-
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(
-                "Promotions",
-                Style::default()
-                    .fg(app.theme.accent)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!(" — {}", app.active_alias.as_deref().unwrap_or("no project")),
-                Style::default().fg(app.theme.text_dim),
-            ),
-        ])),
-        chunks[0],
-    );
-    if !app.status_msg.is_empty() {
-        frame.render_widget(
-            Paragraph::new(app.status_msg.clone()).style(Style::default().fg(app.theme.yellow)),
-            chunks[1],
-        );
-    }
-
     let columns = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
-        .split(chunks[2]);
+        .constraints([Constraint::Percentage(48), Constraint::Percentage(52)])
+        .split(chunks[0]);
 
-    let mut lines = vec![header_line(
-        &app.theme.accent,
-        &[("TASK", 20), ("STATUS", 10), ("ACTION", 14), ("DATE", 10)],
-    )];
-    lines.push(Line::from(Span::styled(
-        "─".repeat(58),
-        Style::default().fg(app.theme.border),
-    )));
-    if app.promotions.is_empty() {
-        lines.push(Line::from(Span::styled(
-            "No promotion artifacts.",
-            Style::default().fg(app.theme.text_dim),
-        )));
-    }
-    for (index, item) in app.promotions.iter().enumerate() {
-        let is_selected = index == app.selected;
-        let artifact = &item.artifact;
-        lines.push(Line::from(vec![
-            Span::styled(
-                pad(&artifact.task_id, 20),
-                Style::default()
-                    .fg(if is_selected {
-                        app.theme.accent_bright
-                    } else {
-                        app.theme.text
-                    })
-                    .bg(if is_selected {
-                        app.theme.bg_selected
-                    } else {
-                        ratatui::style::Color::Reset
-                    }),
-            ),
-            Span::raw("  "),
-            Span::styled(
-                pad(artifact.status.as_str(), 10),
-                Style::default().fg(status_color(&app.theme, artifact.status.as_str())),
-            ),
-            Span::raw("  "),
-            Span::styled(pad(artifact.action.as_str(), 14), Style::default()),
-            Span::raw("  "),
-            Span::styled(
-                artifact.created_at.chars().take(10).collect::<String>(),
-                Style::default().fg(app.theme.text_dim),
-            ),
-        ]));
-    }
-    frame.render_widget(Paragraph::new(lines), columns[0]);
+    let rows: Vec<Row> = app
+        .promotions
+        .iter()
+        .map(|item| {
+            let artifact = &item.artifact;
+            Row::new(vec![
+                Cell::from(artifact.task_id.clone()).style(Style::default().fg(app.theme.text)),
+                Cell::from(artifact.status.as_str().to_string())
+                    .style(Style::default().fg(status_color(&app.theme, artifact.status.as_str()))),
+                Cell::from(artifact.action.as_str().to_string())
+                    .style(Style::default().fg(app.theme.text_dim)),
+                Cell::from(artifact.created_at.chars().take(10).collect::<String>())
+                    .style(Style::default().fg(app.theme.text_dim)),
+            ])
+        })
+        .collect();
+    let table = selection_table(
+        &app.theme,
+        &format!(
+            "Promotions — {}",
+            app.active_alias.as_deref().unwrap_or("no project")
+        ),
+        &["TASK", "STATUS", "ACTION", "DATE"],
+        &[
+            Constraint::Percentage(34),
+            Constraint::Percentage(20),
+            Constraint::Percentage(26),
+            Constraint::Percentage(20),
+        ],
+        rows,
+        "No promotion artifacts yet — finished runs land here.",
+    );
+    frame.render_stateful_widget(table, columns[0], &mut app.table_state);
 
-    let detail_block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(app.theme.border));
+    let detail_block = panel(&app.theme, "Artifact");
     let inner = detail_block.inner(columns[1]);
     frame.render_widget(detail_block, columns[1]);
     let detail = if app.promotion_detail.is_empty() {
-        Paragraph::new("Select a promotion and press Enter to view details.")
+        Paragraph::new(Span::styled(
+            "Select a promotion and press [Enter] to load its artifact.",
+            Style::default().fg(app.theme.text_dim),
+        ))
     } else {
-        Paragraph::new(app.promotion_detail.clone())
+        Paragraph::new(app.promotion_detail.clone()).wrap(Wrap { trim: false })
     };
     frame.render_widget(detail, inner);
 
-    key_hint(
-        frame,
-        chunks[3],
-        &[
-            ("↑/↓", "navigate"),
-            ("Enter", "view detail"),
-            ("a", "apply"),
-            ("r", "reject"),
-        ],
-        &app.theme.accent,
+    frame.render_widget(
+        key_hint_line(
+            &app.theme,
+            &[
+                ("↑/↓", "navigate"),
+                ("Enter", "view artifact"),
+                ("a", "apply"),
+                ("r", "reject"),
+            ],
+        ),
+        chunks[1],
     );
 }
+
+// ---------------------------------------------------------------------------
+// Events
+// ---------------------------------------------------------------------------
 
 pub fn events(app: &mut App, frame: &mut Frame, area: Rect) {
     const SINCE_OPTIONS: [&str; 4] = ["30m", "1h", "2h", "1d"];
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Min(1),
-            Constraint::Length(1),
-        ])
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(area);
 
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(
-                "Events",
-                Style::default()
-                    .fg(app.theme.accent)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(" — audit log", Style::default().fg(app.theme.text_dim)),
-            Span::styled(
-                format!(
-                    "  since: {} │ project: {} │ {} events",
-                    SINCE_OPTIONS[app.events_since_idx.min(3)],
-                    app.events_project_filter.as_deref().unwrap_or("all"),
-                    app.events.len()
-                ),
-                Style::default().fg(app.theme.text_dim),
-            ),
-        ])),
-        chunks[0],
-    );
-
-    let mut lines = vec![header_line(
-        &app.theme.accent,
-        &[("TIME", 10), ("EVENT", 24), ("PROJECT", 14), ("TASK", 20)],
-    )];
-    lines.push(Line::from(Span::styled(
-        "─".repeat(74),
-        Style::default().fg(app.theme.border),
-    )));
-    if app.events.is_empty() {
-        lines.push(Line::from(Span::styled(
-            "No events in this time window.",
-            Style::default().fg(app.theme.text_dim),
-        )));
-    }
-    for event in &app.events {
-        let time: String = chrono::DateTime::parse_from_rfc3339(&event.ts)
-            .map(|t| {
-                t.with_timezone(&chrono::Local)
-                    .format("%H:%M:%S")
-                    .to_string()
-            })
-            .unwrap_or_else(|_| "??:??:??".to_string());
-        let event_color = if event.event.contains("complete") || event.event.contains("promoted") {
-            app.theme.green
-        } else if event.event.contains("fail") || event.event.contains("error") {
-            app.theme.red
-        } else if event.event.contains("start") || event.event.contains("running") {
-            app.theme.cyan
-        } else if event.event.contains("pause") || event.event.contains("budget") {
-            app.theme.yellow
-        } else {
-            app.theme.text
-        };
-        lines.push(Line::from(vec![
-            Span::styled(pad(&time, 10), Style::default()),
-            Span::raw("  "),
-            Span::styled(pad(&event.event, 24), Style::default().fg(event_color)),
-            Span::raw("  "),
-            Span::styled(
-                pad(event.project.as_deref().unwrap_or("—"), 14),
-                Style::default(),
-            ),
-            Span::raw("  "),
-            Span::styled(
-                event.task_id.as_deref().unwrap_or("—"),
-                Style::default().fg(app.theme.text_dim),
-            ),
-        ]));
-    }
-    frame.render_widget(Paragraph::new(lines), chunks[1]);
-
-    key_hint(
-        frame,
-        chunks[2],
+    let rows: Vec<Row> = app
+        .events
+        .iter()
+        .map(|event| {
+            let time = chrono::DateTime::parse_from_rfc3339(&event.ts)
+                .map(|t| {
+                    t.with_timezone(&chrono::Local)
+                        .format("%H:%M:%S")
+                        .to_string()
+                })
+                .unwrap_or_else(|_| "??:??:??".to_string());
+            let color = if event.event.contains("complete") || event.event.contains("promoted") {
+                app.theme.green
+            } else if event.event.contains("fail") || event.event.contains("error") {
+                app.theme.red
+            } else if event.event.contains("start") || event.event.contains("running") {
+                app.theme.cyan
+            } else if event.event.contains("pause") || event.event.contains("budget") {
+                app.theme.yellow
+            } else {
+                app.theme.text
+            };
+            Row::new(vec![
+                Cell::from(time).style(Style::default().fg(app.theme.text_dim)),
+                Cell::from(event.event.clone()).style(Style::default().fg(color)),
+                Cell::from(event.project.clone().unwrap_or_else(|| "—".into()))
+                    .style(Style::default().fg(app.theme.accent)),
+                Cell::from(event.task_id.clone().unwrap_or_default())
+                    .style(Style::default().fg(app.theme.text_dim)),
+            ])
+        })
+        .collect();
+    let table = selection_table(
+        &app.theme,
+        &format!(
+            "Events — since {} · project {} · {} shown",
+            SINCE_OPTIONS[app.events_since_idx.min(3)],
+            app.events_project_filter.as_deref().unwrap_or("all"),
+            app.events.len()
+        ),
+        &["TIME", "EVENT", "PROJECT", "TASK"],
         &[
-            ("↑/↓", "navigate"),
-            ("s", "cycle since"),
-            ("p", "toggle project filter"),
+            Constraint::Percentage(12),
+            Constraint::Percentage(34),
+            Constraint::Percentage(18),
+            Constraint::Percentage(36),
         ],
-        &app.theme.accent,
+        rows,
+        "No events — widen with [s] or let the daemon work.",
+    );
+    frame.render_stateful_widget(table, chunks[0], &mut app.table_state);
+
+    frame.render_widget(
+        key_hint_line(
+            &app.theme,
+            &[
+                ("↑/↓", "navigate"),
+                ("s", "cycle since"),
+                ("p", "toggle project filter"),
+            ],
+        ),
+        chunks[1],
     );
 }
+
+// ---------------------------------------------------------------------------
+// Logs
+// ---------------------------------------------------------------------------
 
 pub fn logs(app: &mut App, frame: &mut Frame, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Min(1),
-            Constraint::Length(1),
-        ])
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(area);
+    let columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(32), Constraint::Percentage(68)])
+        .split(chunks[0]);
 
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(
-                "Logs",
-                Style::default()
-                    .fg(app.theme.accent)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!(
-                    " — {}",
-                    if app.log_tab {
-                        format!(
-                            "{} run summaries",
-                            app.active_alias.as_deref().unwrap_or("?")
-                        )
-                    } else {
-                        "daemon log".to_string()
-                    }
-                ),
+    let rows: Vec<Row> = app
+        .run_files
+        .iter()
+        .map(|file| {
+            Row::new(vec![
+                Cell::from(file.clone()).style(Style::default().fg(app.theme.text))
+            ])
+        })
+        .collect();
+    let files_table = selection_table(
+        &app.theme,
+        if app.log_tab {
+            "Run summaries"
+        } else {
+            "Daemon log"
+        },
+        &["FILE"],
+        &[Constraint::Percentage(100)],
+        rows,
+        "No run summaries yet.",
+    );
+    if app.log_tab {
+        frame.render_stateful_widget(files_table, columns[0], &mut app.table_state);
+    } else {
+        let block = panel(&app.theme, "Run summaries");
+        let inner = block.inner(columns[0]);
+        frame.render_widget(block, columns[0]);
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                "Press [Tab] to switch to run summaries.",
                 Style::default().fg(app.theme.text_dim),
-            ),
-        ])),
-        chunks[0],
-    );
+            )),
+            inner,
+        );
+    }
 
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(
-                " Daemon ",
-                Style::default()
-                    .fg(if !app.log_tab {
-                        app.theme.accent
-                    } else {
-                        app.theme.text_dim
-                    })
-                    .bg(if !app.log_tab {
-                        app.theme.bg_selected
-                    } else {
-                        ratatui::style::Color::Reset
-                    })
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                " Project Runs ",
-                Style::default()
-                    .fg(if app.log_tab {
-                        app.theme.accent
-                    } else {
-                        app.theme.text_dim
-                    })
-                    .bg(if app.log_tab {
-                        app.theme.bg_selected
-                    } else {
-                        ratatui::style::Color::Reset
-                    })
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ])),
-        chunks[1],
+    let content_block = panel(
+        &app.theme,
+        if app.log_tab {
+            "Summary content"
+        } else {
+            "Daemon log (tail)"
+        },
     );
-
-    if !app.log_tab {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(app.theme.border));
-        let inner = block.inner(chunks[2]);
-        frame.render_widget(block, chunks[2]);
-        let lines: Vec<Line> = if app.daemon_log_lines.is_empty() {
+    let inner = content_block.inner(columns[1]);
+    frame.render_widget(content_block, columns[1]);
+    let lines: Vec<Line> = if app.log_tab {
+        if app.run_file_content.is_empty() {
             vec![Line::from(Span::styled(
-                "(no daemon log)",
+                "Select a run summary on the left.",
                 Style::default().fg(app.theme.text_dim),
             ))]
         } else {
-            app.daemon_log_lines
-                .iter()
+            app.run_file_content
+                .lines()
                 .map(|l| {
                     Line::from(Span::styled(
-                        l.clone(),
-                        Style::default().fg(app.theme.text_dim),
+                        l.to_string(),
+                        Style::default().fg(app.theme.text),
                     ))
                 })
                 .collect()
-        };
-        frame.render_widget(Paragraph::new(lines), inner);
-    } else {
-        let columns = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(35), Constraint::Percentage(65)])
-            .split(chunks[2]);
-
-        let files_block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(app.theme.border));
-        let files_inner = files_block.inner(columns[0]);
-        frame.render_widget(files_block, columns[0]);
-        let mut lines = vec![Line::from(Span::styled(
-            "Run Files",
-            Style::default()
-                .fg(app.theme.accent)
-                .add_modifier(Modifier::BOLD),
-        ))];
-        if app.run_files.is_empty() {
-            lines.push(Line::from(Span::styled(
-                "No run summaries.",
-                Style::default().fg(app.theme.text_dim),
-            )));
         }
-        for (index, file) in app.run_files.iter().enumerate() {
-            let is_selected = index == app.selected;
-            lines.push(Line::from(Span::styled(
-                file.clone(),
-                Style::default()
-                    .fg(if is_selected {
-                        app.theme.accent_bright
-                    } else {
-                        app.theme.text
-                    })
-                    .bg(if is_selected {
-                        app.theme.bg_selected
-                    } else {
-                        ratatui::style::Color::Reset
-                    }),
-            )));
-        }
-        frame.render_widget(Paragraph::new(lines), files_inner);
-
-        let content_block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(app.theme.border));
-        let content_inner = content_block.inner(columns[1]);
-        frame.render_widget(content_block, columns[1]);
-        let content = if app.run_file_content.is_empty() {
-            "Select a file and press Enter"
-        } else {
-            &app.run_file_content
-        };
-        frame.render_widget(Paragraph::new(content.to_string()), content_inner);
-    }
-
-    let hints: &[(&str, &str)] = if app.log_tab {
-        &[("Tab", "daemon/project"), ("↑/↓", "select file")]
+    } else if app.daemon_log_lines.is_empty() {
+        vec![Line::from(Span::styled(
+            "(no daemon log yet)",
+            Style::default().fg(app.theme.text_dim),
+        ))]
     } else {
-        &[("Tab", "daemon/project")]
+        app.daemon_log_lines
+            .iter()
+            .map(|l| {
+                Line::from(Span::styled(
+                    l.clone(),
+                    Style::default().fg(app.theme.text_dim),
+                ))
+            })
+            .collect()
     };
-    key_hint(frame, chunks[3], hints, &app.theme.accent);
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+
+    frame.render_widget(
+        key_hint_line(
+            &app.theme,
+            &[("Tab", "daemon/runs"), ("↑/↓", "select file")],
+        ),
+        chunks[1],
+    );
 }

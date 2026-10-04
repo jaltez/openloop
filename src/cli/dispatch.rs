@@ -748,154 +748,19 @@ fn config(cmd: ConfigCommand) -> Result<(), String> {
 // service
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, PartialEq)]
-enum DaemonInspection {
-    Missing,
-    Stale(Option<i32>),
-    Foreign(i32),
-    Running(i32),
-}
-
-fn inspect_daemon_process() -> Result<DaemonInspection, String> {
-    let pid_path = c::paths::daemon_pid_path(None);
-    if !c::fsutil::file_exists(&pid_path) {
-        return Ok(DaemonInspection::Missing);
-    }
-    let raw = std::fs::read_to_string(&pid_path).unwrap_or_default();
-    let pid = raw.trim().parse::<i32>().ok().filter(|p| *p > 0);
-    let Some(pid) = pid else {
-        return Ok(DaemonInspection::Stale(None));
-    };
-    if !is_process_alive(pid) {
-        return Ok(DaemonInspection::Stale(Some(pid)));
-    }
-    if !is_likely_openloop_daemon(pid) {
-        return Ok(DaemonInspection::Foreign(pid));
-    }
-    Ok(DaemonInspection::Running(pid))
-}
-
-fn is_process_alive(pid: i32) -> bool {
-    unsafe {
-        let result = libc::kill(pid, 0);
-        if result == 0 {
-            return true;
-        }
-        let errno = *libc::__errno_location();
-        if errno == libc::EPERM {
-            return true;
-        }
-        false
-    }
-}
-
-fn is_likely_openloop_daemon(pid: i32) -> bool {
-    if cfg!(target_os = "linux") {
-        return std::fs::read_to_string(format!("/proc/{pid}/cmdline"))
-            .map(|cmdline| cmdline.replace('\0', " ").trim().contains("daemon worker"))
-            .unwrap_or(false);
-    }
-    if cfg!(target_os = "macos") {
-        return std::process::Command::new("ps")
-            .args(["-p", &pid.to_string(), "-o", "command="])
-            .output()
-            .map(|o| {
-                String::from_utf8_lossy(&o.stdout)
-                    .trim()
-                    .contains("daemon worker")
-            })
-            .unwrap_or(false);
-    }
-    true
-}
-
-fn spawn_daemon_worker() {
-    use std::os::unix::process::CommandExt;
-    let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("openloop"));
-    let _ = std::process::Command::new(exe)
-        .arg("daemon")
-        .arg("worker")
-        .process_group(0)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn();
-}
-
-fn poll_for_daemon_ready(timeout_ms: u64) -> bool {
-    let deadline = c::now_millis() + timeout_ms as i64;
-    while c::now_millis() < deadline {
-        if matches!(inspect_daemon_process(), Ok(DaemonInspection::Running(_))) {
-            return true;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(200));
-    }
-    false
-}
-
-fn assert_default_provider_available() -> Result<(), String> {
-    let config = c::global_config::load_global_config(None)?;
-    c::pi::assert_provider_available(None, config.default_provider.as_deref())
-}
+use crate::core::service_control::{
+    assert_default_provider_available, inspect_daemon_process, restart_service, start_service,
+    stop_service, DaemonInspection,
+};
 
 fn service(cmd: ServiceCommand) -> Result<(), String> {
     match cmd.command {
         ServiceSubcommand::Start => {
-            assert_default_provider_available()?;
-            match inspect_daemon_process()? {
-                DaemonInspection::Running(_) => {
-                    println!("Daemon appears to be running already.");
-                }
-                DaemonInspection::Foreign(pid) => {
-                    return Err(format!(
-                        "Refusing to start: pid file points to live non-openloop process {pid}."
-                    ));
-                }
-                DaemonInspection::Stale(_) => {
-                    let _ = std::fs::remove_file(c::paths::daemon_pid_path(None));
-                }
-                DaemonInspection::Missing => {}
-            }
-            spawn_daemon_worker();
-            if poll_for_daemon_ready(5000) {
-                let pid = match inspect_daemon_process()? {
-                    DaemonInspection::Running(pid) => format!(" (PID {pid})"),
-                    _ => String::new(),
-                };
-                println!(
-                    "Daemon started{pid}. Log: {}",
-                    c::paths::daemon_log_path(None).display()
-                );
-            } else {
-                eprintln!(
-                    "Warning: daemon may not have started. Check logs: {}",
-                    c::paths::daemon_log_path(None).display()
-                );
-            }
+            println!("{}", start_service()?);
             Ok(())
         }
         ServiceSubcommand::Stop => {
-            match inspect_daemon_process()? {
-                DaemonInspection::Missing => {
-                    println!("Daemon is not running.");
-                }
-                DaemonInspection::Stale(_) => {
-                    let _ = std::fs::remove_file(c::paths::daemon_pid_path(None));
-                    println!("Removed stale daemon pid file.");
-                }
-                DaemonInspection::Foreign(pid) => {
-                    return Err(format!(
-                        "Refusing to stop: pid file points to live non-openloop process {pid}."
-                    ));
-                }
-                DaemonInspection::Running(pid) => {
-                    unsafe {
-                        libc::kill(pid, libc::SIGTERM);
-                    }
-                    let _ = std::fs::remove_file(c::paths::daemon_pid_path(None));
-                    println!("Daemon stopped.");
-                }
-            }
+            println!("{}", stop_service()?);
             Ok(())
         }
         ServiceSubcommand::Status => {
@@ -912,46 +777,7 @@ fn service(cmd: ServiceCommand) -> Result<(), String> {
             Ok(())
         }
         ServiceSubcommand::Restart => {
-            assert_default_provider_available()?;
-            match inspect_daemon_process()? {
-                DaemonInspection::Missing => {}
-                DaemonInspection::Stale(_) => {
-                    let _ = std::fs::remove_file(c::paths::daemon_pid_path(None));
-                }
-                DaemonInspection::Foreign(pid) => {
-                    return Err(format!(
-                        "Refusing to restart: pid file points to live non-openloop process {pid}."
-                    ));
-                }
-                DaemonInspection::Running(pid) => {
-                    unsafe {
-                        libc::kill(pid, libc::SIGTERM);
-                    }
-                    // W2: Wait for the process to actually exit (up to 10 seconds).
-                    let deadline = c::now_millis() + 10_000;
-                    while c::now_millis() < deadline {
-                        if !is_process_alive(pid) {
-                            break;
-                        }
-                        std::thread::sleep(std::time::Duration::from_millis(200));
-                    }
-                    let _ = std::fs::remove_file(c::paths::daemon_pid_path(None));
-                    let _ = std::fs::remove_file(c::paths::daemon_log_path(None));
-                }
-            }
-            spawn_daemon_worker();
-            if poll_for_daemon_ready(5000) {
-                let pid = match inspect_daemon_process()? {
-                    DaemonInspection::Running(pid) => format!(" (PID {pid})"),
-                    _ => String::new(),
-                };
-                println!("Daemon restarted{pid}.");
-            } else {
-                eprintln!(
-                    "Warning: daemon may not have started. Check logs: {}",
-                    c::paths::daemon_log_path(None).display()
-                );
-            }
+            println!("{}", restart_service()?);
             Ok(())
         }
         ServiceSubcommand::Pause => {

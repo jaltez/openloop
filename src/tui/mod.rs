@@ -1,8 +1,11 @@
 mod app;
 mod theme;
+mod ui;
 mod views;
 
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{
+    DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
+};
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
@@ -16,19 +19,24 @@ pub fn run() -> Result<(), String> {
     // though the release profile aborts without unwinding.
     std::panic::set_hook(Box::new(|info| {
         let _ = disable_raw_mode();
-        let _ = execute!(std::io::stdout(), LeaveAlternateScreen);
+        let _ = execute!(std::io::stdout(), LeaveAlternateScreen, DisableMouseCapture);
         eprintln!("{info}");
     }));
     enable_raw_mode().map_err(|e| e.to_string())?;
     let mut stdout = std::io::stdout();
-    execute!(stdout, EnterAlternateScreen).map_err(|e| e.to_string())?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture).map_err(|e| e.to_string())?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend).map_err(|e| e.to_string())?;
 
     let result = event_loop(&mut terminal);
 
     disable_raw_mode().ok();
-    execute!(terminal.backend_mut(), LeaveAlternateScreen).ok();
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )
+    .ok();
     terminal.show_cursor().ok();
     result
 }
@@ -45,17 +53,21 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Res
             .map_err(|e| e.to_string())?;
 
         if event::poll(std::time::Duration::from_millis(200)).map_err(|e| e.to_string())? {
-            if let Event::Key(key) = event::read().map_err(|e| e.to_string())? {
-                if key.kind == crossterm::event::KeyEventKind::Press {
-                    // Global quit: q / Ctrl+C
-                    if app.should_quit() {
-                        return Ok(());
+            match event::read().map_err(|e| e.to_string())? {
+                Event::Key(key) => {
+                    if key.kind == crossterm::event::KeyEventKind::Press {
+                        // Global quit: q / Ctrl+C
+                        if app.should_quit() {
+                            return Ok(());
+                        }
+                        if handle_global_keys(&mut app, &key) {
+                            continue;
+                        }
+                        app.handle_key(&key);
                     }
-                    if handle_global_keys(&mut app, &key) {
-                        continue;
-                    }
-                    app.handle_key(&key);
                 }
+                Event::Mouse(mouse) => app.handle_mouse(&mouse),
+                _ => {}
             }
         }
 
@@ -71,8 +83,7 @@ fn handle_global_keys(app: &mut app::App, key: &KeyEvent) -> bool {
         if let KeyCode::Char(ch) = key.code {
             if let Some(digit) = ch.to_digit(10) {
                 if (1..=app::TABS.len() as u32).contains(&digit) {
-                    app.active_tab = (digit - 1) as usize;
-                    app.selected = 0;
+                    app.switch_tab((digit - 1) as usize);
                     return true;
                 }
             }
@@ -83,15 +94,13 @@ fn handle_global_keys(app: &mut app::App, key: &KeyEvent) -> bool {
         // (the kitty protocol is not enabled), so treat both.
         let tab_owned_by_view = app.active_tab == 4 || app.active_tab == 8;
         if key.code == KeyCode::Tab && !tab_owned_by_view {
-            app.active_tab = (app.active_tab + 1) % app::TABS.len();
-            app.selected = 0;
+            app.switch_tab((app.active_tab + 1) % app::TABS.len());
             return true;
         }
         if (key.code == KeyCode::BackTab)
             || (key.code == KeyCode::Tab && key.modifiers.contains(KeyModifiers::SHIFT))
         {
-            app.active_tab = (app.active_tab + app::TABS.len() - 1) % app::TABS.len();
-            app.selected = 0;
+            app.switch_tab((app.active_tab + app::TABS.len() - 1) % app::TABS.len());
             return true;
         }
         if key.code == KeyCode::Char('?') {

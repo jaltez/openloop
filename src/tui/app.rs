@@ -4,11 +4,11 @@ use std::time::Instant;
 use super::theme::Theme;
 use crate::core as c;
 use c::types::*;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Block, Borders, Paragraph, TableState};
 use ratatui::Frame;
 
 pub const TABS: [(&str, &str); 9] = [
@@ -22,6 +22,24 @@ pub const TABS: [(&str, &str); 9] = [
     ("8", "Events"),
     ("9", "Logs"),
 ];
+
+/// Destructive or git-mutating actions gated behind the shared confirm modal.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConfirmAction {
+    DeleteTask { task_id: String },
+    RemoveProject { alias: String },
+    ApplyPromotion { task_id: String },
+    RejectPromotion { task_id: String },
+    StopDaemon,
+    RestartDaemon,
+}
+
+/// Option-picker state (task status selection).
+pub struct PickerState {
+    pub task_id: String,
+    pub options: Vec<TaskStatus>,
+    pub selected: usize,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum InputMode {
@@ -85,7 +103,20 @@ pub struct App {
     pub run_output: Vec<String>,
     pub run_running: bool,
     pub run_exit_code: Option<i32>,
+
+    // Redesign state
+    pub table_state: TableState,
+    pub confirm: Option<ConfirmAction>,
+    pub picker: Option<PickerState>,
+    pub global_config: GlobalConfig,
+    pub global_config_refreshed: Instant,
+    pub tab_spans: Vec<(u16, u16)>,
+    pub tick_running: bool,
 }
+
+/// Result of a background worker tick triggered from the Service view.
+pub static TICK_RESULT: parking_lot::Mutex<Option<Result<String, String>>> =
+    parking_lot::Mutex::new(None);
 
 pub fn elapsed_str(from: &str) -> String {
     let ms = c::now_millis() - c::parse_iso_millis(from);
@@ -134,6 +165,14 @@ impl App {
             config_panel: false,
             config_entries: Vec::new(),
             config_refreshed: Instant::now() - std::time::Duration::from_secs(10),
+            table_state: TableState::default(),
+            confirm: None,
+            picker: None,
+            global_config: c::global_config::load_global_config(None)
+                .unwrap_or_else(|_| c::global_config::default_global_config()),
+            global_config_refreshed: Instant::now(),
+            tab_spans: Vec::new(),
+            tick_running: false,
             input_mode: InputMode::None,
             input_value: String::new(),
             input_pending_alias: String::new(),
@@ -162,6 +201,18 @@ impl App {
         self.input_mode != InputMode::None
     }
 
+    /// Switch tab and reset per-tab list state (selection + scroll offset).
+    pub fn switch_tab(&mut self, tab: usize) {
+        self.active_tab = tab.min(TABS.len() - 1);
+        self.selected = 0;
+        self.table_state = TableState::default();
+    }
+
+    /// Sync the shared TableState with `selected` before rendering.
+    fn sync_table_state(&mut self) {
+        self.table_state.select(Some(self.selected));
+    }
+
     pub fn should_quit(&self) -> bool {
         self.quit_requested
     }
@@ -183,13 +234,35 @@ impl App {
             }
             self.projects_refreshed = Instant::now();
         }
+        // Global config feeds the dashboard/service cards (budget limit,
+        // tick interval); it changes rarely.
+        if self.global_config_refreshed.elapsed() >= std::time::Duration::from_secs(10) {
+            if let Ok(config) = c::global_config::load_global_config(None) {
+                self.global_config = config;
+                if self.active_alias.is_none() {
+                    self.active_alias = self.global_config.active_project_alias.clone();
+                }
+            }
+            self.global_config_refreshed = Instant::now();
+        }
+        // Background worker tick from the Service view reports here.
+        if self.tick_running {
+            if let Some(result) = TICK_RESULT.lock().take() {
+                self.tick_running = false;
+                self.daemon_refreshed = Instant::now() - std::time::Duration::from_secs(10);
+                match result {
+                    Ok(msg) => self.status_msg = msg,
+                    Err(e) => self.status_msg = format!("Tick failed: {e}"),
+                }
+            }
+        }
         // Tab-gated polling: only the data source the active view renders is
         // refreshed (TS polls per-view via onCleanup; the port used to poll
         // everything on every tab).
         let tab_needs_ledger = self.active_tab == 2; // Tasks
         let tab_needs_promotions = self.active_tab == 6; // Promotions
         let tab_needs_config = self.active_tab == 4; // Config
-        let tab_needs_events = self.active_tab == 7; // Events
+        let tab_needs_events = self.active_tab == 0 || self.active_tab == 7; // Dashboard / Events
         let tab_needs_logs = self.active_tab == 3 || self.active_tab == 8; // Service / Logs
         if let Some(path) = self.active_project_path() {
             if tab_needs_ledger
@@ -338,6 +411,7 @@ impl App {
             .split(frame.area());
 
         self.render_tab_bar(frame, chunks[0]);
+        self.sync_table_state();
         match self.active_tab {
             0 => self.render_dashboard(frame, chunks[1]),
             1 => self.render_projects(frame, chunks[1]),
@@ -350,17 +424,101 @@ impl App {
             _ => self.render_logs(frame, chunks[1]),
         }
         self.render_status_bar(frame, chunks[2]);
+        // Central overlays: help > confirm > picker > input.
         if self.show_help {
             self.render_help(frame, frame.area());
+        } else if let Some(action) = self.confirm.clone() {
+            let (title, message) = match &action {
+                ConfirmAction::DeleteTask { task_id } => (
+                    "Delete task",
+                    format!("Delete task {task_id} from the ledger? This cannot be undone."),
+                ),
+                ConfirmAction::RemoveProject { alias } => (
+                    "Remove project",
+                    format!("Unlink project '{alias}'? Files on disk are not touched."),
+                ),
+                ConfirmAction::ApplyPromotion { task_id } => (
+                    "Apply promotion",
+                    format!(
+                        "Apply promotion for {task_id}? This fast-forward merges the task branch into the base branch."
+                    ),
+                ),
+                ConfirmAction::RejectPromotion { task_id } => (
+                    "Reject promotion",
+                    format!("Mark the promotion artifact for {task_id} as rejected?"),
+                ),
+                ConfirmAction::StopDaemon => (
+                    "Stop daemon",
+                    "Stop the daemon? In-flight agent runs are terminated.".to_string(),
+                ),
+                ConfirmAction::RestartDaemon => (
+                    "Restart daemon",
+                    "Restart the daemon now?".to_string(),
+                ),
+            };
+            super::ui::confirm_modal(frame, frame.area(), &self.theme, title, &message);
+        } else if let Some(picker) = &self.picker {
+            let options: Vec<String> = picker
+                .options
+                .iter()
+                .map(|s| s.as_str().to_string())
+                .collect();
+            super::ui::picker_modal(
+                frame,
+                frame.area(),
+                &self.theme,
+                "Set task status",
+                &options,
+                picker.selected,
+            );
+        } else {
+            self.render_input_modal(frame, frame.area());
         }
     }
 
-    fn render_tab_bar(&self, frame: &mut Frame, area: Rect) {
+    /// Shared input modal for every text field in the app.
+    fn render_input_modal(&self, frame: &mut Frame, area: Rect) {
+        let title = match self.input_mode {
+            InputMode::None => return,
+            InputMode::AddProjectAlias | InputMode::AddProjectPath => "Add project",
+            InputMode::AddTaskTitle => "Add task",
+            InputMode::EditConfigValue => "Edit config",
+            InputMode::RunPrompt | InputMode::RunModel => "Agent run",
+        };
+        let label = match self.input_mode {
+            InputMode::AddProjectAlias => "Alias for the new project:",
+            InputMode::AddProjectPath => "Path to the repository:",
+            InputMode::AddTaskTitle => "Task title:",
+            InputMode::EditConfigValue => "New value:",
+            InputMode::RunPrompt => "Prompt:",
+            InputMode::RunModel => "Model (empty = default):",
+            InputMode::None => unreachable!(),
+        };
+        let mut title = title.to_string();
+        if self.input_mode == InputMode::EditConfigValue {
+            if let Some((key, _, _)) = self.config_entries.get(
+                self.selected
+                    .min(self.config_entries.len().saturating_sub(1)),
+            ) {
+                title = format!("Edit config — {key}");
+            }
+        }
+        super::ui::input_modal(frame, area, &self.theme, &title, label, &self.input_value);
+    }
+
+    fn render_tab_bar(&mut self, frame: &mut Frame, area: Rect) {
+        const ICONS: [&str; 9] = ["◆", "▤", "☑", "⚙", "⚌", "▶", "⇧", "⌁", "≡"];
         let mut spans: Vec<Span> = Vec::new();
-        for (index, (key, label)) in TABS.iter().enumerate() {
+        let mut spans_tab: Vec<(u16, u16)> = Vec::new();
+        let mut column: u16 = area.x;
+        for (index, (_key, label)) in TABS.iter().enumerate() {
             let selected = index == self.active_tab;
+            let text = format!(" {} {} ", ICONS[index], label);
+            let start = column;
+            column += text.chars().count() as u16;
+            spans_tab.push((start, column));
             spans.push(Span::styled(
-                format!("{key} {label}  "),
+                text.clone(),
                 Style::default()
                     .fg(if selected {
                         self.theme.accent_bright
@@ -378,7 +536,21 @@ impl App {
                         Modifier::empty()
                     }),
             ));
+            // Group separator after Dashboard (overview) and Run (operate).
+            if index == 0 || index == 5 {
+                spans.push(Span::styled(
+                    " │ ",
+                    Style::default()
+                        .fg(self.theme.border)
+                        .bg(self.theme.bg_panel),
+                ));
+                column += 3;
+            } else {
+                spans.push(Span::styled(" ", Style::default().bg(self.theme.bg_panel)));
+                column += 1;
+            }
         }
+        self.tab_spans = spans_tab;
         frame.render_widget(
             Paragraph::new(Line::from(spans)).style(Style::default().bg(self.theme.bg_panel)),
             area,
@@ -437,51 +609,81 @@ impl App {
                     .fg(self.theme.accent)
                     .add_modifier(Modifier::BOLD),
             ));
-        let inner = centered_rect(area, 50, 18);
+        let inner = centered_rect(area, 64, 26);
         frame.render_widget(ratatui::widgets::Clear, inner);
-        let lines = vec![
-            Line::from(Span::styled(
-                "1-9  Jump to tab",
-                Style::default().fg(self.theme.text),
-            )),
-            Line::from(Span::styled(
-                "Tab  Next tab",
-                Style::default().fg(self.theme.text),
-            )),
-            Line::from(Span::styled(
-                "S-Tab  Previous tab",
-                Style::default().fg(self.theme.text),
-            )),
-            Line::from(Span::styled(
-                "↑/↓ j/k  Navigate lists",
-                Style::default().fg(self.theme.text),
-            )),
-            Line::from(Span::styled(
-                "Enter  Select / confirm",
-                Style::default().fg(self.theme.text),
-            )),
-            Line::from(Span::styled(
-                "Esc  Cancel / back",
-                Style::default().fg(self.theme.text),
-            )),
-            Line::from(Span::styled(
-                "?  Toggle this help",
-                Style::default().fg(self.theme.text),
-            )),
-            Line::from(Span::styled(
-                "q  Quit",
-                Style::default().fg(self.theme.text),
-            )),
-            Line::from(""),
-            Line::from(Span::styled(
-                "View-specific shortcuts shown at bottom of each view",
-                Style::default().fg(self.theme.text_dim),
-            )),
-            Line::from(Span::styled(
-                "Press ? to close",
-                Style::default().fg(self.theme.text_dim),
-            )),
+        let global: [(&str, &str); 8] = [
+            ("1-9", "jump to tab"),
+            ("Tab / S-Tab", "next / previous tab"),
+            ("↑/↓ j/k", "navigate lists"),
+            ("Enter", "select / confirm"),
+            ("Esc", "cancel / back"),
+            ("mouse", "wheel scrolls; click tabs to switch"),
+            ("?", "toggle this help"),
+            ("q", "quit"),
         ];
+        let view_keys: [(&str, &[(&str, &str)]); 9] = [
+            ("Dashboard", &[("↑/↓", "navigate")]),
+            (
+                "Projects",
+                &[("Enter", "set active"), ("a", "add"), ("x", "remove")],
+            ),
+            (
+                "Tasks",
+                &[
+                    ("a", "add"),
+                    ("y", "approve"),
+                    ("u", "set status"),
+                    ("f", "filter"),
+                    ("d", "delete"),
+                    ("r", "recover stuck"),
+                ],
+            ),
+            ("Service", &[("↑/↓", "select action"), ("Enter", "execute")]),
+            (
+                "Config",
+                &[
+                    ("Tab", "global/project"),
+                    ("Enter", "edit"),
+                    ("R", "reload"),
+                ],
+            ),
+            ("Run", &[("Ctrl+R", "new run")]),
+            (
+                "Promotions",
+                &[("Enter", "view artifact"), ("a", "apply"), ("r", "reject")],
+            ),
+            ("Events", &[("s", "cycle since"), ("p", "project filter")]),
+            ("Logs", &[("Tab", "daemon/runs"), ("↑/↓", "select file")]),
+        ];
+        let mut lines: Vec<Line> = Vec::new();
+        for (key, label) in global {
+            lines.push(Line::from(vec![
+                Span::styled(format!("{key:<14}"), Style::default().fg(self.theme.accent)),
+                Span::styled(label.to_string(), Style::default().fg(self.theme.text)),
+            ]));
+        }
+        lines.push(Line::from(""));
+        for (view, keys) in view_keys {
+            let mut spans = vec![Span::styled(
+                format!("{view:<11}"),
+                Style::default().fg(self.theme.accent_bright),
+            )];
+            for (index, (key, label)) in keys.iter().enumerate() {
+                if index > 0 {
+                    spans.push(Span::raw("  ·  "));
+                }
+                spans.push(Span::styled(
+                    format!("[{key}] {label}"),
+                    Style::default().fg(self.theme.text),
+                ));
+            }
+            lines.push(Line::from(spans));
+        }
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "Press ? to close",
+            Style::default().fg(self.theme.text_dim),
+        )));
         frame.render_widget(Paragraph::new(lines).block(block), inner);
     }
 
@@ -522,6 +724,16 @@ impl App {
     // -----------------------------------------------------------------------
 
     pub fn handle_key(&mut self, key: &KeyEvent) {
+        // Confirmation modal captures everything.
+        if self.confirm.is_some() {
+            self.handle_confirm_key(key);
+            return;
+        }
+        // Picker modal captures everything.
+        if self.picker.is_some() {
+            self.handle_picker_key(key);
+            return;
+        }
         // Input mode captures everything.
         match self.input_mode {
             InputMode::None => {}
@@ -551,14 +763,7 @@ impl App {
     }
 
     fn move_selection(&mut self, delta: i32) {
-        let len = match self.active_tab {
-            0 | 1 => self.projects.len(),
-            2 => self.filtered_tasks().len(),
-            7 => self.events.len(),
-            _ if self.active_tab == 8 && self.log_tab => self.run_files.len(),
-            4 => self.config_entries.len(),
-            _ => 0,
-        };
+        let len = self.selection_len();
         if len == 0 {
             self.selected = 0;
             return;
@@ -566,6 +771,19 @@ impl App {
         let current = self.selected as i32;
         let next = (current + delta).clamp(0, len as i32 - 1);
         self.selected = next as usize;
+    }
+
+    fn selection_len(&self) -> usize {
+        match self.active_tab {
+            0 | 1 => self.projects.len(),
+            2 => self.filtered_tasks().len(),
+            3 => super::views::SERVICE_ACTIONS.len(),
+            4 => self.config_entries.len(),
+            6 => self.promotions.len(),
+            7 => self.events.len(),
+            8 if self.log_tab => self.run_files.len(),
+            _ => 0,
+        }
     }
 
     fn handle_input_key(&mut self, key: &KeyEvent) {
@@ -790,29 +1008,33 @@ impl App {
             KeyCode::Enter => {
                 if let Some(project) = self.projects.get(self.selected) {
                     let alias = project.alias.clone();
-                    if let Ok(mut config) = c::global_config::load_global_config(None) {
-                        config.active_project_alias = Some(alias.clone());
-                        if c::global_config::save_global_config(&config, None).is_ok() {
+                    let activated =
+                        c::project_registry::get_project(&alias, None).and_then(|project| {
+                            let mut config = c::global_config::load_global_config(None)?;
+                            config.active_project_alias = Some(project.alias.clone());
+                            c::global_config::save_global_config(&config, None)
+                        });
+                    match activated {
+                        Ok(()) => {
                             self.active_alias = Some(alias.clone());
-                            self.status_msg = format!("Activated: {alias}");
+                            self.global_config_refreshed =
+                                Instant::now() - std::time::Duration::from_secs(20);
+                            self.status_msg = format!("Active project: {alias}");
                         }
+                        Err(e) => self.status_msg = e,
                     }
+                }
+            }
+            KeyCode::Char('x') => {
+                if let Some(project) = self.projects.get(self.selected) {
+                    self.confirm = Some(ConfirmAction::RemoveProject {
+                        alias: project.alias.clone(),
+                    });
                 }
             }
             KeyCode::Char('a') => {
                 self.input_mode = InputMode::AddProjectAlias;
                 self.input_value.clear();
-            }
-            KeyCode::Char('d') => {
-                if let Some(project) = self.projects.get(self.selected) {
-                    let alias = project.alias.clone();
-                    if c::project_registry::remove_project(&alias, None).is_ok() {
-                        self.status_msg = format!("Removed: {alias}");
-                        self.selected = 0;
-                        self.projects_refreshed =
-                            Instant::now() - std::time::Duration::from_secs(10);
-                    }
-                }
             }
             KeyCode::Char('i') => {
                 if let Some(project) = self.projects.get(self.selected).cloned() {
@@ -865,17 +1087,74 @@ impl App {
                 self.input_value.clear();
             }
             KeyCode::Char('d') => {
-                if let (Some(path), Some(task)) = (
-                    self.active_project_path(),
-                    self.filtered_tasks().get(self.selected),
-                ) {
-                    let task_id = task.id.clone();
-                    if c::task_ledger::remove_task(&path, &task_id).is_ok() {
-                        self.status_msg = format!("Removed: {task_id}");
-                        self.selected = 0;
+                if let Some(task) = self.filtered_tasks().get(self.selected) {
+                    self.confirm = Some(ConfirmAction::DeleteTask {
+                        task_id: task.id.clone(),
+                    });
+                }
+            }
+            KeyCode::Char('y') => {
+                let Some(task) = self.filtered_tasks().get(self.selected).cloned() else {
+                    return;
+                };
+                if task.status != TaskStatus::AwaitingApproval {
+                    self.status_msg = format!(
+                        "Task {} is not awaiting approval (current: {})",
+                        task.id,
+                        task.status.as_str()
+                    );
+                    return;
+                }
+                let Some(path) = self.active_project_path() else {
+                    return;
+                };
+                let result = c::task_ledger::with_task_ledger(&path, |ledger| {
+                    let found = ledger
+                        .tasks
+                        .iter_mut()
+                        .find(|t| t.id == task.id)
+                        .ok_or_else(|| format!("Task {} not found", task.id))?;
+                    if found.status != TaskStatus::AwaitingApproval {
+                        return Err(format!("Task {} is no longer awaiting approval", found.id));
+                    }
+                    found.status = TaskStatus::Ready;
+                    let mut notes = found.notes.clone().unwrap_or_default();
+                    notes.push("Approved via TUI.".to_string());
+                    found.notes = Some(notes);
+                    found.updated_at = c::now_iso();
+                    Ok(found.id.clone())
+                });
+                match result {
+                    Ok(id) => {
+                        self.status_msg = format!("Approved {id} — now ready for implementation");
                         self.ledger_refreshed = Instant::now() - std::time::Duration::from_secs(10);
                     }
+                    Err(e) => self.status_msg = e,
                 }
+            }
+            KeyCode::Char('u') => {
+                let Some(task) = self
+                    .filtered_tasks()
+                    .get(self.selected)
+                    .map(|task| (task.id.clone(), task.status))
+                else {
+                    return;
+                };
+                let (task_id, task_status) = task;
+                let options = vec![
+                    TaskStatus::Proposed,
+                    TaskStatus::Planned,
+                    TaskStatus::Ready,
+                    TaskStatus::AwaitingApproval,
+                    TaskStatus::Blocked,
+                    TaskStatus::Failed,
+                    TaskStatus::Done,
+                ];
+                self.picker = Some(PickerState {
+                    task_id,
+                    selected: options.iter().position(|s| *s == task_status).unwrap_or(0),
+                    options,
+                });
             }
             KeyCode::Char('r') => {
                 if let Some(path) = self.active_project_path() {
@@ -905,7 +1184,7 @@ impl App {
     }
 
     fn handle_service_key(&mut self, key: &KeyEvent) {
-        const ACTIONS: [&str; 3] = ["Pause", "Resume", "View Logs"];
+        const ACTIONS: [&str; 7] = super::views::SERVICE_ACTIONS;
         match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
                 self.service_action = self.service_action.saturating_sub(1);
@@ -914,17 +1193,62 @@ impl App {
                 self.service_action = (self.service_action + 1).min(ACTIONS.len() - 1);
             }
             KeyCode::Enter => {
-                let action = ACTIONS[self.service_action.min(2)];
-                if action == "Pause" {
-                    if c::daemon_state::pause_daemon(None).is_ok() {
-                        self.status_msg = "Daemon paused".to_string();
+                let action = ACTIONS[self.service_action.min(ACTIONS.len() - 1)];
+                match action {
+                    "Start daemon" => {
+                        match c::service_control::start_service() {
+                            Ok(msg) => self.status_msg = msg,
+                            Err(e) => self.status_msg = e,
+                        }
+                        self.daemon_refreshed = Instant::now() - std::time::Duration::from_secs(10);
                     }
-                } else if action == "Resume" {
-                    if c::daemon_state::resume_daemon(None).is_ok() {
-                        self.status_msg = "Daemon resumed".to_string();
+                    "Stop daemon" => {
+                        self.confirm = Some(ConfirmAction::StopDaemon);
                     }
-                } else {
-                    self.log_refreshed = Instant::now() - std::time::Duration::from_secs(10);
+                    "Restart daemon" => {
+                        self.confirm = Some(ConfirmAction::RestartDaemon);
+                    }
+                    "Pause" => {
+                        if c::daemon_state::pause_daemon(None).is_ok() {
+                            self.status_msg = "Daemon paused".to_string();
+                        }
+                    }
+                    "Resume" => {
+                        if c::daemon_state::resume_daemon(None).is_ok() {
+                            self.status_msg = "Daemon resumed".to_string();
+                        }
+                    }
+                    "Run one iteration now" => {
+                        if self.tick_running {
+                            self.status_msg = "A tick is already running".to_string();
+                        } else {
+                            self.tick_running = true;
+                            self.status_msg = "Running one worker iteration…".to_string();
+                            std::thread::spawn(|| {
+                                let result =
+                                    c::worker::run_worker_tick(&c::now_iso()).map(|state| {
+                                        format!(
+                                            "Tick done — {} projects, current run: {}",
+                                            state.projects.len(),
+                                            state
+                                                .current_run
+                                                .as_ref()
+                                                .map(|r| r
+                                                    .task_id
+                                                    .clone()
+                                                    .unwrap_or(r.mode.clone()))
+                                                .unwrap_or_else(|| "none".into())
+                                        )
+                                    });
+                                TICK_RESULT.lock().replace(result);
+                            });
+                        }
+                    }
+                    _ => {
+                        // View daemon logs: jump to the Logs tab.
+                        self.switch_tab(8);
+                        self.log_refreshed = Instant::now() - std::time::Duration::from_secs(10);
+                    }
                 }
             }
             _ => {}
@@ -990,33 +1314,16 @@ impl App {
             }
             KeyCode::Char('a') => {
                 if let Some(item) = self.promotions.get(self.selected) {
-                    let task_id = item.artifact.task_id.clone();
-                    match c::promotion_queue::apply_promotion_artifact(&path, &task_id, None) {
-                        Ok(_) => {
-                            self.status_msg = format!("Applied: {task_id}");
-                            self.promotions_refreshed =
-                                Instant::now() - std::time::Duration::from_secs(10);
-                        }
-                        Err(e) => self.status_msg = e,
-                    }
+                    self.confirm = Some(ConfirmAction::ApplyPromotion {
+                        task_id: item.artifact.task_id.clone(),
+                    });
                 }
             }
             KeyCode::Char('r') => {
                 if let Some(item) = self.promotions.get(self.selected) {
-                    let task_id = item.artifact.task_id.clone();
-                    match c::promotion_queue::update_promotion_artifact(
-                        &path,
-                        &task_id,
-                        PromotionArtifactStatus::Rejected,
-                        None,
-                    ) {
-                        Ok(_) => {
-                            self.status_msg = format!("Rejected: {task_id}");
-                            self.promotions_refreshed =
-                                Instant::now() - std::time::Duration::from_secs(10);
-                        }
-                        Err(e) => self.status_msg = e,
-                    }
+                    self.confirm = Some(ConfirmAction::RejectPromotion {
+                        task_id: item.artifact.task_id.clone(),
+                    });
                 }
             }
             _ => {}
@@ -1045,6 +1352,184 @@ impl App {
         if key.code == KeyCode::Tab {
             self.log_tab = !self.log_tab;
             self.selected = 0;
+            self.table_state = TableState::default();
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Confirmation + picker + mouse
+    // -----------------------------------------------------------------------
+
+    fn handle_confirm_key(&mut self, key: &KeyEvent) {
+        let Some(action) = self.confirm.take() else {
+            return;
+        };
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('n') => {
+                self.status_msg = "Cancelled".to_string();
+            }
+            KeyCode::Char('y') | KeyCode::Enter => self.execute_confirmed(action),
+            _ => {
+                // Any other key re-arms the modal.
+                self.confirm = Some(action);
+            }
+        }
+    }
+
+    fn execute_confirmed(&mut self, action: ConfirmAction) {
+        match action {
+            ConfirmAction::DeleteTask { task_id } => {
+                if let Some(path) = self.active_project_path() {
+                    match c::task_ledger::remove_task(&path, &task_id) {
+                        Ok(()) => {
+                            self.status_msg = format!("Removed: {task_id}");
+                            self.selected = 0;
+                            self.ledger_refreshed =
+                                Instant::now() - std::time::Duration::from_secs(10);
+                        }
+                        Err(e) => self.status_msg = e,
+                    }
+                }
+            }
+            ConfirmAction::RemoveProject { alias } => {
+                match c::project_registry::remove_project(&alias, None) {
+                    Ok(()) => {
+                        self.status_msg = format!("Removed project: {alias}");
+                        if self.active_alias.as_deref() == Some(alias.as_str()) {
+                            self.active_alias = None;
+                        }
+                        self.selected = 0;
+                        self.projects_refreshed =
+                            Instant::now() - std::time::Duration::from_secs(10);
+                    }
+                    Err(e) => self.status_msg = e,
+                }
+            }
+            ConfirmAction::ApplyPromotion { task_id } => {
+                if let Some(path) = self.active_project_path() {
+                    match c::promotion_queue::apply_promotion_artifact(&path, &task_id, None) {
+                        Ok(_) => {
+                            self.status_msg = format!("Applied: {task_id}");
+                            self.promotions_refreshed =
+                                Instant::now() - std::time::Duration::from_secs(10);
+                        }
+                        Err(e) => self.status_msg = e,
+                    }
+                }
+            }
+            ConfirmAction::RejectPromotion { task_id } => {
+                if let Some(path) = self.active_project_path() {
+                    match c::promotion_queue::update_promotion_artifact(
+                        &path,
+                        &task_id,
+                        PromotionArtifactStatus::Rejected,
+                        None,
+                    ) {
+                        Ok(_) => {
+                            self.status_msg = format!("Rejected: {task_id}");
+                            self.promotions_refreshed =
+                                Instant::now() - std::time::Duration::from_secs(10);
+                        }
+                        Err(e) => self.status_msg = e,
+                    }
+                }
+            }
+            ConfirmAction::StopDaemon => {
+                match c::service_control::stop_service() {
+                    Ok(msg) => self.status_msg = msg,
+                    Err(e) => self.status_msg = e,
+                }
+                self.daemon_refreshed = Instant::now() - std::time::Duration::from_secs(10);
+            }
+            ConfirmAction::RestartDaemon => {
+                self.status_msg = "Restarting daemon…".to_string();
+                match c::service_control::restart_service() {
+                    Ok(msg) => self.status_msg = msg,
+                    Err(e) => self.status_msg = e,
+                }
+                self.daemon_refreshed = Instant::now() - std::time::Duration::from_secs(10);
+            }
+        }
+    }
+
+    fn handle_picker_key(&mut self, key: &KeyEvent) {
+        let Some(picker) = self.picker.as_mut() else {
+            return;
+        };
+        match key.code {
+            KeyCode::Esc => {
+                self.picker = None;
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                picker.selected = picker.selected.saturating_sub(1);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                picker.selected = (picker.selected + 1).min(picker.options.len() - 1);
+            }
+            KeyCode::Enter => {
+                let picker_state = self.picker.take().unwrap_or_else(|| PickerState {
+                    task_id: String::new(),
+                    options: Vec::new(),
+                    selected: 0,
+                });
+                let Some(path) = self.active_project_path() else {
+                    return;
+                };
+                let status = picker_state.options[picker_state.selected];
+                match c::task_ledger::update_task(
+                    &path,
+                    &picker_state.task_id,
+                    &c::task_ledger::TaskPatch {
+                        status: Some(status),
+                        ..Default::default()
+                    },
+                ) {
+                    Ok(task) => {
+                        self.status_msg = format!("Task {} → {}", task.id, task.status.as_str());
+                        self.ledger_refreshed = Instant::now() - std::time::Duration::from_secs(10);
+                    }
+                    Err(e) => self.status_msg = e,
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Mouse support: wheel scrolls the focused list, clicks on the tab bar
+    /// switch views.
+    pub fn handle_mouse(&mut self, mouse: &MouseEvent) {
+        match mouse.kind {
+            MouseEventKind::ScrollUp => {
+                if self.picker.is_some() {
+                    if let Some(picker) = self.picker.as_mut() {
+                        picker.selected = picker.selected.saturating_sub(1);
+                    }
+                } else if !self.input_capturing() && self.confirm.is_none() {
+                    self.move_selection(-1);
+                }
+            }
+            MouseEventKind::ScrollDown => {
+                if self.picker.is_some() {
+                    if let Some(picker) = self.picker.as_mut() {
+                        picker.selected =
+                            (picker.selected + 1).min(picker.options.len().saturating_sub(1));
+                    }
+                } else if !self.input_capturing() && self.confirm.is_none() {
+                    self.move_selection(1);
+                }
+            }
+            MouseEventKind::Down(_)
+                if mouse.row == 0 && !self.input_capturing() && self.picker.is_none() =>
+            {
+                if let Some(index) = self
+                    .tab_spans
+                    .iter()
+                    .position(|(start, end)| mouse.column >= *start && mouse.column < *end)
+                {
+                    self.switch_tab(index);
+                }
+            }
+            _ => {}
         }
     }
 }
