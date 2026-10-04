@@ -52,6 +52,21 @@ redesign and the design contract the views now follow.
 - Per-view key hints rendered as `[key] label` chips at the bottom of each
   view (single authoritative place per view, also mirrored in `?` help).
 
+### Input ergonomics
+- **Directory browser** replaces free-text path entry for `project add`:
+  starts at `$HOME`, filter-first (every typed character narrows the
+  listing; navigation is arrow-only so typing never jumps), `→` descends,
+  `←`/Backspace goes up (Backspace trims the filter first), `Ctrl+H`
+  toggles hidden files, `Enter` accepts the listed directory. The accepted
+  path is resolved and normalized exactly like the CLI.
+- **Input caret**: every text input renders a `▏` caret at the edit point.
+- **Generic picker modal**: reused for task status, events project filter,
+  and any future option list.
+- **Service `[b]`** sets the daily budget in place (validated `f64 >= 0`)
+  instead of navigating through the Config tab.
+- **Responsive tab bar**: falls back to icon+number chips when labels
+  would overflow narrow terminals.
+
 ### Components (`src/tui/ui.rs`)
 - `panel()` — rounded, padded, titled block used by every view.
 - `stat_card()` — label + big value + optional footnote, used for the

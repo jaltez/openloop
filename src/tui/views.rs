@@ -1230,7 +1230,7 @@ pub fn events(app: &mut App, frame: &mut Frame, area: Rect) {
             &[
                 ("↑/↓", "navigate"),
                 ("s", "cycle since"),
-                ("p", "toggle project filter"),
+                ("p", "pick project"),
             ],
         ),
         chunks[1],

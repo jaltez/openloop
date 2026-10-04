@@ -35,11 +35,26 @@ pub enum ConfirmAction {
     ReinitProject { alias: String },
 }
 
-/// Option-picker state (task status selection).
+/// What a picker modal does when the user confirms an option.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PickerAction {
+    SetTaskStatus { task_id: String },
+    SetEventsProject,
+}
+
+/// Option-picker state shared by every picking surface.
 pub struct PickerState {
-    pub task_id: String,
-    pub options: Vec<TaskStatus>,
+    pub action: PickerAction,
+    pub options: Vec<String>,
     pub selected: usize,
+}
+
+/// Directory browser state for picking a repository path.
+pub struct BrowserState {
+    pub cwd: std::path::PathBuf,
+    pub selected: usize,
+    pub show_hidden: bool,
+    pub filter: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -51,6 +66,7 @@ pub enum InputMode {
     EditConfigValue,
     RunPrompt,
     RunModel,
+    SetBudget,
 }
 
 pub struct App {
@@ -112,6 +128,8 @@ pub struct App {
     pub git_states_refreshed: Instant,
     // Project config (agent/model) for the selected project, Projects tab.
     pub project_detail: Option<(String, c::types::ProjectConfig)>,
+    // Directory browser (project add path selection).
+    pub browser: Option<BrowserState>,
     pub confirm: Option<ConfirmAction>,
     pub picker: Option<PickerState>,
     pub global_config: GlobalConfig,
@@ -174,6 +192,7 @@ impl App {
             git_states: Vec::new(),
             git_states_refreshed: Instant::now() - std::time::Duration::from_secs(10),
             project_detail: None,
+            browser: None,
             table_state: TableState::default(),
             confirm: None,
             picker: None,
@@ -506,6 +525,24 @@ impl App {
                 ),
             };
             super::ui::confirm_modal(frame, frame.area(), &self.theme, title, &message);
+        } else if let Some(browser) = &self.browser {
+            let entries = self.browser_entries();
+            let cwd = browser.cwd.clone();
+            let selected = browser.selected;
+            let filter = browser.filter.clone();
+            let show_hidden = browser.show_hidden;
+            super::ui::browser_modal(
+                frame,
+                frame.area(),
+                &self.theme,
+                super::ui::BrowserView {
+                    cwd: &cwd,
+                    entries: &entries,
+                    selected,
+                    filter: &filter,
+                    show_hidden,
+                },
+            );
         } else if let Some(picker) = &self.picker {
             let options: Vec<String> = picker
                 .options
@@ -527,12 +564,17 @@ impl App {
 
     /// Shared input modal for every text field in the app.
     fn render_input_modal(&self, frame: &mut Frame, area: Rect) {
+        if self.input_mode == InputMode::AddProjectPath {
+            // The path is picked visually; the browser modal renders instead.
+            return;
+        }
         let title = match self.input_mode {
             InputMode::None => return,
             InputMode::AddProjectAlias | InputMode::AddProjectPath => "Add project",
             InputMode::AddTaskTitle => "Add task",
             InputMode::EditConfigValue => "Edit config",
             InputMode::RunPrompt | InputMode::RunModel => "Agent run",
+            InputMode::SetBudget => "Set daily budget",
         };
         let label = match self.input_mode {
             InputMode::AddProjectAlias => "Alias for the new project:",
@@ -541,6 +583,7 @@ impl App {
             InputMode::EditConfigValue => "New value:",
             InputMode::RunPrompt => "Prompt:",
             InputMode::RunModel => "Model (empty = default):",
+            InputMode::SetBudget => "Daily budget limit in USD (0 = no limit):",
             InputMode::None => unreachable!(),
         };
         let mut title = title.to_string();
@@ -560,9 +603,23 @@ impl App {
         let mut spans: Vec<Span> = Vec::new();
         let mut spans_tab: Vec<(u16, u16)> = Vec::new();
         let mut column: u16 = area.x;
-        for (index, (_key, label)) in TABS.iter().enumerate() {
+        // Compact mode: drop labels when the full bar would not fit.
+        // Exact width: every tab renders text + one gap space; the two group
+        // separators (" │ ") add two extra characters over that gap.
+        let full_width: usize = TABS
+            .iter()
+            .enumerate()
+            .map(|(index, (_, label))| format!(" {} {} ", ICONS[index], label).chars().count() + 1)
+            .sum::<usize>()
+            + 4;
+        let compact = full_width > area.width as usize;
+        for (index, (key, label)) in TABS.iter().enumerate() {
             let selected = index == self.active_tab;
-            let text = format!(" {} {} ", ICONS[index], label);
+            let text = if compact {
+                format!(" {}{} ", key, ICONS[index])
+            } else {
+                format!(" {} {} ", ICONS[index], label)
+            };
             let start = column;
             column += text.chars().count() as u16;
             spans_tab.push((start, column));
@@ -687,7 +744,14 @@ impl App {
                     ("r", "recover stuck"),
                 ],
             ),
-            ("Service", &[("↑/↓", "select action"), ("Enter", "execute")]),
+            (
+                "Service",
+                &[
+                    ("↑/↓", "select action"),
+                    ("Enter", "execute"),
+                    ("b", "set budget"),
+                ],
+            ),
             (
                 "Config",
                 &[
@@ -701,7 +765,7 @@ impl App {
                 "Promotions",
                 &[("Enter", "view artifact"), ("a", "apply"), ("r", "reject")],
             ),
-            ("Events", &[("s", "cycle since"), ("p", "project filter")]),
+            ("Events", &[("s", "cycle since"), ("p", "pick project")]),
             ("Logs", &[("Tab", "daemon/runs"), ("↑/↓", "select file")]),
         ];
         let mut lines: Vec<Line> = Vec::new();
@@ -783,6 +847,11 @@ impl App {
             self.handle_picker_key(key);
             return;
         }
+        // Directory browser captures everything while open.
+        if self.browser.is_some() {
+            self.handle_browser_key(key);
+            return;
+        }
         // Input mode captures everything.
         match self.input_mode {
             InputMode::None => {}
@@ -858,9 +927,21 @@ impl App {
         let value = self.input_value.trim().to_string();
         match self.input_mode.clone() {
             InputMode::AddProjectAlias => {
-                self.input_pending_alias = value;
-                self.input_value.clear();
-                self.input_mode = InputMode::AddProjectPath;
+                if value.is_empty() {
+                    self.status_msg = "Alias is required".to_string();
+                    self.input_mode = InputMode::None;
+                } else {
+                    self.input_pending_alias = value;
+                    self.input_value.clear();
+                    self.input_mode = InputMode::AddProjectPath;
+                    let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
+                    self.browser = Some(BrowserState {
+                        cwd: std::path::PathBuf::from(home),
+                        selected: 0,
+                        show_hidden: false,
+                        filter: String::new(),
+                    });
+                }
             }
             InputMode::AddProjectPath => {
                 let alias = self.input_pending_alias.trim().to_string();
@@ -985,6 +1066,30 @@ impl App {
                 self.run_prompt_value = value;
                 self.input_value.clear();
                 self.input_mode = InputMode::RunModel;
+            }
+            InputMode::SetBudget => {
+                match value.parse::<f64>() {
+                    Ok(amount) if amount >= 0.0 => {
+                        let result =
+                            c::global_config::load_global_config(None).and_then(|mut config| {
+                                config.budgets.daily_cost_usd = amount;
+                                c::global_config::save_global_config(&config, None)
+                            });
+                        match result {
+                            Ok(()) => {
+                                self.status_msg = format!("Daily budget limit set to ${amount:.2}");
+                                self.global_config_refreshed =
+                                    Instant::now() - std::time::Duration::from_secs(20);
+                                self.daemon_refreshed =
+                                    Instant::now() - std::time::Duration::from_secs(10);
+                            }
+                            Err(e) => self.status_msg = e,
+                        }
+                    }
+                    _ => self.status_msg = "Budget must be a number >= 0".to_string(),
+                }
+                self.input_mode = InputMode::None;
+                self.input_value.clear();
             }
             InputMode::RunModel => {
                 let model = if value.is_empty() { None } else { Some(value) };
@@ -1217,7 +1322,7 @@ impl App {
                     return;
                 };
                 let (task_id, task_status) = task;
-                let options = vec![
+                let options = [
                     TaskStatus::Proposed,
                     TaskStatus::Planned,
                     TaskStatus::Ready,
@@ -1226,10 +1331,11 @@ impl App {
                     TaskStatus::Failed,
                     TaskStatus::Done,
                 ];
+                let selected = options.iter().position(|s| *s == task_status).unwrap_or(0);
                 self.picker = Some(PickerState {
-                    task_id,
-                    selected: options.iter().position(|s| *s == task_status).unwrap_or(0),
-                    options,
+                    action: PickerAction::SetTaskStatus { task_id },
+                    options: options.iter().map(|s| s.as_str().to_string()).collect(),
+                    selected,
                 });
             }
             KeyCode::Char('r') => {
@@ -1327,6 +1433,10 @@ impl App {
                     }
                 }
             }
+            KeyCode::Char('b') => {
+                self.input_value = self.global_config.budgets.daily_cost_usd.to_string();
+                self.input_mode = InputMode::SetBudget;
+            }
             _ => {}
         }
     }
@@ -1413,12 +1523,18 @@ impl App {
                 self.events_refreshed = Instant::now() - std::time::Duration::from_secs(10);
             }
             KeyCode::Char('p') => {
-                self.events_project_filter = if self.events_project_filter.is_some() {
-                    None
-                } else {
-                    self.active_alias.clone()
-                };
-                self.events_refreshed = Instant::now() - std::time::Duration::from_secs(10);
+                let mut options = vec!["all".to_string()];
+                options.extend(self.projects.iter().map(|p| p.alias.clone()));
+                let selected = self
+                    .events_project_filter
+                    .as_ref()
+                    .and_then(|current| options.iter().position(|o| o == current))
+                    .unwrap_or(0);
+                self.picker = Some(PickerState {
+                    action: PickerAction::SetEventsProject,
+                    options,
+                    selected,
+                });
             }
             _ => {}
         }
@@ -1547,6 +1663,130 @@ impl App {
         }
     }
 
+    /// Filtered directory listing for the browser: dirs first, then files,
+    /// hidden entries behind the `.` toggle, substring filter applied.
+    pub fn browser_entries(&self) -> Vec<(String, bool)> {
+        let Some(browser) = &self.browser else {
+            return Vec::new();
+        };
+        let mut entries: Vec<(String, bool)> = std::fs::read_dir(&browser.cwd)
+            .map(|read| {
+                read.flatten()
+                    .map(|entry| {
+                        let name = entry.file_name().to_string_lossy().to_string();
+                        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+                        (name, is_dir)
+                    })
+                    .filter(|(name, _)| browser.show_hidden || !name.starts_with('.'))
+                    .filter(|(name, _)| {
+                        browser.filter.is_empty()
+                            || name.to_lowercase().contains(&browser.filter.to_lowercase())
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        entries.sort_by(|a, b| match (a.1, b.1) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.0.to_lowercase().cmp(&b.0.to_lowercase()),
+        });
+        entries
+    }
+
+    fn handle_browser_key(&mut self, key: &KeyEvent) {
+        let entries = self.browser_entries();
+        let len = entries.len();
+        let Some(browser) = self.browser.as_mut() else {
+            return;
+        };
+        match key.code {
+            KeyCode::Esc => {
+                self.browser = None;
+                self.input_mode = InputMode::None;
+                self.status_msg = "Cancelled".to_string();
+            }
+            KeyCode::Up => {
+                browser.selected = browser.selected.saturating_sub(1);
+            }
+            KeyCode::Down => {
+                if len > 0 {
+                    browser.selected = (browser.selected + 1).min(len - 1);
+                }
+            }
+            KeyCode::Right => {
+                // Descend into the highlighted directory.
+                if let Some((name, true)) = entries.get(browser.selected) {
+                    let next = browser.cwd.join(name);
+                    if next.is_dir() {
+                        browser.cwd = next;
+                        browser.selected = 0;
+                        browser.filter.clear();
+                    }
+                }
+            }
+            KeyCode::Left => {
+                if browser.cwd.pop() {
+                    browser.selected = 0;
+                    browser.filter.clear();
+                }
+            }
+            KeyCode::Enter => {
+                // Accept the directory currently being listed.
+                let cwd = browser.cwd.clone();
+                let alias = self.input_pending_alias.trim().to_string();
+                self.browser = None;
+                self.input_mode = InputMode::None;
+                self.input_value.clear();
+                let resolved = std::path::absolute(&cwd)
+                    .map(|p| {
+                        c::fsutil::normalize_lexical_path(&p)
+                            .to_string_lossy()
+                            .to_string()
+                    })
+                    .unwrap_or_else(|_| cwd.to_string_lossy().to_string());
+                match c::project_registry::add_project(&alias, &resolved, None) {
+                    Ok(_) => {
+                        self.status_msg = format!("Added: {alias} -> {resolved}");
+                    }
+                    Err(e) => self.status_msg = e,
+                }
+                self.projects_refreshed = Instant::now() - std::time::Duration::from_secs(10);
+                self.git_states_refreshed = Instant::now() - std::time::Duration::from_secs(10);
+            }
+            // Filter-first: every printable character narrows the listing;
+            // navigation is arrow-only so typing never jumps.
+            KeyCode::Char(ch @ ('.' | '~' | '/'))
+                if !key.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                browser.filter.push(ch);
+                browser.selected = 0;
+            }
+            KeyCode::Backspace => {
+                // Trim the filter first; when empty, go to the parent.
+                if !browser.filter.pop().is_some() && browser.cwd.pop() {
+                    browser.selected = 0;
+                    browser.filter.clear();
+                }
+            }
+            KeyCode::Char(ch) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                browser.filter.push(ch);
+                browser.selected = 0;
+            }
+            KeyCode::Char('h') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                browser.show_hidden = !browser.show_hidden;
+                browser.selected = 0;
+            }
+            _ => {}
+        }
+        // Keep the selection within bounds after filtering.
+        let len = self.browser_entries().len();
+        if let Some(browser) = self.browser.as_mut() {
+            if browser.selected >= len && len > 0 {
+                browser.selected = len - 1;
+            }
+        }
+    }
+
     fn handle_picker_key(&mut self, key: &KeyEvent) {
         let Some(picker) = self.picker.as_mut() else {
             return;
@@ -1562,28 +1802,43 @@ impl App {
                 picker.selected = (picker.selected + 1).min(picker.options.len() - 1);
             }
             KeyCode::Enter => {
-                let picker_state = self.picker.take().unwrap_or_else(|| PickerState {
-                    task_id: String::new(),
-                    options: Vec::new(),
-                    selected: 0,
-                });
-                let Some(path) = self.active_project_path() else {
+                let Some(picker_state) = self.picker.take() else {
                     return;
                 };
-                let status = picker_state.options[picker_state.selected];
-                match c::task_ledger::update_task(
-                    &path,
-                    &picker_state.task_id,
-                    &c::task_ledger::TaskPatch {
-                        status: Some(status),
-                        ..Default::default()
-                    },
-                ) {
-                    Ok(task) => {
-                        self.status_msg = format!("Task {} → {}", task.id, task.status.as_str());
-                        self.ledger_refreshed = Instant::now() - std::time::Duration::from_secs(10);
+                let Some(choice) = picker_state.options.get(picker_state.selected).cloned() else {
+                    return;
+                };
+                match picker_state.action {
+                    PickerAction::SetTaskStatus { task_id } => {
+                        let Some(path) = self.active_project_path() else {
+                            return;
+                        };
+                        let Some(status) = TaskStatus::parse(&choice) else {
+                            self.status_msg = format!("Unknown status: {choice}");
+                            return;
+                        };
+                        match c::task_ledger::update_task(
+                            &path,
+                            &task_id,
+                            &c::task_ledger::TaskPatch {
+                                status: Some(status),
+                                ..Default::default()
+                            },
+                        ) {
+                            Ok(task) => {
+                                self.status_msg =
+                                    format!("Task {} → {}", task.id, task.status.as_str());
+                                self.ledger_refreshed =
+                                    Instant::now() - std::time::Duration::from_secs(10);
+                            }
+                            Err(e) => self.status_msg = e,
+                        }
                     }
-                    Err(e) => self.status_msg = e,
+                    PickerAction::SetEventsProject => {
+                        self.events_project_filter = (choice != "all").then_some(choice.clone());
+                        self.status_msg = format!("Events project: {choice}");
+                        self.events_refreshed = Instant::now() - std::time::Duration::from_secs(10);
+                    }
                 }
             }
             _ => {}

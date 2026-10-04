@@ -128,7 +128,7 @@ pub fn input_modal(
     );
     frame.render_widget(
         Paragraph::new(Span::styled(
-            value.to_string(),
+            format!("{value}▏"),
             Style::default().fg(theme.text),
         )),
         inner[1],
@@ -212,4 +212,120 @@ pub fn picker_modal(
             height: 1,
         },
     );
+}
+
+/// Directory browser modal for picking a repository path. `entries` are
+/// (name, is_dir) pairs already filtered and sorted; `selected` highlights
+/// the current row; `filter` narrows by substring as the user types.
+/// Bundle of browser render inputs (keeps `browser_modal` under the
+/// clippy argument limit).
+pub struct BrowserView<'a> {
+    pub cwd: &'a std::path::Path,
+    pub entries: &'a [(String, bool)],
+    pub selected: usize,
+    pub filter: &'a str,
+    pub show_hidden: bool,
+}
+
+pub fn browser_modal(frame: &mut Frame, area: Rect, theme: &Theme, view: BrowserView<'_>) {
+    let BrowserView {
+        cwd,
+        entries,
+        selected,
+        filter,
+        show_hidden,
+    } = view;
+    let modal = centered(area, 72, 22);
+    frame.render_widget(Clear, modal);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(theme.accent))
+        .title(Span::styled(
+            " Browse — pick the repository directory ",
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        ))
+        .padding(Padding::horizontal(1));
+    let inner = block.inner(modal);
+    frame.render_widget(block, modal);
+
+    let mut lines: Vec<Line> = Vec::new();
+    // Path header, left-truncated so the tail (the discriminating part) stays.
+    let cwd_str = cwd.to_string_lossy().to_string();
+    let header_width = inner.width.saturating_sub(2) as usize;
+    let header: String = if cwd_str.chars().count() > header_width {
+        format!(
+            "…{}",
+            cwd_str
+                .chars()
+                .skip(cwd_str.chars().count() - header_width + 1)
+                .collect::<String>()
+        )
+    } else {
+        cwd_str
+    };
+    lines.push(Line::from(Span::styled(
+        header,
+        Style::default().fg(theme.accent_bright),
+    )));
+    lines.push(Line::from(Span::styled(
+        format!(
+            "{} entr{} · {}hidden files shown",
+            entries.len(),
+            if entries.len() == 1 { "y" } else { "ies" },
+            if show_hidden { "" } else { "no " }
+        ),
+        Style::default().fg(theme.text_dim),
+    )));
+    lines.push(Line::from(""));
+
+    let visible = inner.height.saturating_sub(6) as usize;
+    let offset = selected.saturating_sub(visible.saturating_sub(1));
+    for (index, (name, is_dir)) in entries.iter().enumerate().skip(offset).take(visible.max(1)) {
+        let is_selected = index == selected;
+        let icon = if *is_dir { "▸" } else { " " };
+        let style = Style::default()
+            .fg(if *is_dir { theme.cyan } else { theme.text_dim })
+            .bg(if is_selected {
+                theme.bg_selected
+            } else {
+                ratatui::style::Color::Reset
+            });
+        lines.push(Line::from(Span::styled(
+            format!("{icon} {name}{}", if *is_dir { "/" } else { "" }),
+            style,
+        )));
+    }
+    if entries.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "(no matching entries)",
+            Style::default().fg(theme.text_dim),
+        )));
+    }
+
+    // Filter line + footer hints.
+    let mut footer = vec![Line::from(Span::styled(
+        if filter.is_empty() {
+            "filter: (type to jump)".to_string()
+        } else {
+            format!("filter: {filter}▏")
+        },
+        Style::default().fg(if filter.is_empty() {
+            theme.text_dim
+        } else {
+            theme.yellow
+        }),
+    ))];
+    footer.push(Line::from(Span::styled(
+        "Enter accept dir · → descend · ←/Bs parent · Ctrl+H hidden · Esc cancel · type to filter",
+        Style::default().fg(theme.text_dim),
+    )));
+    let content = Layout::default()
+        .direction(ratatui::layout::Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(2)])
+        .split(inner);
+    frame.render_widget(Paragraph::new(lines), content[0]);
+    frame.render_widget(Paragraph::new(footer), content[1]);
 }
