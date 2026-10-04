@@ -323,11 +323,15 @@ fn spawn_and_wait(
     let stdout_buf = Arc::new(Mutex::new(String::new()));
     let stderr_buf = Arc::new(Mutex::new(String::new()));
 
-    if let Some(handle) = stdout_handle {
-        let buf = stdout_buf.clone();
+    fn spawn_reader<R: std::io::Read + Send + 'static>(
+        handle: Option<R>,
+        buf: Arc<Mutex<String>>,
+    ) -> std::thread::JoinHandle<()> {
         std::thread::spawn(move || {
-            use std::io::Read;
             let mut handle = handle;
+            let Some(handle) = handle.as_mut() else {
+                return;
+            };
             let mut chunk = [0u8; 16384];
             loop {
                 match handle.read(&mut chunk) {
@@ -335,22 +339,11 @@ fn spawn_and_wait(
                     Ok(n) => append_capped(&buf, &String::from_utf8_lossy(&chunk[..n])),
                 }
             }
-        });
+        })
     }
-    if let Some(handle) = stderr_handle {
-        let buf = stderr_buf.clone();
-        std::thread::spawn(move || {
-            use std::io::Read;
-            let mut handle = handle;
-            let mut chunk = [0u8; 16384];
-            loop {
-                match handle.read(&mut chunk) {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => append_capped(&buf, &String::from_utf8_lossy(&chunk[..n])),
-                }
-            }
-        });
-    }
+    let mut readers: Vec<std::thread::JoinHandle<()>> = Vec::new();
+    readers.push(spawn_reader(stdout_handle, stdout_buf.clone()));
+    readers.push(spawn_reader(stderr_handle, stderr_buf.clone()));
 
     let unregister = options
         .project_alias
@@ -366,8 +359,11 @@ fn spawn_and_wait(
                 if let Some(id) = unregister {
                     active_runs::unregister_active_run(id);
                 }
-                // Give reader threads a moment to drain final bytes.
-                std::thread::sleep(Duration::from_millis(20));
+                // Drain until pipe EOF (TS 'close' semantics: all output,
+                // including grandchildren writing after the child exits).
+                for reader in readers.drain(..) {
+                    let _ = reader.join();
+                }
                 return Ok(RawRunResult {
                     exit_code: status.code().unwrap_or(1),
                     stdout: stdout_buf.lock().clone(),
@@ -541,7 +537,8 @@ pub fn resolve_provider(
     let name = agent_type.or(default_provider).unwrap_or("pi").to_string();
 
     if name == "custom" {
-        if let Some(command) = custom_command {
+        // TS truthiness: an empty-string command falls through to pi.
+        if let Some(command) = custom_command.filter(|c| !c.is_empty()) {
             return ResolvedProvider {
                 name: ProviderName::Custom,
                 custom_command: Some(command.to_string()),

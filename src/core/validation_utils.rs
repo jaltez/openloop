@@ -2,13 +2,30 @@ use super::types::*;
 
 pub fn get_configured_validation_names(project_config: &ProjectConfig) -> Vec<ValidationName> {
     let mut configured = Vec::new();
-    if project_config.validation.lint_command.is_some() {
+    // TS truthiness: empty-string commands count as unconfigured, which
+    // feeds the required-validations auto-merge gate.
+    if project_config
+        .validation
+        .lint_command
+        .as_deref()
+        .is_some_and(|c| !c.is_empty())
+    {
         configured.push(ValidationName::Lint);
     }
-    if project_config.validation.test_command.is_some() {
+    if project_config
+        .validation
+        .test_command
+        .as_deref()
+        .is_some_and(|c| !c.is_empty())
+    {
         configured.push(ValidationName::Test);
     }
-    if project_config.validation.typecheck_command.is_some() {
+    if project_config
+        .validation
+        .typecheck_command
+        .as_deref()
+        .is_some_and(|c| !c.is_empty())
+    {
         configured.push(ValidationName::Typecheck);
     }
     configured

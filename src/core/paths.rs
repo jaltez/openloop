@@ -17,7 +17,12 @@ pub fn app_home(override_home: Option<&str>) -> PathBuf {
         .ok()
         .filter(|h| !h.is_empty())
         .or_else(passwd_home)
-        .unwrap_or_else(|| ".".to_string());
+        .unwrap_or_else(|| {
+            // Neither $HOME nor a passwd entry exists (arbitrary-UID
+            // containers). TS (os.homedir) fails loudly here; never
+            // silently relocate state into the current directory.
+            panic!("Cannot determine home directory: set $HOME or $OPENLOOP_HOME.")
+        });
     Path::new(&home).join(".openloop")
 }
 

@@ -118,8 +118,12 @@ fn count_github_tokens(text: &str) -> usize {
             }
             if j - (i + 4) >= 36 {
                 count += 1;
+                i = j;
+            } else {
+                // A nested gh[ps]_ prefix inside the short run must be
+                // retested (TS regex retries every start position).
+                i += 1;
             }
-            i = j;
             continue;
         }
         i += 1;
@@ -378,6 +382,12 @@ fn read_agent_review(
     match parsed {
         Err(_) => Some((Vec::new(), true)),
         Ok(data) => {
+            // TS reads `data.verdict` on the parsed value: a literal JSON
+            // `null` throws there and is caught as malformed — fail closed
+            // identically (other non-objects are benign property reads).
+            if data.is_null() {
+                return Some((Vec::new(), true));
+            }
             let verdict = data.get("verdict").and_then(|v| v.as_str()).unwrap_or("");
             let findings_raw = data.get("findings");
             if verdict != "request-changes" || !findings_raw.map(|f| f.is_array()).unwrap_or(false)

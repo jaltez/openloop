@@ -41,9 +41,30 @@ pub fn read_json_opt<T: DeserializeOwned>(file_path: &Path) -> Option<T> {
 
 /// Pretty JSON payload identical to `JSON.stringify(value, null, 2) + "\n"`.
 pub fn json_payload<T: Serialize>(value: &T) -> String {
-    let mut s = serde_json::to_string_pretty(value).unwrap_or_else(|_| "{}".to_string());
+    // JSON.stringify renders integral floats as integers ("1", not "1.0");
+    // normalize the value tree before serializing for byte parity with the
+    // TS-era state files.
+    let mut raw = serde_json::to_value(value).unwrap_or(serde_json::Value::Null);
+    normalize_integral_floats(&mut raw);
+    let mut s = serde_json::to_string_pretty(&raw).unwrap_or_else(|_| "{}".to_string());
     s.push('\n');
     s
+}
+
+/// Rewrite every finite f64 with a zero fraction as a u64 JSON number.
+fn normalize_integral_floats(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Number(number) => {
+            if let Some(f) = number.as_f64() {
+                if f.is_finite() && f.fract() == 0.0 && f.abs() <= 9.007_199_254_740_992e15 {
+                    *number = serde_json::Number::from(f as i64);
+                }
+            }
+        }
+        serde_json::Value::Array(items) => items.iter_mut().for_each(normalize_integral_floats),
+        serde_json::Value::Object(map) => map.values_mut().for_each(normalize_integral_floats),
+        _ => {}
+    }
 }
 
 /// Atomic write: serialize to a sibling temp file, then rename over the

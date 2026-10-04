@@ -182,7 +182,15 @@ pub fn generate_run_report(
 
 pub fn format_run_report(report: &RunReport) -> String {
     let mut lines: Vec<String> = Vec::new();
-    let date = chrono::Local::now().format("%B %-d, %Y").to_string();
+    // TS rendered new Date(report.generatedAt) — the header is a pure
+    // function of the report, not the formatting wall clock.
+    let date = chrono::DateTime::parse_from_rfc3339(&report.generated_at)
+        .map(|t| {
+            t.with_timezone(&chrono::Local)
+                .format("%B %-d, %Y")
+                .to_string()
+        })
+        .unwrap_or_else(|_| chrono::Local::now().format("%B %-d, %Y").to_string());
 
     lines.push(format!("=== OpenLoop Summary — {date} ==="));
     lines.push(String::new());

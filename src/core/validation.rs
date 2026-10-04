@@ -17,7 +17,8 @@ pub fn run_configured_validations(
 
     let mut results = Vec::new();
     for (name, command) in steps {
-        let Some(command) = command else {
+        // TS truthiness: null AND "" both mean "not configured".
+        let Some(command) = command.as_deref().filter(|c| !c.is_empty()) else {
             continue;
         };
         let timeout_ms = get_timeout_ms();
@@ -31,7 +32,7 @@ pub fn run_configured_validations(
         let exit_code = run_shell_command(project_path, command, timeout_ms)?;
         results.push(ValidationSummary {
             name: super::types::ValidationName::parse(name).unwrap(),
-            command: command.clone(),
+            command: command.to_string(),
             exit_code,
         });
         if exit_code != 0 {

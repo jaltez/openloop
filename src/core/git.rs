@@ -252,10 +252,12 @@ pub fn get_git_diff_stat(
 }
 
 fn count_untracked_file_lines(project_path: &Path, file: &str) -> u64 {
-    match std::fs::read_to_string(project_path.join(file)) {
+    // Read bytes (TS readFile utf8 never rejects): binary untracked files
+    // still count newline occurrences instead of erroring to 0.
+    match std::fs::read(project_path.join(file)) {
         Ok(content) => {
-            let lines = content.split('\n').count();
-            let count = if content.ends_with('\n') {
+            let lines = content.split(|&b| b == b'\n').count();
+            let count = if content.ends_with(b"\n") {
                 lines.saturating_sub(1)
             } else {
                 lines

@@ -73,7 +73,10 @@ fn parse_field(expr: &str, field_index: usize, full_expr: &str) -> Result<HashSe
         let mut value = from;
         while value <= to {
             values.insert(value);
-            value += step;
+            match value.checked_add(step) {
+                Some(next) => value = next,
+                None => break,
+            }
         }
     }
 

@@ -107,13 +107,20 @@ pub fn load_global_config(app_home_override: Option<&str>) -> Result<GlobalConfi
                 .and_then(|v| v.as_str())
                 .map(|v| v.to_string()),
         }),
-        notification_channels: s
-            .get("notificationChannels")
-            .and_then(|v| serde_json::from_value(v.clone()).ok()),
-        hooks: s
-            .get("hooks")
-            .and_then(|v| serde_json::from_value(v.clone()).ok())
-            .or_else(|| Some(Vec::new())),
+        // A config the TS CLI legitimately wrote (e.g. a fractional
+        // timeoutSeconds) must surface as a load error, not be silently
+        // dropped here and then erased by the next save — that is data loss.
+        notification_channels: match s.get("notificationChannels") {
+            Some(v) => Some(
+                serde_json::from_value(v.clone())
+                    .map_err(|e| format!("notificationChannels: {e}"))?,
+            ),
+            None => None,
+        },
+        hooks: match s.get("hooks") {
+            Some(v) => Some(serde_json::from_value(v.clone()).map_err(|e| format!("hooks: {e}"))?),
+            None => Some(Vec::new()),
+        },
         dashboard: Some(DashboardConfig {
             port: {
                 let raw_port = s

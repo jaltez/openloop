@@ -533,19 +533,30 @@ fn next_no_progress_count(notes: &[String], key: &str) -> u32 {
 }
 
 fn sanitize_observation_key(value: &str) -> String {
+    // TS: value.replace(/[^a-z0-9-]+/gi, "-").replace(/^-|-$/g, "") — each
+    // RUN of separators collapses to one dash, and at most one leading and
+    // one trailing dash is stripped.
+    let lowered = value.to_lowercase();
     let mut out = String::new();
-    for c in value.chars() {
-        if c.is_ascii_alphanumeric() || c == '-' {
+    let mut in_sep_run = false;
+    for c in lowered.chars() {
+        let is_kept = c.is_ascii_alphanumeric() || c == '-';
+        if is_kept && c != '-' {
             out.push(c);
+            in_sep_run = false;
         } else {
-            out.push('-');
+            if !in_sep_run {
+                out.push('-');
+            }
+            in_sep_run = true;
         }
     }
-    let trimmed = out.trim_matches('-').to_lowercase();
+    let trimmed = out.strip_prefix('-').unwrap_or(&out);
+    let trimmed = trimmed.strip_suffix('-').unwrap_or(trimmed);
     if trimmed.is_empty() {
         "observation".to_string()
     } else {
-        trimmed
+        trimmed.to_string()
     }
 }
 
@@ -1296,7 +1307,10 @@ pub fn run_project_iteration(
                             ),
                         ];
                         for (name, command) in steps {
-                            let Some(command) = command else { continue };
+                            // TS truthiness: "" is not configured either.
+                            let Some(command) = command.as_deref().filter(|c| !c.is_empty()) else {
+                                continue;
+                            };
                             let timeout = get_remaining_timeout_ms();
                             if let Some(ms) = timeout {
                                 if ms == 0 {
@@ -1306,7 +1320,7 @@ pub fn run_project_iteration(
                             let exit = runner(&execution_path, command, timeout)?;
                             results.push(ValidationSummary {
                                 name,
-                                command: command.clone(),
+                                command: command.to_string(),
                                 exit_code: exit,
                             });
                             if exit != 0 {
@@ -1665,6 +1679,17 @@ pub fn run_project_iteration(
 
     match worktree_result {
         Ok(result) => Ok(result),
+        Err(error) if error.starts_with("__shutdown__") => {
+            // Daemon shutdown mid-run: TS exited before the tick could unwind,
+            // leaving the task in_progress (recovered to ready with attempts
+            // unchanged on the next start). Book nothing — no failed attempt,
+            // no blocked artifact, no sentinel garbage in the ledger.
+            task.status = TaskStatus::InProgress;
+            task.updated_at = now_iso();
+            super::task_ledger::upsert_task(project_path, &task)?;
+            cleanup_worktree();
+            Err(error)
+        }
         Err(error) => {
             task.status = previous_status;
             task.attempts += 1;

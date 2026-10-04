@@ -326,6 +326,13 @@ impl App {
         let tab_needs_config = self.active_tab == 4; // Config
         let tab_needs_events = self.active_tab == 0 || self.active_tab == 7; // Dashboard / Events
         let tab_needs_logs = self.active_tab == 3 || self.active_tab == 8; // Service / Logs
+                                                                           // Config: the global panel needs no project; only the project panel
+                                                                           // is gated on an active project (TS loaded global config regardless).
+        if tab_needs_config && self.config_refreshed.elapsed() >= std::time::Duration::from_secs(5)
+        {
+            self.reload_config_entries();
+            self.config_refreshed = Instant::now();
+        }
         if let Some(path) = self.active_project_path() {
             if tab_needs_ledger
                 && self.ledger_refreshed.elapsed() >= std::time::Duration::from_secs(2)
@@ -343,12 +350,6 @@ impl App {
                 self.promotions =
                     c::promotion_queue::list_promotion_artifacts(&path).unwrap_or_default();
                 self.promotions_refreshed = Instant::now();
-            }
-            if tab_needs_config
-                && self.config_refreshed.elapsed() >= std::time::Duration::from_secs(5)
-            {
-                self.reload_config_entries();
-                self.config_refreshed = Instant::now();
             }
         }
         if tab_needs_events && self.events_refreshed.elapsed() >= std::time::Duration::from_secs(3)
@@ -1401,7 +1402,15 @@ impl App {
                         }
                     }
                     "Run one iteration now" => {
-                        if self.tick_running {
+                        // Only one process may execute ticks: the daemon owns
+                        // the loop (pid/startedAt/budget anchoring in
+                        // daemon-state.json). Running one from the TUI while
+                        // the daemon is live would clobber its state.
+                        if c::service_control::daemon_running() {
+                            self.status_msg =
+                                "Daemon is running — stop it first to run a manual iteration"
+                                    .to_string();
+                        } else if self.tick_running {
                             self.status_msg = "A tick is already running".to_string();
                         } else {
                             self.tick_running = true;
@@ -1674,7 +1683,12 @@ impl App {
                 read.flatten()
                     .map(|entry| {
                         let name = entry.file_name().to_string_lossy().to_string();
-                        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+                        // metadata() follows symlinks so linked directories
+                        // are browsable (file_type() would report the link
+                        // itself).
+                        let is_dir = std::fs::metadata(entry.path())
+                            .map(|m| m.is_dir())
+                            .unwrap_or(false);
                         (name, is_dir)
                     })
                     .filter(|(name, _)| browser.show_hidden || !name.starts_with('.'))

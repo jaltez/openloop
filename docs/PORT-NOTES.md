@@ -112,7 +112,7 @@ produced a ranked fix list; all of it landed with regression coverage:
     weakening promotion gating; `daemon.log` lines use the `[iso] message`
     format; `state`/`checks` keys are omitted (not null) on non-refreshed
     promotion results; the secret matcher drops a no-counterpart variant;
-    digest cost parsing takes the first matching line per field; an
+    digest cost parsing (see tests/digest_build.rs); an
     unparseable `lastSyncedAt` no longer triggers an immediate re-sync.
 
 ## Tests

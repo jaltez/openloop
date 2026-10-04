@@ -280,11 +280,12 @@ pub fn normalize_scope_paths(paths: Vec<&str>) -> Vec<String> {
 }
 
 pub fn normalize_scope_path(value: &str) -> String {
-    value
-        .replace('\\', "/")
-        .trim_start_matches("./")
-        .trim_start_matches('/')
-        .to_string()
+    // TS: .replace(/^\.\//, "").replace(/^\//, "") — exactly ONE occurrence
+    // of each prefix, not every run of them.
+    let s = value.replace('\\', "/");
+    let s = s.strip_prefix("./").unwrap_or(&s);
+    let s = s.strip_prefix('/').unwrap_or(s);
+    s.to_string()
 }
 
 pub fn matches_any_glob(candidate: &str, globs: &[String]) -> bool {

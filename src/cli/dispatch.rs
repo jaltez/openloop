@@ -894,6 +894,14 @@ fn run(args: RunArgs) -> Result<(), String> {
         project: &project,
         timeout_ms: None,
     })?;
+    // with_usage maps spawn failures to exit_code -1 with the message in
+    // stdout; TS printed spawn errors to stderr and exited 1.
+    if result.exit_code < 0 {
+        if !result.stdout.is_empty() {
+            eprint!("{}", result.stdout);
+        }
+        std::process::exit(1);
+    }
     if !result.stdout.is_empty() {
         print!("{}", result.stdout);
     }

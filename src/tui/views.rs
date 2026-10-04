@@ -348,8 +348,10 @@ pub fn dashboard(app: &mut App, frame: &mut Frame, area: Rect) {
             Style::default().fg(app.theme.text_dim),
         ))]
     } else {
+        // Newest first: the log is chronological, the strip shows the tail.
         app.events
             .iter()
+            .rev()
             .take(4)
             .map(|e| event_line(&app.theme, e))
             .collect()

@@ -25,16 +25,16 @@ cargo install --path .
 cargo install --git https://github.com/jaltez/openloop
 ```
 
-**Via npm (Linux x64 prebuilt; other platforms build from source):**
+**Via npm (Linux x64/arm64 and macOS x64/arm64 prebuilt):**
 
 ```sh
 npm install -g openloop
 ```
 
 The npm package is a thin shim: `bin/openloop.js` resolves a prebuilt
-binary when one ships for your platform, builds via cargo when a Rust
-toolchain and the sources are present, and otherwise points you at the
-install options. Set `OPENLOOP_BIN` to use an explicit binary.
+binary when one ships for your platform, falls back to an existing
+`target/release/openloop` checkout build, and otherwise exits with
+install instructions. Set `OPENLOOP_BIN` to use an explicit binary.
 
 ## Quick start
 

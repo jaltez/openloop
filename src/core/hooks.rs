@@ -161,9 +161,16 @@ fn run_command_hook(
         .spawn()
         .map_err(|e| e.to_string())?;
 
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(body.as_bytes());
-    }
+    // Write the payload from its own thread: a hook that never reads stdin
+    // must not block this loop before the deadline is ever checked (pipe
+    // capacity is 64 KiB; payloads can exceed it).
+    let stdin_writer = child.stdin.take().map(|mut stdin| {
+        let body = body.clone();
+        std::thread::spawn(move || {
+            use std::io::Write;
+            let _ = stdin.write_all(body.as_bytes());
+        })
+    });
     let stdout_handle = child.stdout.take();
     let stderr_handle = child.stderr.take();
     let stdout_buf = read_to_string_async(stdout_handle);
@@ -199,6 +206,11 @@ fn run_command_hook(
             Err(e) => return Err(e.to_string()),
         }
     };
+    if let Some(writer) = stdin_writer {
+        // The child has exited (or was killed); the pipe is closed, so the
+        // writer thread cannot block for long. Drop it silently on panic.
+        let _ = writer.join();
+    }
 
     let stdout = stdout_buf.join().unwrap_or_default();
     let stderr = stderr_buf.join().unwrap_or_default();

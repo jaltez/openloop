@@ -51,26 +51,16 @@ pub struct ReadEventsOptions<'a> {
 
 pub fn read_recent_events(options: &ReadEventsOptions<'_>) -> Vec<OpenLoopEvent> {
     let log_path = events_log_path(options.override_home);
-    // Tail-bounded read sized from the requested limit: assume ~256 bytes per
-    // event line and read the last (limit * 256 + slack) bytes, capped at the
-    // pre-rotation file size. This preserves TS behavior (return ALL matching
-    // events up to the limit) without parsing the whole file for small
-    // limits; large limits degrade to a full read.
-    let raw = match options.limit {
-        Some(limit) => {
-            let estimated = (limit.saturating_mul(256) + 4096) as u64;
-            let tail = super::fsutil::read_file_tail(&log_path, estimated);
-            match tail {
-                Ok(r) => r,
-                Err(_) => return Vec::new(),
-            }
-        }
-        None => match std::fs::read_to_string(&log_path) {
-            Ok(r) => r,
-            Err(_) => return Vec::new(),
-        },
+    // TS parity: read the whole file (bounded at 10 MiB by rotation), filter
+    // by since/project, and only then keep the last `limit` MATCHING events.
+    // A byte-window tail under-reports whenever filters discard windowed
+    // lines or events exceed the assumed line size.
+    let raw = match std::fs::read_to_string(&log_path) {
+        Ok(r) => r,
+        Err(_) => return Vec::new(),
     };
-    let cutoff = options.since_ms.map(|ms| {
+    // TS truthiness: sinceMs=0 means "no cutoff", not "cutoff at now".
+    let cutoff = options.since_ms.filter(|ms| *ms > 0).map(|ms| {
         chrono::Utc
             .timestamp_millis_opt(now_millis() - ms)
             .single()

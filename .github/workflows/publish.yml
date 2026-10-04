@@ -40,11 +40,12 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
+      # Native build only for targets the host toolchain can link;
+      # aarch64-linux is built by the `cross` step below (the host cc cannot
+      # link glibc for that target).
       - name: Build release binary
+        if: ${{ !matrix.cross }}
         run: cargo build --release --locked --target ${{ matrix.target }}
-        env:
-          # aarch64-linux builds via `cross` (glibc cross-link toolchain)
-          USE_CROSS: ${{ matrix.cross == true && '1' || '0' }}
 
       - name: Install cross for aarch64-linux
         if: matrix.cross
@@ -107,6 +108,12 @@ jobs:
         with:
           path: binaries
           merge-multiple: true
+
+      # upload-artifact@v4 does not preserve file permissions; restore the
+      # executable bit so verification passes and the packed tarball ships
+      # runnable binaries (npm pack preserves modes).
+      - name: Restore executable permissions
+        run: chmod +x binaries/openloop-*
 
       - name: Verify staged binaries
         run: |

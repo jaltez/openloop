@@ -544,21 +544,30 @@ pub fn run_worker_tick(started_at: &str) -> Result<DaemonState, String> {
                 }
             }
             Err(error) => {
+                if error.starts_with("__shutdown__") {
+                    // Daemon shutdown: do not surface the sentinel as the
+                    // project's lastResult (TS exited before persisting a
+                    // failure here; the task stays in_progress and recovers
+                    // on the next start).
+                    iteration_result = Some("shutdown".to_string());
+                }
                 // Detect the timeout BEFORE stripping the sentinel so the
                 // budget charge matches every timeout path (agent run,
                 // validation, worktree setup — all four carry the prefix or
                 // a "exceeded timeout" message).
-                if error.starts_with("__iteration_timeout__")
+                else if error.starts_with("__iteration_timeout__")
                     || error.contains("exceeded timeout")
                     || error.contains("Run exceeded timeout")
                 {
                     charge_usd = config.budgets.estimated_cost_per_run_usd.unwrap_or(0.0);
+                    iteration_result = Some(
+                        error
+                            .trim_start_matches("__iteration_timeout__:")
+                            .to_string(),
+                    );
+                } else {
+                    iteration_result = Some(error);
                 }
-                iteration_result = Some(
-                    error
-                        .trim_start_matches("__iteration_timeout__:")
-                        .to_string(),
-                );
             }
         }
     }

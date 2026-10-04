@@ -471,6 +471,10 @@ fn handle_api_request(
 }
 
 fn handle_connection(mut stream: TcpStream) {
+    // Drop connections that connect and never send (node's requestTimeout
+    // parity): without this, idle clients hold threads and fds forever.
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(10)));
+
     let mut buffer = [0u8; 8192];
     let read = stream.read(&mut buffer).unwrap_or(0);
     let request = String::from_utf8_lossy(&buffer[..read]).to_string();
@@ -556,7 +560,13 @@ pub fn start_dashboard(port: u16) -> Result<DashboardHandle, String> {
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                     std::thread::sleep(std::time::Duration::from_millis(50));
                 }
-                Err(_) => break,
+                // Transient accept errors (EMFILE under fd pressure,
+                // ECONNABORTED on client resets) must not kill the server
+                // permanently (node's http.Server survived them); back off
+                // and keep serving.
+                Err(_) => {
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
             }
         }
     });

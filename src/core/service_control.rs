@@ -151,7 +151,8 @@ pub fn stop_service() -> Result<String, String> {
     }
 }
 
-/// Restart: stop, wait for exit, then start.
+/// Restart: stop, wait for exit, then start with a fresh daemon log (TS
+/// `stopIfRunning` removed both the pid file and the log before respawning).
 pub fn restart_service() -> Result<String, String> {
     assert_default_provider_available()?;
     match inspect_daemon_process()? {
@@ -184,6 +185,7 @@ pub fn restart_service() -> Result<String, String> {
             let _ = std::fs::remove_file(c::paths::daemon_pid_path(None));
         }
     }
+    let _ = std::fs::remove_file(c::paths::daemon_log_path(None));
     start_and_wait()
 }
 

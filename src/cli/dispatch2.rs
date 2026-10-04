@@ -45,9 +45,10 @@ pub(super) fn task(cmd: TaskCommand) -> Result<(), String> {
 
             let r#ref = from_ref.clone();
             let title_str = match (&title, &r#ref) {
-                (Some(t), _) => t.clone(),
-                (None, Some(r)) => format!("Queued work from {r}"),
-                (None, None) => {
+                // TS truthiness: an empty --title is treated as absent.
+                (Some(t), _) if !t.trim().is_empty() => t.clone(),
+                (_, Some(r)) => format!("Queued work from {r}"),
+                _ => {
                     eprintln!("Error: provide --title or --from-ref");
                     std::process::exit(1);
                 }
@@ -174,8 +175,8 @@ pub(super) fn task(cmd: TaskCommand) -> Result<(), String> {
                         serde_json::to_string_pretty(&serde_json::json!({
                             "summary": {
                                 "total": summary.total,
-                                "byStatus": summary.by_status,
-                                "byRisk": summary.by_risk,
+                                "byStatus": ordered_status_map(&summary),
+                                "byRisk": ordered_risk_map(&summary),
                             },
                             "tasks": mapped,
                         }))
@@ -205,7 +206,8 @@ pub(super) fn task(cmd: TaskCommand) -> Result<(), String> {
         } => {
             let project = c::project_registry::get_project(&project, None)?;
             let patch = c::task_ledger::TaskPatch {
-                title,
+                // TS truthiness: an empty --title is a no-op, not a blanking.
+                title: title.filter(|t| !t.trim().is_empty()),
                 status: status.as_deref().and_then(TaskStatus::parse),
                 risk: risk.as_deref().and_then(TaskRisk::parse),
                 kind: kind.as_deref().and_then(TaskKind::parse),
@@ -883,7 +885,11 @@ pub(super) fn setup() -> Result<(), String> {
         .unwrap_or_else(|_| ".".to_string());
     let project_path = ask("Project path", Some(&cwd));
     let resolved_path = std::path::absolute(&project_path)
-        .map(|p| p.to_string_lossy().to_string())
+        .map(|p| {
+            c::fsutil::normalize_lexical_path(&p)
+                .to_string_lossy()
+                .to_string()
+        })
         .unwrap_or(project_path.clone());
 
     if !Path::new(&resolved_path).exists() {
@@ -1162,4 +1168,41 @@ pub(super) fn dashboard(cmd: DashboardCommand) -> Result<(), String> {
             Ok(())
         }
     }
+}
+
+/// TS emitted the task summary maps in fixed declaration order; BTreeMap
+/// would alphabetize the keys. Rebuild them as ordered JSON objects.
+fn ordered_status_map(summary: &c::task_ledger::TaskListSummary) -> serde_json::Value {
+    const ORDER: [&str; 10] = [
+        "proposed",
+        "planned",
+        "ready",
+        "awaiting-approval",
+        "in_progress",
+        "blocked",
+        "done",
+        "failed",
+        "cancelled",
+        "promoted",
+    ];
+    let mut map = serde_json::Map::new();
+    for key in ORDER {
+        map.insert(
+            key.into(),
+            summary.by_status.get(key).copied().unwrap_or(0).into(),
+        );
+    }
+    serde_json::Value::Object(map)
+}
+
+fn ordered_risk_map(summary: &c::task_ledger::TaskListSummary) -> serde_json::Value {
+    const ORDER: [&str; 3] = ["low-risk", "medium-risk", "high-risk"];
+    let mut map = serde_json::Map::new();
+    for key in ORDER {
+        map.insert(
+            key.into(),
+            summary.by_risk.get(key).copied().unwrap_or(0).into(),
+        );
+    }
+    serde_json::Value::Object(map)
 }

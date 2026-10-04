@@ -170,10 +170,9 @@ fn budget_blocked_tick_flags_state_and_skips_work() {
     )
     .unwrap();
 
-    // The budget window anchors to the daemon's start date; use today so
-    // the pre-spent amount stays in-window.
-    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-    let started_at = format!("{today}T00:00:00.000Z");
+    // The budget window anchors to the daemon's start date in LOCAL time;
+    // now_iso() is local-time-stable regardless of the UTC offset.
+    let started_at = openloop::core::now_iso();
     let state = run_worker_tick(&started_at).unwrap();
     assert!(state.budget_blocked);
     assert!(state.current_run.is_none());

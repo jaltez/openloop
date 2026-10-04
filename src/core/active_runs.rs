@@ -10,10 +10,14 @@ pub struct ActiveRun {
     pub pgid: i32,
 }
 
+/// Monotonic id source: ids must never be reused, or unregistering one run
+/// could remove a concurrently-registered other run that recycled its id.
+static NEXT_ID: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
+
 /// Register a live process group. Returns an unregister closure id.
 pub fn register_active_run(project_alias: &str, pgid: i32) -> usize {
     let mut runs = ACTIVE_RUNS.lock();
-    let id = runs.len() + 1;
+    let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     runs.push(ActiveRun {
         project_alias: project_alias.to_string(),
         pgid,
