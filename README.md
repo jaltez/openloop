@@ -167,7 +167,7 @@ and the npm tarball manifest.
 | Deployable artifact | ~377 MB (dist+deps+node) | **4.7 MB** | ~80x |
 | Runtime dependency | Node ≥ 22 / Bun | none | — |
 
-Full port history and methodology: [docs/PORT-NOTES.md](docs/PORT-NOTES.md).
+Port mapping, compatibility contract, and methodology: [docs/PORT-NOTES.md](docs/PORT-NOTES.md).
 
 ## License
 
