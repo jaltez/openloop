@@ -356,3 +356,207 @@ fn max_attempts_task_is_not_run_again() {
         .any(|n| n.contains("max attempts")));
     let _ = result;
 }
+
+// ---------------------------------------------------------------------------
+// Concurrency (runtime.maxConcurrentRuns) and cross-project behavior
+// ---------------------------------------------------------------------------
+
+struct PairSandbox {
+    home: PathBuf,
+    t1: PathBuf,
+    t2: PathBuf,
+    saved_home: Option<String>,
+}
+
+impl Drop for PairSandbox {
+    fn drop(&mut self) {
+        match self.saved_home.take() {
+            Some(prev) => std::env::set_var("OPENLOOP_HOME", prev),
+            None => std::env::remove_var("OPENLOOP_HOME"),
+        }
+        let _ = fs::remove_dir_all(&self.home);
+        let _ = fs::remove_dir_all(&self.t1);
+        let _ = fs::remove_dir_all(&self.t2);
+    }
+}
+
+fn sandbox_pair(name: &str) -> PairSandbox {
+    let pid = std::process::id();
+    let home = std::env::temp_dir().join(format!("ol-pair-home-{name}-{pid}"));
+    let t1 = std::env::temp_dir().join(format!("ol-pair-t1-{name}-{pid}"));
+    let t2 = std::env::temp_dir().join(format!("ol-pair-t2-{name}-{pid}"));
+    for dir in [&home, &t1, &t2] {
+        let _ = fs::remove_dir_all(dir);
+        fs::create_dir_all(dir).unwrap();
+    }
+    let saved_home = std::env::var("OPENLOOP_HOME").ok();
+    std::env::set_var("OPENLOOP_HOME", &home);
+
+    let linked = |alias: &str, path: &Path| LinkedProject {
+        alias: alias.into(),
+        path: path.to_string_lossy().to_string(),
+        default_branch: None,
+        initialized: true,
+        created_at: "2026-01-01T00:00:00.000Z".into(),
+        updated_at: "2026-01-01T00:00:00.000Z".into(),
+    };
+    fs::write(
+        home.join("projects.json"),
+        serde_json::to_string(&ProjectsRegistry {
+            version: 1,
+            projects: vec![linked("p1", &t1), linked("p2", &t2)],
+        })
+        .unwrap(),
+    )
+    .unwrap();
+
+    PairSandbox {
+        home,
+        t1,
+        t2,
+        saved_home,
+    }
+}
+
+/// Point the project's agent at a custom shell command (instant stub unless
+/// the command sleeps). Verification/review are disabled so one iteration =
+/// exactly one agent run (these tests target scheduler concurrency).
+fn write_agent_command(target: &Path, command: &str) {
+    let mut config = openloop::core::project_config::default_project_config();
+    config.agent = Some(AgentConfig {
+        agent_type: Some("custom".into()),
+        command: Some(command.to_string()),
+        extra_args: None,
+    });
+    config.review = Some(ProjectReview { enabled: false });
+    config.verification = Some(ProjectVerification { enabled: false });
+    fs::create_dir_all(target.join(".openloop")).unwrap();
+    fs::write(
+        target.join(".openloop").join("project.json"),
+        serde_json::to_string(&config).unwrap(),
+    )
+    .unwrap();
+}
+
+#[test]
+fn max_concurrent_runs_runs_projects_in_parallel() {
+    let _env = env_lock();
+    let s = sandbox_pair("parallel");
+    write_global_config(|c| {
+        c.runtime.max_concurrent_runs = Some(2);
+    });
+
+    // Both agents append start/end markers around a 1.2s sleep; overlap is
+    // only possible if the two iterations actually ran concurrently.
+    let marker = s
+        .home
+        .join(format!("marker-{}.log", std::process::id()))
+        .to_string_lossy()
+        .to_string();
+    let command = format!("echo start >> {marker}; sleep 1.2; echo end >> {marker}; true");
+    write_agent_command(&s.t1, &command);
+    write_agent_command(&s.t2, &command);
+    write_ledger(&s.t1, vec![make_task("a", TaskStatus::Ready, 0)]);
+    write_ledger(&s.t2, vec![make_task("b", TaskStatus::Ready, 0)]);
+
+    let state = run_worker_tick("2026-01-01T00:00:00.000Z").unwrap();
+
+    let lines = fs::read_to_string(&marker)
+        .expect("both agents must have run")
+        .lines()
+        .map(|l| l.trim().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(lines.len(), 4, "marker: {lines:?}");
+    let last_start = lines.iter().rposition(|l| l == "start").unwrap();
+    let first_end = lines.iter().position(|l| l == "end").unwrap();
+    assert!(
+        last_start < first_end,
+        "both starts must precede both ends (parallel), marker: {lines:?}"
+    );
+
+    // Both tasks actually ran, and the tick retired the running set.
+    let l1 = openloop::core::task_ledger::load_task_ledger(&s.t1).unwrap();
+    let l2 = openloop::core::task_ledger::load_task_ledger(&s.t2).unwrap();
+    assert_ne!(l1.tasks[0].status, TaskStatus::Ready);
+    assert_ne!(l2.tasks[0].status, TaskStatus::Ready);
+    assert!(state.current_run.is_none());
+    assert!(state.current_runs.is_none());
+}
+
+#[test]
+fn default_config_still_runs_one_project_per_tick() {
+    let _env = env_lock();
+    let s = sandbox_pair("serial");
+    write_global_config(|_| {});
+
+    let marker = s
+        .home
+        .join(format!("marker-{}.log", std::process::id()))
+        .to_string_lossy()
+        .to_string();
+    let command = format!("echo start >> {marker}; sleep 1.2; echo end >> {marker}; true");
+    write_agent_command(&s.t1, &command);
+    write_agent_command(&s.t2, &command);
+    write_ledger(&s.t1, vec![make_task("a", TaskStatus::Ready, 0)]);
+    write_ledger(&s.t2, vec![make_task("b", TaskStatus::Ready, 0)]);
+
+    run_worker_tick("2026-01-01T00:00:00.000Z").unwrap();
+    run_worker_tick("2026-01-01T00:00:05.000Z").unwrap();
+
+    let lines = fs::read_to_string(&marker)
+        .expect("both agents must have run")
+        .lines()
+        .map(|l| l.trim().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        lines,
+        vec!["start", "end", "start", "end"],
+        "default maxConcurrentRuns=1 must serialize across ticks, marker: {lines:?}"
+    );
+}
+
+#[test]
+fn backpressured_project_yields_to_other_projects() {
+    let _env = env_lock();
+    let s = sandbox_pair("yield");
+    write_global_config(|c| {
+        c.runtime.max_pending_reviews_per_project = Some(1);
+    });
+
+    // p1 is at the pending-promotion limit but still has runnable work;
+    // p2 is free to run. p1 must not block the fleet.
+    write_agent_command(&s.t1, "true");
+    write_agent_command(&s.t2, "true");
+    write_ledger(&s.t1, vec![make_task("a", TaskStatus::Ready, 0)]);
+    write_ledger(&s.t2, vec![make_task("b", TaskStatus::Ready, 0)]);
+    let artifact = PromotionArtifact {
+        version: 1,
+        created_at: "2026-01-02T00:00:00.000Z".into(),
+        project_alias: "p1".into(),
+        task_id: "a".into(),
+        base_branch: None,
+        decision: PromotionDecision::ManualReview,
+        action: PromotionAction::QueueReview,
+        effective_promotion_mode: TaskPromotion::PullRequest,
+        validation: vec![],
+        pi_exit_code: None,
+        outcome: RunOutcome::Completed,
+        approval_packet_path: None,
+        status: PromotionArtifactStatus::Pending,
+        processed_at: None,
+        note: None,
+    };
+    openloop::core::promotion_artifacts::write_promotion_artifact(&s.t1, &artifact).unwrap();
+
+    let state = run_worker_tick("2026-01-01T00:00:00.000Z").unwrap();
+    let _ = state;
+
+    // p2 ran; p1's task was left untouched behind its review gate.
+    let l1 = openloop::core::task_ledger::load_task_ledger(&s.t1).unwrap();
+    let l2 = openloop::core::task_ledger::load_task_ledger(&s.t2).unwrap();
+    assert_eq!(l1.tasks[0].status, TaskStatus::Ready);
+    assert_ne!(l2.tasks[0].status, TaskStatus::Ready);
+
+    let log = fs::read_to_string(s.home.join("run").join("daemon.log")).unwrap_or_default();
+    assert!(log.contains("review-backpressure"), "log: {log}");
+}

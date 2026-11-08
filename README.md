@@ -67,8 +67,10 @@ openloop approval list --project myapp
   high-risk areas, promotion modes per risk class); validation commands;
   specs; runs; promotions; approvals.
 - **Unattended scheduling**: low-risk-first with 24 h aging, `dependsOn`
-  gating, max attempts, no-progress detection, budget ceilings, review
-  backpressure, cron schedules, and crash recovery on daemon restart.
+  gating (including cross-repo `alias:task-id` refs), opt-in concurrent runs
+  per tick (`runtime.maxConcurrentRuns`), max attempts, no-progress
+  detection, budget ceilings, review backpressure, cron schedules, and
+  crash recovery on daemon restart.
 - **Verified runs**: lint/test/typecheck gates, an independent verifier role
   judging acceptance criteria, deterministic secret/scope-drift review, and
   an optional LLM reviewer — all before anything is promoted.

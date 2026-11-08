@@ -338,3 +338,182 @@ fn run_cost_prefers_measured_positive() {
         (0.1, CostSource::Estimated)
     );
 }
+
+// ---------------------------------------------------------------------------
+// Cross-project dependencies (alias:task-id refs resolved via the registry)
+// ---------------------------------------------------------------------------
+
+use std::fs;
+use std::path::PathBuf;
+use std::sync::Mutex;
+
+static XENV_LOCK: Mutex<()> = Mutex::new(());
+
+struct XRepoSandbox {
+    home: PathBuf,
+    alpha: PathBuf,
+    beta: PathBuf,
+    saved_home: Option<String>,
+}
+
+impl Drop for XRepoSandbox {
+    fn drop(&mut self) {
+        match self.saved_home.take() {
+            Some(prev) => std::env::set_var("OPENLOOP_HOME", prev),
+            None => std::env::remove_var("OPENLOOP_HOME"),
+        }
+        let _ = fs::remove_dir_all(&self.home);
+        let _ = fs::remove_dir_all(&self.alpha);
+        let _ = fs::remove_dir_all(&self.beta);
+    }
+}
+
+fn write_registry_and_ledgers(
+    home: &std::path::Path,
+    alpha: &std::path::Path,
+    beta: &std::path::Path,
+    alpha_tasks: Vec<ProjectTask>,
+    beta_tasks: Vec<ProjectTask>,
+) {
+    let linked = |alias: &str, path: &std::path::Path| LinkedProject {
+        alias: alias.into(),
+        path: path.to_string_lossy().to_string(),
+        default_branch: None,
+        initialized: true,
+        created_at: "2026-01-01T00:00:00.000Z".into(),
+        updated_at: "2026-01-01T00:00:00.000Z".into(),
+    };
+    fs::write(
+        home.join("projects.json"),
+        serde_json::to_string(&ProjectsRegistry {
+            version: 1,
+            projects: vec![linked("alpha", alpha), linked("beta", beta)],
+        })
+        .unwrap(),
+    )
+    .unwrap();
+    write_ledger(alpha, alpha_tasks);
+    write_ledger(beta, beta_tasks);
+}
+
+fn write_ledger(dir: &std::path::Path, tasks: Vec<ProjectTask>) {
+    let l = TaskLedger {
+        version: 1,
+        updated_at: "2026-01-01T00:00:00.000Z".into(),
+        tasks,
+    };
+    fs::create_dir_all(dir.join(".openloop")).unwrap();
+    fs::write(
+        dir.join(".openloop").join("tasks.json"),
+        serde_json::to_string_pretty(&l).unwrap(),
+    )
+    .unwrap();
+}
+
+fn xrepo_sandbox(name: &str) -> XRepoSandbox {
+    let pid = std::process::id();
+    let home = std::env::temp_dir().join(format!("ol-xrepo-home-{name}-{pid}"));
+    let alpha = std::env::temp_dir().join(format!("ol-xrepo-alpha-{name}-{pid}"));
+    let beta = std::env::temp_dir().join(format!("ol-xrepo-beta-{name}-{pid}"));
+    for dir in [&home, &alpha, &beta] {
+        let _ = fs::remove_dir_all(dir);
+        fs::create_dir_all(dir).unwrap();
+    }
+    let saved_home = std::env::var("OPENLOOP_HOME").ok();
+    std::env::set_var("OPENLOOP_HOME", &home);
+    XRepoSandbox {
+        home,
+        alpha,
+        beta,
+        saved_home,
+    }
+}
+
+fn select_with_registry(l: &TaskLedger) -> SchedulerSelection {
+    let resolver = openloop::core::scheduler::make_cross_project_resolver();
+    openloop::core::scheduler::select_next_task_with_resolver(l, &resolver)
+}
+
+fn cross_dep_task(dep: &str) -> ProjectTask {
+    make_task(
+        "deploy",
+        TaskStatus::Ready,
+        TaskRisk::LowRisk,
+        "2026-01-01T00:00:00.000Z",
+        Some(vec![dep]),
+    )
+}
+
+fn beta_api_task(status: TaskStatus) -> ProjectTask {
+    make_task(
+        "api",
+        status,
+        TaskRisk::LowRisk,
+        "2026-01-01T00:00:00.000Z",
+        None,
+    )
+}
+
+#[test]
+fn cross_project_dep_blocks_until_referenced_task_is_promoted() {
+    let _env = XENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let s = xrepo_sandbox("gated");
+    let deploy = cross_dep_task("beta:api");
+
+    // Dependency still in flight: nothing eligible.
+    write_registry_and_ledgers(
+        &s.home,
+        &s.alpha,
+        &s.beta,
+        vec![deploy.clone()],
+        vec![beta_api_task(TaskStatus::InProgress)],
+    );
+    let alpha_ledger = openloop::core::task_ledger::load_task_ledger(&s.alpha).unwrap();
+    let selection = select_with_registry(&alpha_ledger);
+    assert!(
+        selection.task.is_none(),
+        "must stay blocked while beta:api is in progress"
+    );
+    assert!(
+        selection.reason.contains("cross-project"),
+        "reason: {}",
+        selection.reason
+    );
+
+    // Dependency promoted: the task becomes eligible.
+    write_ledger(&s.beta, vec![beta_api_task(TaskStatus::Promoted)]);
+    let alpha_ledger = openloop::core::task_ledger::load_task_ledger(&s.alpha).unwrap();
+    let selection = select_with_registry(&alpha_ledger);
+    assert_eq!(selection.task.expect("eligible once promoted").id, "deploy");
+
+    // Done and Cancelled also satisfy the dependency.
+    for status in [TaskStatus::Done, TaskStatus::Cancelled] {
+        write_ledger(&s.beta, vec![beta_api_task(status)]);
+        let alpha_ledger = openloop::core::task_ledger::load_task_ledger(&s.alpha).unwrap();
+        let selection = select_with_registry(&alpha_ledger);
+        assert!(
+            selection.task.is_some(),
+            "{status:?} must satisfy a cross-project dependency"
+        );
+    }
+}
+
+#[test]
+fn unknown_cross_project_ref_stays_blocked() {
+    let _env = XENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let s = xrepo_sandbox("unknown");
+    let deploy = cross_dep_task("ghost:missing");
+
+    write_registry_and_ledgers(&s.home, &s.alpha, &s.beta, vec![deploy], vec![]);
+    let alpha_ledger = openloop::core::task_ledger::load_task_ledger(&s.alpha).unwrap();
+    let selection = select_with_registry(&alpha_ledger);
+    assert!(
+        selection.task.is_none(),
+        "unknown alias must leave the task blocked"
+    );
+    assert!(
+        selection.reason.contains("ghost:missing"),
+        "reason should name the unresolved ref: {}",
+        selection.reason
+    );
+}

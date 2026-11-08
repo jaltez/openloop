@@ -58,6 +58,8 @@ pub struct GlobalRuntime {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_pending_reviews_per_project: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_concurrent_runs: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_selection_strategy: Option<String>,
 }
 
@@ -334,6 +336,15 @@ pub struct DaemonState {
     pub budget_blocked: bool,
     #[serde(default)]
     pub current_run: Option<DaemonCurrentRunState>,
+    /// All active runs when runtime.maxConcurrentRuns > 1. Kept in addition
+    /// to `currentRun` (the most recent run) so single-run-era readers keep
+    /// working against the same state file.
+    #[serde(
+        default,
+        rename = "currentRuns",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub current_runs: Option<Vec<DaemonCurrentRunState>>,
     #[serde(default)]
     pub projects: Vec<DaemonProjectState>,
     #[serde(

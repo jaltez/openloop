@@ -412,13 +412,14 @@ fn config(cmd: ConfigCommand) -> Result<(), String> {
             Ok(())
         }
         ConfigSubcommand::Set { key, value } => {
-            const SETTABLE: [(&str, &str, Option<f64>, Option<f64>); 11] = [
+            const SETTABLE: [(&str, &str, Option<f64>, Option<f64>); 12] = [
                 ("budgets.dailyCostUsd", "number", Some(0.0), None),
                 ("budgets.estimatedCostPerRunUsd", "number", Some(0.0), None),
                 ("runtime.runTimeoutSeconds", "number", Some(1.0), None),
                 ("runtime.maxAttemptsPerTask", "number", Some(1.0), None),
                 ("runtime.noProgressRepeatLimit", "number", Some(1.0), None),
                 ("runtime.tickIntervalSeconds", "number", Some(1.0), None),
+                ("runtime.maxConcurrentRuns", "number", Some(1.0), None),
                 ("runtime.projectSelectionStrategy", "string", None, None),
                 ("notifications.onTaskComplete", "string", None, None),
                 ("notifications.onTaskFailed", "string", None, None),
@@ -917,7 +918,10 @@ fn run_once(args: RunOnceArgs) -> Result<(), String> {
 
     if args.dry_run {
         let ledger = c::task_ledger::load_task_ledger(project_path)?;
-        let selection = c::scheduler::select_next_task(&ledger);
+        // Resolve cross-project dependsOn refs the same way the daemon tick
+        // does, so the preview matches what would actually run.
+        let resolver = c::scheduler::make_cross_project_resolver();
+        let selection = c::scheduler::select_next_task_with_resolver(&ledger, &resolver);
         let Some(task) = selection.task else {
             println!(
                 "{}",

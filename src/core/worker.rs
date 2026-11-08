@@ -291,39 +291,60 @@ pub fn run_worker_tick(started_at: &str) -> Result<DaemonState, String> {
         }
     }
 
-    let active_project = super::project_selection::select_next_project(None)?;
+    // ---- Batch selection: fill up to runtime.maxConcurrentRuns slots. ----
+    // Each selected project gets one scheduler iteration this tick; the
+    // iterations execute concurrently on worker threads (they coordinate
+    // through the per-project ledger locks; daemon state is only written
+    // from the tick thread itself).
+    let max_concurrent = config.runtime.max_concurrent_runs.unwrap_or(1).max(1) as usize;
+    let mut batch: Vec<(LinkedProject, Option<DaemonCurrentRunState>)> = Vec::new();
+    let mut excluded: Vec<String> = Vec::new();
+    let mut backpressured: Option<(String, usize)> = None;
 
-    // Review backpressure: a project whose pending promotions pile up must be
-    // reviewed before more agent runs land on top of them.
-    if let Some(active_project) = &active_project {
+    while batch.len() < max_concurrent {
+        // Best-effort budget reservation: stop filling the batch when the
+        // per-run estimate says the next run would cross the daily ceiling.
+        // Measured costs land after runs complete, so overshoot is still
+        // possible — this only bounds it.
+        if let Some(estimate) = config.budgets.estimated_cost_per_run_usd {
+            if estimate > 0.0
+                && normalized_state.budget_spent_usd + estimate * (batch.len() as f64 + 1.0)
+                    > config.budgets.daily_cost_usd
+            {
+                break;
+            }
+        }
+
+        let Some(candidate) =
+            super::project_selection::select_next_project_excluding(None, &excluded)?
+        else {
+            break;
+        };
+
+        // Review backpressure: a project whose pending promotions pile up must
+        // be reviewed before more agent runs land on top of them. A
+        // backpressured project is excluded for this tick — it never blocks
+        // the rest of the fleet from running.
         let max_pending_reviews = config.runtime.max_pending_reviews_per_project.unwrap_or(3);
+        let mut candidate_backpressured = false;
         if max_pending_reviews > 0 {
             let pending_count =
-                super::promotion_queue::list_promotion_artifacts(Path::new(&active_project.path))?
+                super::promotion_queue::list_promotion_artifacts(Path::new(&candidate.path))?
                     .into_iter()
                     .filter(|item| item.artifact.status == PromotionArtifactStatus::Pending)
                     .count();
             if pending_count >= max_pending_reviews as usize {
-                let backpressure_state = persist_tick_state(
-                    Some(&active_project.alias),
-                    Some(&now_iso()),
-                    Some("review-backpressure"),
-                    &|state| {
-                        state.active_project = Some(active_project.alias.clone());
-                        state.current_run = None;
-                    },
-                );
                 append_log_fmt(&format!(
                     "review-backpressure: {pending_count} pending promotion(s) >= {max_pending_reviews} in {}",
-                    active_project.alias
+                    candidate.alias
                 ));
                 let message = format!(
                     "Skipping {}: {pending_count} pending promotions awaiting review (limit {max_pending_reviews}).",
-                    active_project.alias
+                    candidate.alias
                 );
                 let payload = build_lifecycle_payload(
                     "review-backpressure",
-                    &active_project.alias,
+                    &candidate.alias,
                     "",
                     &message,
                     "idle",
@@ -338,16 +359,24 @@ pub fn run_worker_tick(started_at: &str) -> Result<DaemonState, String> {
                     &payload,
                     Some(&daemon_log_path(None).to_string_lossy()),
                 );
-                return backpressure_state;
+                if backpressured.is_none() {
+                    backpressured = Some((candidate.alias.clone(), pending_count));
+                }
+                excluded.push(candidate.alias.clone());
+                candidate_backpressured = true;
             }
         }
-    }
+        if candidate_backpressured {
+            continue;
+        }
 
-    let mut current_run: Option<DaemonCurrentRunState> = None;
-
-    if let Some(active_project) = &active_project {
-        let ledger = super::task_ledger::load_task_ledger(Path::new(&active_project.path))?;
-        let selection = super::scheduler::select_next_task(&ledger);
+        // Pre-select the task for the state display; the iteration itself
+        // re-selects against a freshly loaded ledger. Cross-project
+        // dependsOn refs resolve here so the display matches what will run.
+        let ledger = super::task_ledger::load_task_ledger(Path::new(&candidate.path))?;
+        let cross_project = super::scheduler::make_cross_project_resolver();
+        let selection = super::scheduler::select_next_task_with_resolver(&ledger, &cross_project);
+        let mut current_run: Option<DaemonCurrentRunState> = None;
         if let Some(task) = selection.task {
             if selection.mode != "idle" {
                 let started_at_run = now_iso();
@@ -359,7 +388,7 @@ pub fn run_worker_tick(started_at: &str) -> Result<DaemonState, String> {
                     .map(|t| t.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
                     .unwrap_or_default();
                 current_run = Some(DaemonCurrentRunState {
-                    project_alias: active_project.alias.clone(),
+                    project_alias: candidate.alias.clone(),
                     task_id: Some(task.id.clone()),
                     mode: selection.mode.clone(),
                     role: super::scheduler::determine_worker_role(&task, &selection.mode)
@@ -372,217 +401,303 @@ pub fn run_worker_tick(started_at: &str) -> Result<DaemonState, String> {
                 });
             }
         }
+        excluded.push(candidate.alias.clone());
+        batch.push((candidate, current_run));
     }
 
-    persist_tick_state(
-        active_project.as_ref().map(|p| p.alias.as_str()),
-        None,
-        None,
-        &|state| {
-            state.active_project = active_project.as_ref().map(|p| p.alias.clone());
-            state.current_run = current_run.clone();
-        },
-    )?;
+    if batch.is_empty() {
+        // Nothing runnable this tick. When every candidate was
+        // backpressured, surface that as the tick result; otherwise this is
+        // a plain idle tick.
+        if let Some((alias, _pending)) = &backpressured {
+            let alias = alias.clone();
+            return persist_tick_state(
+                Some(&alias),
+                Some(&now_iso()),
+                Some("review-backpressure"),
+                &|state| {
+                    state.active_project = Some(alias.clone());
+                    state.current_run = None;
+                    state.current_runs = None;
+                },
+            );
+        }
+        let idle_state = persist_tick_state(None, Some(&now_iso()), None, &|state| {
+            state.active_project = None;
+            state.current_run = None;
+            state.current_runs = None;
+        })?;
+        return Ok(idle_state);
+    }
 
-    let mut iteration_result: Option<String> = None;
-    let mut charge_usd = 0.0f64;
+    // Persist the batch start so status surfaces the running set mid-tick.
+    // currentRuns is only written for multi-run batches so single-run-era
+    // state files keep their exact prior shape; currentRun keeps pointing at
+    // the most recent run for those readers.
+    let last_started_alias = batch
+        .last()
+        .map(|(project, _)| project.alias.clone())
+        .unwrap_or_default();
+    let batch_current_runs: Option<Vec<DaemonCurrentRunState>> = if batch.len() > 1 {
+        Some(
+            batch
+                .iter()
+                .filter_map(|(_, run)| run.clone())
+                .collect::<Vec<_>>(),
+        )
+        .filter(|runs| !runs.is_empty())
+    } else {
+        None
+    };
+    let last_started_run = batch.last().and_then(|(_, run)| run.clone());
+    persist_tick_state(Some(&last_started_alias), None, None, &|state| {
+        state.active_project = Some(last_started_alias.clone());
+        state.current_run = last_started_run.clone();
+        state.current_runs = batch_current_runs.clone();
+    })?;
 
-    if let Some(active_project) = &active_project {
-        let mut hooks = super::scheduler::RunHooks {
-            pi_runner: None,
-            reviewer_runner: None,
-            verifier_runner: None,
-            validation_runner: None,
-        };
-        let run_result: Result<SchedulerResult, String> = super::scheduler::run_project_iteration(
-            active_project,
-            &super::scheduler::IterationOptions {
-                model_override: None,
-                timeout_ms: Some(config.runtime.run_timeout_seconds * 1000),
-                max_attempts_per_task: Some(config.runtime.max_attempts_per_task),
-                no_progress_repeat_limit: Some(config.runtime.no_progress_repeat_limit),
-            },
-            &mut hooks,
-        );
+    // Fan the batch out: one worker thread per project. Each thread runs the
+    // full scheduler iteration for its project (agent subprocess, gates,
+    // review, promotion decision) and reports back over a channel; all
+    // daemon-state writes stay on this thread.
+    let timeout_ms = Some(config.runtime.run_timeout_seconds * 1000);
+    let max_attempts = Some(config.runtime.max_attempts_per_task);
+    let no_progress_limit = Some(config.runtime.no_progress_repeat_limit);
+    let (result_tx, result_rx) =
+        std::sync::mpsc::channel::<(LinkedProject, Result<SchedulerResult, String>)>();
+    let mut handles = Vec::new();
+    for (project, _run_state) in batch {
+        let result_tx = result_tx.clone();
+        handles.push(std::thread::spawn(move || {
+            let mut hooks = super::scheduler::RunHooks {
+                pi_runner: None,
+                reviewer_runner: None,
+                verifier_runner: None,
+                validation_runner: None,
+            };
+            let result = super::scheduler::run_project_iteration(
+                &project,
+                &super::scheduler::IterationOptions {
+                    model_override: None,
+                    timeout_ms,
+                    max_attempts_per_task: max_attempts,
+                    no_progress_repeat_limit: no_progress_limit,
+                },
+                &mut hooks,
+            );
+            let _ = result_tx.send((project, result));
+        }));
+    }
+    drop(result_tx);
 
-        match run_result {
-            Ok(result) => {
-                iteration_result = Some(format!(
-                    "{}:{}:{}:{}",
-                    result.mode,
-                    result.task_id.clone().unwrap_or_else(|| "none".into()),
-                    result
-                        .exit_code
-                        .map(|c| c.to_string())
-                        .unwrap_or_else(|| "idle".into()),
-                    result.stopped_by.as_str()
-                ));
-                if result.exit_code.is_some() {
-                    // Measured provider cost when parsed, else the configured estimate.
-                    let cost = result
-                        .cost_usd
-                        .unwrap_or(config.budgets.estimated_cost_per_run_usd.unwrap_or(0.0));
-                    charge_usd = cost;
-
-                    // B3: Accumulate estimated cost on the task itself.
-                    if let Some(task_id) = &result.task_id {
-                        if cost > 0.0 {
-                            let _ = super::task_ledger::with_task_ledger(
-                                Path::new(&active_project.path),
-                                |ledger| {
-                                    if let Some(task) =
-                                        ledger.tasks.iter_mut().find(|t| &t.id == task_id)
-                                    {
-                                        task.estimated_cost_usd = Some(
-                                            ((task.estimated_cost_usd.unwrap_or(0.0) + cost)
-                                                * 10000.0)
-                                                .round()
-                                                / 10000.0,
-                                        );
-                                        task.updated_at = now_iso();
-                                    }
-                                    Ok(())
-                                },
-                            );
-                        }
+    let mut post_run_state: Option<DaemonState> = None;
+    for (project, run_result) in result_rx {
+        let (iteration_result, charge_usd) =
+            process_iteration_outcome(&config, &project, run_result);
+        let state = persist_tick_state(
+            Some(&project.alias),
+            Some(&now_iso()),
+            iteration_result.as_deref(),
+            &|state| {
+                state.active_project = Some(project.alias.clone());
+                // Retire this project's entry from the running set; the
+                // legacy currentRun mirrors whatever is still active.
+                if let Some(runs) = state.current_runs.as_mut() {
+                    runs.retain(|run| run.project_alias != project.alias);
+                    if runs.is_empty() {
+                        state.current_runs = None;
                     }
                 }
-                // D3: Append structured event to events.jsonl audit trail.
-                let mut event = now_event(if result.exit_code.is_some() {
-                    "pi_completed"
-                } else if result.mode == "idle" {
-                    "idle"
-                } else {
-                    "task_skipped"
-                });
-                event.project = Some(active_project.alias.clone());
-                event.task_id = result.task_id.clone();
-                event.exit_code = result.exit_code;
-                event.mode = Some(result.mode.clone());
-                event.role = result.role.map(|r| r.as_str().to_string());
-                event.stopped_by = Some(result.stopped_by.as_str().to_string());
-                event.task_status = result.task_status.map(|s| s.as_str().to_string());
-                let _ = append_event(&event, None);
+                state.current_run = state
+                    .current_runs
+                    .as_ref()
+                    .and_then(|runs| runs.last().cloned());
+                charge_budget(state, charge_usd, started_at);
+            },
+        )?;
+        post_run_state = Some(state);
+    }
+    for handle in handles {
+        let _ = handle.join();
+    }
+    post_run_state.ok_or_else(|| "batch produced no results".to_string())
+}
 
-                let proj_config =
-                    super::project_config::load_project_config(Path::new(&active_project.path))
-                        .ok();
-                let _ = emit_lifecycle_hooks_and_notifications(
-                    &config,
-                    proj_config.as_ref(),
-                    &active_project.path,
-                    &result,
-                    &active_project.alias,
-                );
+/// Process one completed scheduler iteration: summarize the outcome, charge
+/// the task ledger, append the audit event, fire hooks/notifications, and
+/// kick off issue-sync side threads. Returns (iteration_result, charge_usd).
+fn process_iteration_outcome(
+    config: &GlobalConfig,
+    project: &LinkedProject,
+    run_result: Result<SchedulerResult, String>,
+) -> (Option<String>, f64) {
+    let iteration_result: Option<String>;
+    let mut charge_usd = 0.0f64;
 
-                // A2: Post task status back to linked issue (if configured)
-                if let (Some(task_id), Some(task_status)) =
-                    (result.task_id.clone(), result.task_status)
-                {
-                    let project_path = active_project.path.clone();
-                    std::thread::spawn(move || {
-                        let _ = super::issue_sync::post_task_status_to_issue(
-                            Path::new(&project_path),
-                            &task_id,
-                            task_status.as_str(),
-                            None,
+    match run_result {
+        Ok(result) => {
+            iteration_result = Some(format!(
+                "{}:{}:{}:{}",
+                result.mode,
+                result.task_id.clone().unwrap_or_else(|| "none".into()),
+                result
+                    .exit_code
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| "idle".into()),
+                result.stopped_by.as_str()
+            ));
+            if result.exit_code.is_some() {
+                // Measured provider cost when parsed, else the configured estimate.
+                let cost = result
+                    .cost_usd
+                    .unwrap_or(config.budgets.estimated_cost_per_run_usd.unwrap_or(0.0));
+                charge_usd = cost;
+
+                // B3: Accumulate estimated cost on the task itself.
+                if let Some(task_id) = &result.task_id {
+                    if cost > 0.0 {
+                        let _ = super::task_ledger::with_task_ledger(
+                            Path::new(&project.path),
+                            |ledger| {
+                                if let Some(task) =
+                                    ledger.tasks.iter_mut().find(|t| &t.id == task_id)
+                                {
+                                    task.estimated_cost_usd = Some(
+                                        ((task.estimated_cost_usd.unwrap_or(0.0) + cost) * 10000.0)
+                                            .round()
+                                            / 10000.0,
+                                    );
+                                    task.updated_at = now_iso();
+                                }
+                                Ok(())
+                            },
                         );
-                    });
+                    }
                 }
+            }
+            // D3: Append structured event to events.jsonl audit trail.
+            let mut event = now_event(if result.exit_code.is_some() {
+                "pi_completed"
+            } else if result.mode == "idle" {
+                "idle"
+            } else {
+                "task_skipped"
+            });
+            event.project = Some(project.alias.clone());
+            event.task_id = result.task_id.clone();
+            event.exit_code = result.exit_code;
+            event.mode = Some(result.mode.clone());
+            event.role = result.role.map(|r| r.as_str().to_string());
+            event.stopped_by = Some(result.stopped_by.as_str().to_string());
+            event.task_status = result.task_status.map(|s| s.as_str().to_string());
+            let _ = append_event(&event, None);
 
-                // A2: Post PR link back to issue when a promotion creates a PR
-                if let (Some(task_id), Some(artifact_path)) =
-                    (&result.task_id, &result.promotion_result_artifact_path)
+            let proj_config =
+                super::project_config::load_project_config(Path::new(&project.path)).ok();
+            let _ = emit_lifecycle_hooks_and_notifications(
+                config,
+                proj_config.as_ref(),
+                &project.path,
+                &result,
+                &project.alias,
+            );
+
+            // A2: Post task status back to linked issue (if configured)
+            if let (Some(task_id), Some(task_status)) = (result.task_id.clone(), result.task_status)
+            {
+                let project_path = project.path.clone();
+                std::thread::spawn(move || {
+                    let _ = super::issue_sync::post_task_status_to_issue(
+                        Path::new(&project_path),
+                        &task_id,
+                        task_status.as_str(),
+                        None,
+                    );
+                });
+            }
+
+            // A2: Post PR link back to issue when a promotion creates a PR
+            if let (Some(task_id), Some(artifact_path)) =
+                (&result.task_id, &result.promotion_result_artifact_path)
+            {
+                if let Ok(Some(artifact)) =
+                    super::promotion_artifacts::read_promotion_result_artifact(artifact_path)
                 {
-                    if let Ok(Some(artifact)) =
-                        super::promotion_artifacts::read_promotion_result_artifact(artifact_path)
-                    {
-                        if let Some(pr_url) = artifact.pr_url {
-                            let project_path = active_project.path.clone();
-                            let task_id = task_id.clone();
-                            let branch = artifact.branch.clone();
+                    if let Some(pr_url) = artifact.pr_url {
+                        let project_path = project.path.clone();
+                        let task_id = task_id.clone();
+                        let branch = artifact.branch.clone();
+                        std::thread::spawn(move || {
+                            let _ = super::issue_sync::post_pr_link_to_issue(
+                                Path::new(&project_path),
+                                &task_id,
+                                &pr_url,
+                                branch.as_deref(),
+                            );
+                        });
+                    }
+                }
+            }
+
+            // A2: Auto-sync issues if configured
+            if let Some(proj_config) = &proj_config {
+                if let Some(source) = &proj_config.issue_source {
+                    if source.auto_sync.unwrap_or(false) && source.token.is_some() {
+                        // TS: an unparseable lastSyncedAt yields NaN and
+                        // the comparison is false (no sync); only a
+                        // missing value counts as never-synced (0).
+                        let last_synced = match source.last_synced_at.as_deref() {
+                            None => 0,
+                            Some(raw) => match chrono::DateTime::parse_from_rfc3339(raw) {
+                                Ok(dt) => dt.timestamp_millis(),
+                                Err(_) => i64::MAX, // invalid -> never due
+                            },
+                        };
+                        let interval_ms =
+                            (source.sync_interval_minutes.unwrap_or(30) as i64) * 60_000;
+                        if now_millis().saturating_sub(last_synced) >= interval_ms {
+                            let project_path = project.path.clone();
+                            let source = source.clone();
                             std::thread::spawn(move || {
-                                let _ = super::issue_sync::post_pr_link_to_issue(
+                                let _ = super::issue_sync::sync_issues(
                                     Path::new(&project_path),
-                                    &task_id,
-                                    &pr_url,
-                                    branch.as_deref(),
+                                    &source,
                                 );
                             });
                         }
                     }
                 }
-
-                // A2: Auto-sync issues if configured
-                if let Some(proj_config) = &proj_config {
-                    if let Some(source) = &proj_config.issue_source {
-                        if source.auto_sync.unwrap_or(false) && source.token.is_some() {
-                            // TS: an unparseable lastSyncedAt yields NaN and
-                            // the comparison is false (no sync); only a
-                            // missing value counts as never-synced (0).
-                            let last_synced = match source.last_synced_at.as_deref() {
-                                None => 0,
-                                Some(raw) => match chrono::DateTime::parse_from_rfc3339(raw) {
-                                    Ok(dt) => dt.timestamp_millis(),
-                                    Err(_) => i64::MAX, // invalid -> never due
-                                },
-                            };
-                            let interval_ms =
-                                (source.sync_interval_minutes.unwrap_or(30) as i64) * 60_000;
-                            if now_millis().saturating_sub(last_synced) >= interval_ms {
-                                let project_path = active_project.path.clone();
-                                let source = source.clone();
-                                std::thread::spawn(move || {
-                                    let _ = super::issue_sync::sync_issues(
-                                        Path::new(&project_path),
-                                        &source,
-                                    );
-                                });
-                            }
-                        }
-                    }
-                }
             }
-            Err(error) => {
-                if error.starts_with("__shutdown__") {
-                    // Daemon shutdown: do not surface the sentinel as the
-                    // project's lastResult (TS exited before persisting a
-                    // failure here; the task stays in_progress and recovers
-                    // on the next start).
-                    iteration_result = Some("shutdown".to_string());
-                }
-                // Detect the timeout BEFORE stripping the sentinel so the
-                // budget charge matches every timeout path (agent run,
-                // validation, worktree setup — all four carry the prefix or
-                // a "exceeded timeout" message).
-                else if error.starts_with("__iteration_timeout__")
-                    || error.contains("exceeded timeout")
-                    || error.contains("Run exceeded timeout")
-                {
-                    charge_usd = config.budgets.estimated_cost_per_run_usd.unwrap_or(0.0);
-                    iteration_result = Some(
-                        error
-                            .trim_start_matches("__iteration_timeout__:")
-                            .to_string(),
-                    );
-                } else {
-                    iteration_result = Some(error);
-                }
+        }
+        Err(error) => {
+            if error.starts_with("__shutdown__") {
+                // Daemon shutdown: do not surface the sentinel as the
+                // project's lastResult (TS exited before persisting a
+                // failure here; the task stays in_progress and recovers
+                // on the next start).
+                iteration_result = Some("shutdown".to_string());
+            }
+            // Detect the timeout BEFORE stripping the sentinel so the
+            // budget charge matches every timeout path (agent run,
+            // validation, worktree setup — all four carry the prefix or
+            // a "exceeded timeout" message).
+            else if error.starts_with("__iteration_timeout__")
+                || error.contains("exceeded timeout")
+                || error.contains("Run exceeded timeout")
+            {
+                charge_usd = config.budgets.estimated_cost_per_run_usd.unwrap_or(0.0);
+                iteration_result = Some(
+                    error
+                        .trim_start_matches("__iteration_timeout__:")
+                        .to_string(),
+                );
+            } else {
+                iteration_result = Some(error);
             }
         }
     }
 
-    let post_run_state = persist_tick_state(
-        active_project.as_ref().map(|p| p.alias.as_str()),
-        Some(&now_iso()),
-        iteration_result.as_deref(),
-        &|state| {
-            state.active_project = active_project.as_ref().map(|p| p.alias.clone());
-            state.current_run = None;
-            charge_budget(state, charge_usd, started_at);
-        },
-    )?;
-    Ok(post_run_state)
+    (iteration_result, charge_usd)
 }
 
 /// Apply a budget charge as a DELTA to freshly loaded state (never a stale

@@ -20,6 +20,7 @@ pub fn default_global_config() -> GlobalConfig {
             no_progress_repeat_limit: 2,
             tick_interval_seconds: Some(5),
             max_pending_reviews_per_project: Some(3),
+            max_concurrent_runs: None,
             project_selection_strategy: Some("round-robin".to_string()),
         },
         notifications: Some(GlobalNotifications {
@@ -87,6 +88,10 @@ pub fn load_global_config(app_home_override: Option<&str>) -> Result<GlobalConfi
             max_pending_reviews_per_project: sub(runtime, "maxPendingReviewsPerProject")
                 .and_then(|v| v.as_u64())
                 .or(g.runtime.max_pending_reviews_per_project.map(|v| v as u64))
+                .map(|v| v as u32),
+            max_concurrent_runs: sub(runtime, "maxConcurrentRuns")
+                .and_then(|v| v.as_u64())
+                .or(g.runtime.max_concurrent_runs.map(|v| v as u64))
                 .map(|v| v as u32),
             project_selection_strategy: sub(runtime, "projectSelectionStrategy")
                 .and_then(|v| v.as_str())

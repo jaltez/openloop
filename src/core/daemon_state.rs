@@ -21,6 +21,7 @@ pub fn create_default_daemon_state() -> DaemonState {
         budget_spent_usd: 0.0,
         budget_blocked: false,
         current_run: None,
+        current_runs: None,
         projects: Vec::new(),
         last_digest_date: None,
     }

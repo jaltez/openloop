@@ -566,6 +566,32 @@ fn sanitize_observation_key(value: &str) -> String {
 // ---------------------------------------------------------------------------
 
 pub fn select_next_task(ledger: &TaskLedger) -> SchedulerSelection {
+    // No registry access: cross-project refs stay unsatisfied, matching the
+    // pre-cross-repo behavior.
+    select_next_task_with_resolver(ledger, &|_alias, _task_id| None)
+}
+
+/// Resolves a cross-project dependency ref `alias:task-id` to the referenced
+/// task's status in its own repo. `None` means the alias or task is unknown,
+/// which leaves the dependency unsatisfied.
+pub type CrossProjectResolver<'a> = &'a dyn Fn(&str, &str) -> Option<TaskStatus>;
+
+/// True when the cross-project ref `alias:task-id` resolves to a promoted,
+/// done, or cancelled task in its own repo.
+fn cross_ref_satisfied(cross_project: &dyn Fn(&str, &str) -> Option<TaskStatus>, r: &str) -> bool {
+    match r.split_once(':') {
+        Some((alias, task_id)) => matches!(
+            cross_project(alias, task_id),
+            Some(TaskStatus::Promoted | TaskStatus::Done | TaskStatus::Cancelled)
+        ),
+        None => false,
+    }
+}
+
+pub fn select_next_task_with_resolver(
+    ledger: &TaskLedger,
+    cross_project: CrossProjectResolver<'_>,
+) -> SchedulerSelection {
     let ready_tasks: Vec<&ProjectTask> = ledger
         .tasks
         .iter()
@@ -573,23 +599,22 @@ pub fn select_next_task(ledger: &TaskLedger) -> SchedulerSelection {
         .collect();
 
     // dependsOn gating: a ready task is only eligible when every local ref
-    // resolves to a promoted/done/cancelled task. Cross-project refs are
-    // reserved for future cross-repo scheduling — never satisfied here.
+    // resolves to a promoted/done/cancelled task. Cross-project refs
+    // (`alias:task-id`) resolve against that project's ledger via the
+    // resolver; unsatisfiable refs block the task.
     let dependency_satisfied = |task: &ProjectTask| -> bool {
         task.depends_on
             .as_ref()
             .map(|deps| {
-                deps.iter().all(|r| {
-                    if r.contains(':') {
-                        return false;
-                    }
-                    ledger.tasks.iter().any(|candidate| {
+                deps.iter().all(|r| match r.split_once(':') {
+                    Some(_) => cross_ref_satisfied(cross_project, r),
+                    None => ledger.tasks.iter().any(|candidate| {
                         &candidate.id == r
                             && matches!(
                                 candidate.status,
                                 TaskStatus::Promoted | TaskStatus::Done | TaskStatus::Cancelled
                             )
-                    })
+                    }),
                 })
             })
             .unwrap_or(true)
@@ -666,10 +691,13 @@ pub fn select_next_task(ledger: &TaskLedger) -> SchedulerSelection {
             .iter()
             .flat_map(|task| task.depends_on.iter().flatten())
         {
-            if r.contains(':') {
-                if !cross_refs.contains(r) {
+            if r.split_once(':').is_some() {
+                if !cross_ref_satisfied(cross_project, r) && !cross_refs.contains(r) {
                     cross_refs.push(r.clone());
                 }
+                // A resolved cross-project ref is satisfied; it only reaches
+                // this diagnostic when some OTHER dep blocks the task, and
+                // that dep lists itself below.
                 continue;
             }
             let dependency_ok = ledger.tasks.iter().any(|candidate| {
@@ -685,7 +713,7 @@ pub fn select_next_task(ledger: &TaskLedger) -> SchedulerSelection {
         }
         let mut blocker_list = local_blockers;
         for r in cross_refs {
-            blocker_list.push(format!("{r} (cross-project, not schedulable here)"));
+            blocker_list.push(format!("{r} (cross-project, unsatisfied)"));
         }
         if !blocker_list.is_empty() {
             return SchedulerSelection {
@@ -940,6 +968,21 @@ fn get_initial_git_state(project_path: &Path) -> Option<String> {
         .and_then(|s| s.current_branch)
 }
 
+/// Cross-project dependency resolver backed by the global project registry:
+/// loads the referenced project's task ledger and returns the dependency
+/// task's current status. Unknown alias or task id → None (unsatisfied).
+pub fn make_cross_project_resolver() -> impl Fn(&str, &str) -> Option<TaskStatus> {
+    |alias: &str, task_id: &str| {
+        let project = super::project_registry::get_project(alias, None).ok()?;
+        let ledger = super::task_ledger::load_task_ledger(Path::new(&project.path)).ok()?;
+        ledger
+            .tasks
+            .iter()
+            .find(|task| task.id == task_id)
+            .map(|task| task.status)
+    }
+}
+
 /// The full scheduler iteration for one project. Mirrors runProjectIteration.
 pub fn run_project_iteration(
     project: &LinkedProject,
@@ -953,7 +996,8 @@ pub fn run_project_iteration(
     let project_config = super::project_config::load_project_config(project_path)?;
     let project_policy = super::project_policy::load_project_policy(project_path)?;
 
-    let mut selection = select_next_task(&ledger);
+    let cross_project = make_cross_project_resolver();
+    let mut selection = select_next_task_with_resolver(&ledger, &cross_project);
     let timeout_ms = options
         .timeout_ms
         .or(Some(global_config.runtime.run_timeout_seconds * 1000));

@@ -34,11 +34,25 @@ pub fn load_project_queue_states(
 pub fn select_next_project(
     app_home_override: Option<&str>,
 ) -> Result<Option<LinkedProject>, String> {
+    select_next_project_excluding(app_home_override, &[])
+}
+
+/// Select the next project to run, skipping the given aliases (used by the
+/// batch scheduler so several projects can run in the same tick and a
+/// backpressured project never blocks the rest of the fleet).
+pub fn select_next_project_excluding(
+    app_home_override: Option<&str>,
+    exclude_aliases: &[String],
+) -> Result<Option<LinkedProject>, String> {
     let states = load_project_queue_states(app_home_override)?;
     let config = load_global_config(app_home_override)?;
     let eligible: Vec<&ProjectQueueState> = states
         .iter()
-        .filter(|state| state.project.initialized && state.queue_size > 0)
+        .filter(|state| {
+            state.project.initialized
+                && state.queue_size > 0
+                && !exclude_aliases.contains(&state.project.alias)
+        })
         .collect();
 
     if eligible.is_empty() {
