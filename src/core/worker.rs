@@ -291,6 +291,65 @@ pub fn run_worker_tick(started_at: &str) -> Result<DaemonState, String> {
         }
     }
 
+    // Daemon-side PR refresh: poll pending PR promotions via `gh` on a slow
+    // cadence so a merged PR closes its loop (task promoted, artifact
+    // retired, hooks fired) without a human running `promotion refresh`.
+    // The timestamp persists BEFORE the poll (at-most-once per interval);
+    // poll failures only log — a missing `gh` never fails the tick.
+    let pr_refresh_interval = config.runtime.pr_refresh_interval_seconds.unwrap_or(300);
+    if pr_refresh_interval > 0 && pr_refresh_due(&normalized_state, pr_refresh_interval) {
+        let _ = super::daemon_state::with_daemon_state(
+            |state| {
+                state.last_pr_refresh_at = Some(now_iso());
+            },
+            None,
+        );
+        let (outcomes, errors) = super::pr_refresh::refresh_pending_prs(&config, &projects, 30_000);
+        for error in &errors {
+            append_log_fmt(&format!("pr refresh: {error}"));
+        }
+        for outcome in &outcomes {
+            if !(outcome.merged || outcome.closed) {
+                continue;
+            }
+            let mut event = now_event(if outcome.merged {
+                "pr_merged"
+            } else {
+                "pr_closed"
+            });
+            event.project = Some(outcome.project_alias.clone());
+            event.task_id = Some(outcome.task_id.clone());
+            let _ = append_event(&event, None);
+            let message = if outcome.merged {
+                format!("PR merged for {}: {}", outcome.task_id, outcome.pr_url)
+            } else {
+                format!(
+                    "PR closed without merging for {}: {}",
+                    outcome.task_id, outcome.pr_url
+                )
+            };
+            let payload = build_lifecycle_payload(
+                if outcome.merged {
+                    "promotion-pr-merged"
+                } else {
+                    "promotion-pr-closed"
+                },
+                &outcome.project_alias,
+                &outcome.task_id,
+                &message,
+                "idle",
+            );
+            let _ = super::hooks::run_lifecycle_hooks(
+                &config,
+                None,
+                &payload,
+                Some(&daemon_log_path(None).to_string_lossy()),
+            );
+            let _ = super::notifications::fire_notifications(&config, &payload);
+            append_log_fmt(&message);
+        }
+    }
+
     // ---- Batch selection: fill up to runtime.maxConcurrentRuns slots. ----
     // Each selected project gets one scheduler iteration this tick; the
     // iterations execute concurrently on worker threads (they coordinate
@@ -698,6 +757,21 @@ fn process_iteration_outcome(
     }
 
     (iteration_result, charge_usd)
+}
+
+/// True when the PR refresh interval has elapsed since the last poll (or the
+/// stored timestamp is unreadable — poll rather than silently stop).
+fn pr_refresh_due(state: &DaemonState, interval_seconds: u64) -> bool {
+    match state.last_pr_refresh_at.as_deref() {
+        None => true,
+        Some(raw) => match chrono::DateTime::parse_from_rfc3339(raw) {
+            Ok(dt) => {
+                now_millis().saturating_sub(dt.timestamp_millis())
+                    >= (interval_seconds as i64) * 1000
+            }
+            Err(_) => true,
+        },
+    }
 }
 
 /// Apply a budget charge as a DELTA to freshly loaded state (never a stale

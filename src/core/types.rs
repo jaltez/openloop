@@ -60,6 +60,8 @@ pub struct GlobalRuntime {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_concurrent_runs: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr_refresh_interval_seconds: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_selection_strategy: Option<String>,
 }
 
@@ -353,6 +355,14 @@ pub struct DaemonState {
         skip_serializing_if = "Option::is_none"
     )]
     pub last_digest_date: Option<String>,
+    /// Last time the daemon polled pending PR promotions via `gh`, used to
+    /// throttle runtime.prRefreshIntervalSeconds.
+    #[serde(
+        default,
+        rename = "lastPrRefreshAt",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub last_pr_refresh_at: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

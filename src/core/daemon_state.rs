@@ -24,6 +24,7 @@ pub fn create_default_daemon_state() -> DaemonState {
         current_runs: None,
         projects: Vec::new(),
         last_digest_date: None,
+        last_pr_refresh_at: None,
     }
 }
 
@@ -85,6 +86,10 @@ pub fn load_daemon_state(app_home_override: Option<&str>) -> Result<DaemonState,
     }
     state.last_digest_date = partial
         .get("lastDigestDate")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    state.last_pr_refresh_at = partial
+        .get("lastPrRefreshAt")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
     Ok(state)

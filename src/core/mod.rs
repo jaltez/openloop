@@ -16,6 +16,7 @@ pub mod model_resolution;
 pub mod notifications;
 pub mod paths;
 pub mod pi;
+pub mod pr_refresh;
 pub mod project_config;
 pub mod project_policy;
 pub mod project_registry;

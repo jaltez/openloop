@@ -258,10 +258,10 @@ pub struct SpawnOptions {
     pub env_model: Option<String>,
 }
 
-struct RawRunResult {
-    exit_code: i32,
-    stdout: String,
-    stderr: String,
+pub(crate) struct RawRunResult {
+    pub(crate) exit_code: i32,
+    pub(crate) stdout: String,
+    pub(crate) stderr: String,
 }
 
 const CAPTURE_LIMIT: usize = 4 * 1024 * 1024;
@@ -287,7 +287,7 @@ fn append_capped(buffer: &Arc<Mutex<String>>, text: &str) {
 /// Spawn a detached (own process group) subprocess, capture piped output with
 /// a rolling 4 MiB cap per stream, and enforce the wall-clock timeout by
 /// killing the whole process group (SIGTERM, escalating to SIGKILL).
-fn spawn_and_wait(
+pub(crate) fn spawn_and_wait(
     binary: &str,
     args: &[String],
     cwd: &Path,

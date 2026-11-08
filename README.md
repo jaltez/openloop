@@ -77,7 +77,10 @@ openloop approval list --project myapp
 - **Promotion flow**: auto-merge (low-risk, all validations green), pull
   requests via `gh` or a custom command, or manual-only; every decision
   leaves a JSON artifact trail plus a human-approval packet with diff stat,
-  cost, and provenance.
+  cost, and provenance. The daemon polls open PRs
+  (`runtime.prRefreshIntervalSeconds`, default 300, 0 disables) so a merged
+  PR promotes its task and a closed one releases the review queue without a
+  manual `promotion refresh`.
 - **Cost governance**: per-run measured cost when the agent reports usage,
   estimated fallback otherwise; daily budgets anchored to the daemon's start
   date; fleet digest with spend split and a confidence-ranked review queue.

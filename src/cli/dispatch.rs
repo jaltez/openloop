@@ -412,7 +412,7 @@ fn config(cmd: ConfigCommand) -> Result<(), String> {
             Ok(())
         }
         ConfigSubcommand::Set { key, value } => {
-            const SETTABLE: [(&str, &str, Option<f64>, Option<f64>); 12] = [
+            const SETTABLE: [(&str, &str, Option<f64>, Option<f64>); 13] = [
                 ("budgets.dailyCostUsd", "number", Some(0.0), None),
                 ("budgets.estimatedCostPerRunUsd", "number", Some(0.0), None),
                 ("runtime.runTimeoutSeconds", "number", Some(1.0), None),
@@ -420,6 +420,12 @@ fn config(cmd: ConfigCommand) -> Result<(), String> {
                 ("runtime.noProgressRepeatLimit", "number", Some(1.0), None),
                 ("runtime.tickIntervalSeconds", "number", Some(1.0), None),
                 ("runtime.maxConcurrentRuns", "number", Some(1.0), None),
+                (
+                    "runtime.prRefreshIntervalSeconds",
+                    "number",
+                    Some(0.0),
+                    None,
+                ),
                 ("runtime.projectSelectionStrategy", "string", None, None),
                 ("notifications.onTaskComplete", "string", None, None),
                 ("notifications.onTaskFailed", "string", None, None),

@@ -560,3 +560,221 @@ fn backpressured_project_yields_to_other_projects() {
     let log = fs::read_to_string(s.home.join("run").join("daemon.log")).unwrap_or_default();
     assert!(log.contains("review-backpressure"), "log: {log}");
 }
+
+// ---------------------------------------------------------------------------
+// Daemon-side PR refresh (runtime.prRefreshIntervalSeconds)
+// ---------------------------------------------------------------------------
+
+struct PrSandbox {
+    home: PathBuf,
+    target: PathBuf,
+    bin: PathBuf,
+    count: PathBuf,
+    saved_home: Option<String>,
+    saved_path: Option<String>,
+}
+
+impl Drop for PrSandbox {
+    fn drop(&mut self) {
+        match self.saved_home.take() {
+            Some(prev) => std::env::set_var("OPENLOOP_HOME", prev),
+            None => std::env::remove_var("OPENLOOP_HOME"),
+        }
+        match self.saved_path.take() {
+            Some(prev) => std::env::set_var("PATH", prev),
+            None => std::env::remove_var("PATH"),
+        }
+        let _ = fs::remove_dir_all(&self.home);
+        let _ = fs::remove_dir_all(&self.target);
+        let _ = fs::remove_dir_all(&self.bin);
+    }
+}
+
+/// Single-project sandbox whose PATH exposes a counting `gh` stub emitting
+/// the given JSON.
+fn pr_sandbox(name: &str, gh_json: &str) -> PrSandbox {
+    let pid = std::process::id();
+    let home = std::env::temp_dir().join(format!("ol-prrefresh-home-{name}-{pid}"));
+    let target = std::env::temp_dir().join(format!("ol-prrefresh-target-{name}-{pid}"));
+    let bin = std::env::temp_dir().join(format!("ol-prrefresh-bin-{name}-{pid}"));
+    for dir in [&home, &target, &bin] {
+        let _ = fs::remove_dir_all(dir);
+        fs::create_dir_all(dir).unwrap();
+    }
+
+    let saved_home = std::env::var("OPENLOOP_HOME").ok();
+    std::env::set_var("OPENLOOP_HOME", &home);
+    let saved_path = std::env::var("PATH").ok();
+    std::env::set_var(
+        "PATH",
+        format!("{}:{}", bin.display(), saved_path.as_deref().unwrap_or("")),
+    );
+
+    fs::write(
+        home.join("projects.json"),
+        serde_json::to_string(&ProjectsRegistry {
+            version: 1,
+            projects: vec![LinkedProject {
+                alias: "p1".into(),
+                path: target.to_string_lossy().to_string(),
+                default_branch: None,
+                initialized: true,
+                created_at: "2026-01-01T00:00:00.000Z".into(),
+                updated_at: "2026-01-01T00:00:00.000Z".into(),
+            }],
+        })
+        .unwrap(),
+    )
+    .unwrap();
+
+    let count = bin.join("gh-calls");
+    let stub = bin.join("gh");
+    fs::write(
+        &stub,
+        format!(
+            "#!/bin/sh\necho 1 >> {count}\necho '{gh_json}'\n",
+            count = count.display()
+        ),
+    )
+    .unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&stub).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&stub, perms).unwrap();
+    }
+
+    PrSandbox {
+        home,
+        target,
+        bin,
+        count,
+        saved_home,
+        saved_path,
+    }
+}
+
+fn seed_pr_result(target: &Path, pr_url: &str) {
+    let artifact = PromotionResultArtifact {
+        version: 1,
+        created_at: "2026-01-02T00:00:00.000Z".into(),
+        project_alias: "p1".into(),
+        task_id: "t".into(),
+        source_promotion_artifact_path: "unused".into(),
+        source_promotion_action: PromotionAction::QueueReview,
+        source_promotion_decision: PromotionDecision::ManualReview,
+        result: "applied".into(),
+        branch: Some("openloop/t".into()),
+        base_branch: None,
+        note: Some("Created PR".into()),
+        pr_url: Some(pr_url.into()),
+        state: None,
+        checks: None,
+    };
+    openloop::core::promotion_artifacts::write_promotion_result_artifact(target, &artifact)
+        .unwrap();
+}
+
+fn gh_calls(s: &PrSandbox) -> usize {
+    fs::read_to_string(&s.count)
+        .map(|c| c.lines().filter(|l| !l.trim().is_empty()).count())
+        .unwrap_or(0)
+}
+
+#[test]
+fn daemon_pr_refresh_promotes_merged_prs_and_throttles() {
+    let _env = env_lock();
+    let s = pr_sandbox("merged", r#"{"state":"MERGED","statusCheckRollup":[]}"#);
+    write_global_config(|_| {});
+    write_ledger(&s.target, vec![make_task("t", TaskStatus::Done, 0)]);
+    seed_pr_result(&s.target, "https://github.com/org/repo/pull/7");
+
+    let state = run_worker_tick("2026-01-01T00:00:00.000Z").unwrap();
+
+    let ledger = openloop::core::task_ledger::load_task_ledger(&s.target).unwrap();
+    let task = &ledger.tasks[0];
+    assert_eq!(task.status, TaskStatus::Promoted);
+    assert!(task.promoted_at.is_some());
+    assert!(task
+        .notes
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .any(|n| n.contains("PR merged")));
+
+    assert!(state.last_pr_refresh_at.is_some());
+    let events = fs::read_to_string(s.home.join("run").join("events.jsonl")).unwrap_or_default();
+    assert!(events.contains("pr_merged"), "events: {events}");
+    assert_eq!(gh_calls(&s), 1, "exactly one gh poll");
+
+    // Second tick within the interval: throttled, no new poll.
+    run_worker_tick("2026-01-01T00:00:05.000Z").unwrap();
+    assert_eq!(gh_calls(&s), 1, "poll must be throttled by interval");
+
+    // The PR-state refresh produced exactly one refreshed artifact.
+    let results_dir = s.target.join(".openloop").join("promotion-results");
+    let files: Vec<_> = fs::read_dir(&results_dir)
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().ends_with(".json"))
+        .collect();
+    assert_eq!(files.len(), 2, "seed + one refresh only");
+}
+
+#[test]
+fn daemon_pr_refresh_rejects_closed_prs() {
+    let _env = env_lock();
+    let s = pr_sandbox("closed", r#"{"state":"CLOSED","statusCheckRollup":[]}"#);
+    write_global_config(|_| {});
+    write_ledger(&s.target, vec![make_task("t", TaskStatus::Done, 0)]);
+    seed_pr_result(&s.target, "https://github.com/org/repo/pull/8");
+    // A still-pending promotion artifact must be retired by the close.
+    let artifact = PromotionArtifact {
+        version: 1,
+        created_at: "2026-01-02T00:00:00.000Z".into(),
+        project_alias: "p1".into(),
+        task_id: "t".into(),
+        base_branch: None,
+        decision: PromotionDecision::ManualReview,
+        action: PromotionAction::QueueReview,
+        effective_promotion_mode: TaskPromotion::PullRequest,
+        validation: vec![],
+        pi_exit_code: None,
+        outcome: RunOutcome::Completed,
+        approval_packet_path: None,
+        status: PromotionArtifactStatus::Pending,
+        processed_at: None,
+        note: None,
+    };
+    openloop::core::promotion_artifacts::write_promotion_artifact(&s.target, &artifact).unwrap();
+
+    run_worker_tick("2026-01-01T00:00:00.000Z").unwrap();
+
+    let items = openloop::core::promotion_queue::list_promotion_artifacts(&s.target).unwrap();
+    let item = items
+        .iter()
+        .find(|i| i.artifact.task_id == "t")
+        .expect("artifact present");
+    assert_eq!(item.artifact.status, PromotionArtifactStatus::Rejected);
+
+    let events = fs::read_to_string(s.home.join("run").join("events.jsonl")).unwrap_or_default();
+    assert!(events.contains("pr_closed"), "events: {events}");
+}
+
+#[test]
+fn daemon_pr_refresh_respects_disabled_interval() {
+    let _env = env_lock();
+    let s = pr_sandbox("off", r#"{"state":"MERGED","statusCheckRollup":[]}"#);
+    write_global_config(|c| {
+        c.runtime.pr_refresh_interval_seconds = Some(0);
+    });
+    write_ledger(&s.target, vec![make_task("t", TaskStatus::Done, 0)]);
+    seed_pr_result(&s.target, "https://github.com/org/repo/pull/9");
+
+    let state = run_worker_tick("2026-01-01T00:00:00.000Z").unwrap();
+
+    assert_eq!(gh_calls(&s), 0, "interval 0 disables polling");
+    assert!(state.last_pr_refresh_at.is_none());
+    let ledger = openloop::core::task_ledger::load_task_ledger(&s.target).unwrap();
+    assert_eq!(ledger.tasks[0].status, TaskStatus::Done);
+}
