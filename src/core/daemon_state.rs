@@ -27,6 +27,7 @@ pub fn create_default_daemon_state() -> DaemonState {
         last_pr_refresh_at: None,
         notification_queue: None,
         notification_status: None,
+        pending_cross_deps: None,
     }
 }
 
@@ -99,6 +100,9 @@ pub fn load_daemon_state(app_home_override: Option<&str>) -> Result<DaemonState,
     }
     if let Some(v) = partial.get("notificationStatus") {
         state.notification_status = serde_json::from_value(v.clone()).ok();
+    }
+    if let Some(v) = partial.get("pendingCrossDeps") {
+        state.pending_cross_deps = serde_json::from_value(v.clone()).ok();
     }
     Ok(state)
 }

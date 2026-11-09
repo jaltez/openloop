@@ -67,7 +67,9 @@ openloop approval list --project myapp
   high-risk areas, promotion modes per risk class); validation commands;
   specs; runs; promotions; approvals.
 - **Unattended scheduling**: low-risk-first with 24 h aging, `dependsOn`
-  gating (including cross-repo `alias:task-id` refs), opt-in concurrent runs
+  gating (including cross-repo `alias:task-id` refs — when an upstream
+  dependency lands, waiting tasks get a `dependency_satisfied` event, a
+  ledger note, and notifications), opt-in concurrent runs
   per tick (`runtime.maxConcurrentRuns`), max attempts, no-progress
   detection, budget ceilings, review backpressure, cron schedules, and
   crash recovery on daemon restart.

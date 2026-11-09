@@ -238,6 +238,7 @@ fn events_since_zero_means_no_cutoff() {
                 stopped_by: None,
                 pid: None,
                 task_status: None,
+                detail: None,
                 hook_event: None,
                 hook_type: None,
                 hook_scope: None,

@@ -316,6 +316,18 @@ pub fn run_worker_tick(started_at: &str) -> Result<DaemonState, String> {
         }
     }
 
+    // Cross-repo dependency events: seed the pending set BEFORE the PR poll
+    // so a merge in this same tick is a genuine pending -> satisfied
+    // transition; detection then runs after the poll. When an upstream task
+    // lands (promoted/done/cancelled), waiting tasks in other projects get a
+    // ledger note, an audit event, and notifications.
+    if super::daemon_state::load_daemon_state(None)
+        .map(|state| state.pending_cross_deps.is_none())
+        .unwrap_or(true)
+    {
+        super::dependency_events::seed_pending_set(&projects);
+    }
+
     // Daemon-side PR refresh: poll pending PR promotions via `gh` on a slow
     // cadence so a merged PR closes its loop (task promoted, artifact
     // retired, hooks fired) without a human running `promotion refresh`.
@@ -373,6 +385,45 @@ pub fn run_worker_tick(started_at: &str) -> Result<DaemonState, String> {
             let _ = super::notifications::fire_notifications(&config, &payload);
             append_log_fmt(&message);
         }
+    }
+
+    // Cross-repo dependency events: when an upstream task lands (promoted/
+    // done/cancelled), waiting tasks in other projects get a ledger note,
+    // an audit event, and notifications. Runs AFTER the PR poll so a merge
+    // unblocks downstream work within the same tick.
+    let satisfied_deps = super::dependency_events::detect_and_mark(&projects);
+    for transition in &satisfied_deps {
+        let mut event = now_event("dependency_satisfied");
+        event.project = Some(transition.dependent_project.clone());
+        event.task_id = Some(transition.dependent_task_id.clone());
+        event.detail = Some(format!(
+            "{} {}",
+            transition.dependency_ref,
+            transition.dependency_status.as_str()
+        ));
+        let _ = append_event(&event, None);
+        let message = format!(
+            "Task {} in {} unblocked: dependency {} is now {}.",
+            transition.dependent_task_id,
+            transition.dependent_project,
+            transition.dependency_ref,
+            transition.dependency_status.as_str()
+        );
+        let payload = build_lifecycle_payload(
+            "dependency-satisfied",
+            &transition.dependent_project,
+            &transition.dependent_task_id,
+            &message,
+            "idle",
+        );
+        let _ = super::hooks::run_lifecycle_hooks(
+            &config,
+            None,
+            &payload,
+            Some(&daemon_log_path(None).to_string_lossy()),
+        );
+        let _ = super::notifications::fire_notifications(&config, &payload);
+        append_log_fmt(&message);
     }
 
     // ---- Batch selection: fill up to runtime.maxConcurrentRuns slots. ----

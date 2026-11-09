@@ -433,6 +433,14 @@ pub struct DaemonState {
         skip_serializing_if = "Option::is_none"
     )]
     pub notification_status: Option<Vec<NotificationDeliveryStatus>>,
+    /// Cross-repo dependency refs (`alias:task-id`) currently known
+    /// unsatisfied; their satisfaction transitions emit dependency events.
+    #[serde(
+        default,
+        rename = "pendingCrossDeps",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub pending_cross_deps: Option<Vec<String>>,
 }
 
 /// One failed notification delivery pending retry.
@@ -1183,6 +1191,9 @@ pub struct OpenLoopEvent {
     pub pid: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_status: Option<String>,
+    /// Free-form context (e.g. the dependency ref for dependency_satisfied).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hook_event: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

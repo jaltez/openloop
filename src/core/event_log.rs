@@ -104,6 +104,7 @@ pub fn now_event(event: &str) -> OpenLoopEvent {
         stopped_by: None,
         pid: None,
         task_status: None,
+        detail: None,
         hook_event: None,
         hook_type: None,
         hook_scope: None,

@@ -2,6 +2,7 @@ pub mod approval_packets;
 pub mod cron;
 pub mod daemon_state;
 pub mod dashboard;
+pub mod dependency_events;
 pub mod digest;
 pub mod doctor;
 pub mod event_log;
