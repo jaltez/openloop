@@ -509,6 +509,9 @@ fn parse_since_ms(since: &str) -> i64 {
 }
 
 pub(super) fn events(args: EventsArgs) -> Result<(), String> {
+    if args.follow {
+        return events_follow(&args);
+    }
     let events_list = c::event_log::read_recent_events(&c::event_log::ReadEventsOptions {
         since_ms: Some(parse_since_ms(&args.since)),
         project: args.project.as_deref(),
@@ -546,6 +549,91 @@ pub(super) fn events(args: EventsArgs) -> Result<(), String> {
         println!("{ts} {}", detail_parts.join(" "));
     }
     Ok(())
+}
+
+/// `events --follow`: print the initial snapshot, then stream appended
+/// events.jsonl lines until interrupted (Ctrl-C). Truncation/rotation resets
+/// to the file start.
+fn events_follow(args: &EventsArgs) -> Result<(), String> {
+    use std::io::Write as _;
+
+    let log_path = c::event_log::events_log_path(None);
+    let project_filter = args.project.as_deref();
+
+    fn render(line: &str, json: bool) {
+        if json {
+            println!("{line}");
+        } else if let Ok(evt) = serde_json::from_str::<serde_json::Value>(line) {
+            let ts: String = evt["ts"]
+                .as_str()
+                .unwrap_or("")
+                .chars()
+                .skip(11)
+                .take(8)
+                .collect();
+            let event = evt["event"].as_str().unwrap_or("?");
+            let proj = evt["project"]
+                .as_str()
+                .map(|p| format!(" [{p}]"))
+                .unwrap_or_default();
+            let task = evt["taskId"]
+                .as_str()
+                .map(|t| format!(" #{t}"))
+                .unwrap_or_default();
+            println!("{ts} {event}{proj}{task}");
+        }
+    }
+
+    fn matches_filter(line: &str, project: Option<&str>) -> bool {
+        match project {
+            None => true,
+            Some(alias) => serde_json::from_str::<serde_json::Value>(line)
+                .ok()
+                .and_then(|v| v["project"].as_str().map(|p| p == alias))
+                .unwrap_or(false),
+        }
+    }
+
+    // Initial snapshot (same window/filter semantics as the one-shot read).
+    let initial = c::event_log::read_recent_events(&c::event_log::ReadEventsOptions {
+        since_ms: Some(parse_since_ms(&args.since)),
+        project: project_filter,
+        limit: (args.limit != 0).then_some(args.limit),
+        ..Default::default()
+    });
+    for evt in &initial {
+        let line = serde_json::to_string(evt).unwrap_or_default();
+        render(&line, args.json);
+    }
+    let _ = std::io::stdout().flush();
+
+    // Stream: track how many lines of the current file we have printed.
+    let mut printed_lines: usize = std::fs::read_to_string(&log_path)
+        .map(|content| content.lines().count())
+        .unwrap_or(0);
+
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        let content = match std::fs::read_to_string(&log_path) {
+            Ok(content) => content,
+            Err(_) => continue,
+        };
+        let lines: Vec<&str> = content.lines().collect();
+        if lines.len() < printed_lines {
+            // Truncated or rotated: re-read from the start.
+            printed_lines = 0;
+        }
+        for line in lines.iter().skip(printed_lines) {
+            if line.trim().is_empty() {
+                continue;
+            }
+            if matches_filter(line, project_filter) {
+                render(line, args.json);
+            }
+        }
+        printed_lines = lines.len();
+        let _ = std::io::stdout().flush();
+    }
 }
 
 pub(super) fn watch() -> Result<(), String> {

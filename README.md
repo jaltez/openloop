@@ -76,8 +76,10 @@ openloop approval list --project myapp
 - **Verified runs**: lint/test/typecheck gates plus project-defined custom
   gates (`openloop config project-add-validation`, first-class in auto-merge
   readiness), an independent verifier role judging acceptance criteria,
-  deterministic secret/scope-drift review, and an optional LLM reviewer — all
-  before anything is promoted.
+  deterministic secret/scope-drift review (AWS, GitHub, Slack, Google,
+  OpenAI, JWT, private keys, generic assignments, plus a warn-severity
+  high-entropy heuristic), and an optional LLM reviewer — all before
+  anything is promoted.
 - **Promotion flow**: auto-merge (low-risk, all validations green), pull
   requests via `gh` or a custom command, or manual-only; every decision
   leaves a JSON artifact trail plus a human-approval packet with diff stat,
@@ -112,6 +114,9 @@ openloop issue      set-source|sync|list|remove-source    GitHub/GitLab
 openloop dashboard  start|enable|disable|status           Web dashboard
 openloop run|run-once|enqueue|status|events|logs|watch|report|digest|doctor|setup|mcp
 ```
+
+`events --follow` streams new events as the daemon appends them (like
+`tail -f`).
 
 Most commands take `--format json` for scripting; tables render on TTYs by
 default. Run `openloop <command> --help` for the full surface.

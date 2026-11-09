@@ -117,3 +117,52 @@ fn extract_changed_files_parses_headers_deduped() {
         vec!["src/x.rs".to_string(), "y".to_string()]
     );
 }
+
+#[test]
+fn detects_slack_google_openai_and_jwt_tokens() {
+    let cases: Vec<(&str, &str)> = vec![
+        (
+            "+token = \"xoxb-111AAA222BBB333CCC444DDD\"\n",
+            "secret-detection:slack-token",
+        ),
+        (
+            "+key = \"AIzaSyA1234567890abcdefghijklmnopqrstuv\"\n",
+            "secret-detection:google-api-key",
+        ),
+        (
+            "+api_key = \"sk-Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr\"\n",
+            "secret-detection:openai-api-key",
+        ),
+        (
+            "+auth = \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5Nr_XgL0n3I9PlFUP0THsR8U\"\n",
+            "secret-detection:jwt",
+        ),
+    ];
+    for (diff, rule) in cases {
+        let findings = check_secrets(diff);
+        assert!(
+            findings.iter().any(|f| f.rule == rule),
+            "{rule} must be detected: {:?}",
+            findings.iter().map(|f| f.rule.clone()).collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
+fn entropy_detector_flags_random_tokens_as_warn_only() {
+    // High-entropy run with no known prefix: heuristic coverage.
+    let token = "Zj3kQ9vP2nR8wX1mL5sT7bY4cH6dG0fA";
+    let findings = check_secrets(&format!("+{token}\n"));
+    let entropy = findings
+        .iter()
+        .find(|f| f.rule == "secret-detection:high-entropy-token")
+        .expect("high-entropy token must be flagged");
+    assert_eq!(entropy.severity, ReviewFindingSeverity::Warn);
+
+    // Ordinary prose does not trip it.
+    let clean = check_secrets("+this is a normal sentence with regular words and no secrets\n");
+    assert!(
+        !clean.iter().any(|f| f.rule.contains("entropy")),
+        "prose must not be flagged: {clean:?}"
+    );
+}

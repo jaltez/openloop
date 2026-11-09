@@ -421,3 +421,61 @@ fn history_merges_requests_and_results_chronologically() {
     assert_eq!(history[1].kind, "result");
     assert!(history[0].created_at <= history[1].created_at);
 }
+
+#[test]
+fn auto_merge_refuses_artifact_without_recorded_base() {
+    let dir = sandbox("no-base");
+    init_repo(&dir);
+    write_project_config(&dir, true);
+    let task_id = "t-nobase";
+
+    // Task branch exists, so apply would merge if it got past the guard.
+    git(&dir, &["checkout", "-q", "-b", "openloop/t-nobase"]);
+    fs::write(dir.join("change.txt"), "change\n").unwrap();
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-qm", "task work"]);
+    git(&dir, &["checkout", "-q", "main"]);
+    let main_head = head(&dir);
+
+    // Pending auto-merge artifact WITHOUT a recorded base branch.
+    let artifact = PromotionArtifact {
+        version: 1,
+        created_at: "2026-01-02T00:00:00.000Z".into(),
+        project_alias: "p".into(),
+        task_id: task_id.into(),
+        base_branch: None,
+        decision: PromotionDecision::AutoMergeEligible,
+        action: PromotionAction::QueueAutoMerge,
+        effective_promotion_mode: TaskPromotion::AutoMerge,
+        validation: vec![ValidationSummary {
+            name: ValidationName::Lint,
+            command: "true".into(),
+            exit_code: 0,
+        }],
+        pi_exit_code: Some(0),
+        outcome: RunOutcome::Completed,
+        approval_packet_path: None,
+        status: PromotionArtifactStatus::Pending,
+        processed_at: None,
+        note: None,
+    };
+    let artifact_path = promotion_artifacts::write_promotion_artifact(&dir, &artifact).unwrap();
+    let mut task = make_task_with_artifact(task_id, TaskRisk::LowRisk, &artifact_path);
+    task.branch = Some("openloop/t-nobase".into());
+    write_ledger(&dir, vec![task]);
+
+    // Dry-run reports the refusal up front.
+    let dry = promotion_queue::dry_run_promotion_apply(&dir, task_id).unwrap();
+    assert!(!dry.would_apply);
+    assert!(
+        dry.reason.contains("no recorded base branch"),
+        "{}",
+        dry.reason
+    );
+
+    // Apply refuses instead of merging into whatever is checked out.
+    let err = promotion_queue::apply_promotion_artifact(&dir, task_id, None).unwrap_err();
+    assert!(err.contains("no recorded base branch"), "error: {err}");
+    assert_eq!(head(&dir), main_head, "main must be untouched");
+    assert!(!dir.join("change.txt").exists(), "no merge happened");
+}

@@ -570,6 +570,9 @@ pub struct EventsArgs {
     /// Output as JSON array
     #[arg(long, default_value = "false")]
     pub json: bool,
+    /// Keep streaming new events as they are appended (Ctrl-C to stop)
+    #[arg(long)]
+    pub follow: bool,
 }
 
 #[derive(Debug, Args)]

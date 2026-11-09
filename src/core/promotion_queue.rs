@@ -285,17 +285,22 @@ pub fn dry_run_promotion_apply(
     }
 
     if matched.artifact.action == PromotionAction::QueueAutoMerge {
+        if matched.artifact.base_branch.is_none() {
+            return Ok(DryRunOutcome {
+                would_apply: false,
+                action: "queue-auto-merge".to_string(),
+                reason: "Promotion artifact has no recorded base branch; apply would refuse \
+                         rather than merge into the current checkout."
+                    .to_string(),
+            });
+        }
         return match assert_auto_merge_ready(project_path, &task) {
             Ok(()) => Ok(DryRunOutcome {
                 would_apply: true,
                 action: "queue-auto-merge".to_string(),
                 reason: format!(
                     "Would auto-merge task branch into {}",
-                    matched
-                        .artifact
-                        .base_branch
-                        .clone()
-                        .unwrap_or_else(|| "current branch".into())
+                    matched.artifact.base_branch.clone().unwrap()
                 ),
             }),
             Err(e) => Ok(DryRunOutcome {
@@ -439,11 +444,18 @@ fn apply_auto_merge_promotion(
     let config = super::project_config::load_project_config(project_path)?;
     let branch_name = format!("{}{}", config.runtime.branch_prefix, task_id);
     let initial_state = get_git_working_tree_state(project_path)?;
-    let merge_base_branch = base_branch
-        .map(|s| s.to_string())
-        .or_else(|| initial_state.current_branch.clone());
-    let Some(merge_base_branch) = merge_base_branch else {
-        return Err("Cannot determine base branch for auto-merge promotion.".to_string());
+    // The base MUST come from the artifact, recorded when the run started.
+    // Falling back to the current checkout would silently merge the handoff
+    // branch into whatever a human happens to have checked out.
+    let Some(merge_base_branch) = base_branch.map(|s| s.to_string()) else {
+        return Err(format!(
+            "Promotion artifact has no recorded base branch; refusing to auto-merge into the \
+             current checkout ({}). Re-run the task or apply the promotion manually.",
+            initial_state
+                .current_branch
+                .as_deref()
+                .unwrap_or("detached HEAD")
+        ));
     };
 
     checkout_handoff_branch(project_path, &branch_name)?;

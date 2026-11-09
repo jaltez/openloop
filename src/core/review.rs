@@ -65,6 +65,10 @@ enum SecretPattern {
     AwsKey,
     GithubToken,
     PrivateKey,
+    SlackToken,
+    GoogleApiKey,
+    OpenAiKey,
+    Jwt,
     GenericSecret,
 }
 
@@ -73,6 +77,10 @@ fn match_secret(pattern: &SecretPattern, text: &str) -> usize {
         SecretPattern::AwsKey => count_aws_keys(text),
         SecretPattern::GithubToken => count_github_tokens(text),
         SecretPattern::PrivateKey => count_private_key_blocks(text),
+        SecretPattern::SlackToken => count_slack_tokens(text),
+        SecretPattern::GoogleApiKey => count_google_api_keys(text),
+        SecretPattern::OpenAiKey => count_openai_keys(text),
+        SecretPattern::Jwt => count_jwts(text),
         SecretPattern::GenericSecret => count_generic_secret(text),
     }
 }
@@ -144,6 +152,166 @@ fn count_private_key_blocks(text: &str) -> usize {
 }
 fn is_secret_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '=' | '_' | '-')
+}
+
+/// xox[abprs]-[A-Za-z0-9-]{10,}
+fn count_slack_tokens(text: &str) -> usize {
+    let chars: Vec<char> = text.chars().collect();
+    let mut count = 0;
+    let mut i = 0;
+    while i + 5 <= chars.len() {
+        if chars[i] == 'x'
+            && chars[i + 1] == 'o'
+            && chars[i + 2] == 'x'
+            && matches!(chars[i + 3], 'a' | 'b' | 'p' | 'r' | 's')
+            && chars[i + 4] == '-'
+        {
+            let mut j = i + 5;
+            while j < chars.len() && (chars[j].is_ascii_alphanumeric() || chars[j] == '-') {
+                j += 1;
+            }
+            if j - (i + 5) >= 10 {
+                count += 1;
+                i = j;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    count
+}
+
+/// AIza[0-9A-Za-z_-]{35}
+fn count_google_api_keys(text: &str) -> usize {
+    let chars: Vec<char> = text.chars().collect();
+    let mut count = 0;
+    let mut i = 0;
+    while i + 4 <= chars.len() {
+        if chars[i] == 'A'
+            && chars[i + 1] == 'I'
+            && chars[i + 2] == 'z'
+            && chars[i + 3] == 'a'
+            && i + 39 <= chars.len()
+            && chars[i + 4..i + 39]
+                .iter()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
+        {
+            count += 1;
+            i += 39;
+            continue;
+        }
+        i += 1;
+    }
+    count
+}
+
+/// sk-[A-Za-z0-9_-]{20,}
+fn count_openai_keys(text: &str) -> usize {
+    let chars: Vec<char> = text.chars().collect();
+    let mut count = 0;
+    let mut i = 0;
+    while i + 3 <= chars.len() {
+        if chars[i] == 's' && chars[i + 1] == 'k' && chars[i + 2] == '-' {
+            let mut j = i + 3;
+            while j < chars.len()
+                && (chars[j].is_ascii_alphanumeric() || matches!(chars[j], '_' | '-'))
+            {
+                j += 1;
+            }
+            if j - (i + 3) >= 20 {
+                count += 1;
+                i = j;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    count
+}
+
+/// eyJxx+.eyJxx+.xxxx+  (three dot-separated base64url segments)
+fn count_jwts(text: &str) -> usize {
+    let chars: Vec<char> = text.chars().collect();
+    let is_b64url = |c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '-');
+    let mut count = 0;
+    let mut i = 0;
+    while i + 3 <= chars.len() {
+        if chars[i] == 'e' && chars[i + 1] == 'y' && chars[i + 2] == 'J' {
+            let mut j = i + 3;
+            while j < chars.len() && is_b64url(chars[j]) {
+                j += 1;
+            }
+            // header must have some substance and be followed by ".eyJ"
+            if j >= i + 10
+                && j + 4 < chars.len()
+                && chars[j] == '.'
+                && chars[j + 1] == 'e'
+                && chars[j + 2] == 'y'
+                && chars[j + 3] == 'J'
+            {
+                let mut k = j + 4;
+                while k < chars.len() && is_b64url(chars[k]) {
+                    k += 1;
+                }
+                if k >= j + 10 && k + 1 < chars.len() && chars[k] == '.' {
+                    let mut m = k + 1;
+                    while m < chars.len() && is_b64url(chars[m]) {
+                        m += 1;
+                    }
+                    if m >= k + 5 {
+                        count += 1;
+                        i = m;
+                        continue;
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
+    count
+}
+
+/// Shannon entropy in bits per character.
+fn shannon_entropy(token: &str) -> f64 {
+    if token.is_empty() {
+        return 0.0;
+    }
+    let mut counts = std::collections::HashMap::new();
+    for ch in token.chars() {
+        *counts.entry(ch).or_insert(0usize) += 1;
+    }
+    let len = token.chars().count() as f64;
+    counts
+        .values()
+        .map(|&n| {
+            let p = n as f64 / len;
+            -p * p.log2()
+        })
+        .sum()
+}
+
+/// Count long, high-entropy token runs that look like generated secrets or
+/// random identifiers. Warn severity (not Block): this heuristic trades a
+/// small false-positive rate for coverage the literal patterns miss.
+fn count_high_entropy_tokens(text: &str) -> usize {
+    const MIN_LEN: usize = 20;
+    const MIN_ENTROPY: f64 = 4.5;
+    let mut count = 0;
+    let mut current = String::new();
+    for ch in text.chars().chain(std::iter::once(' ')) {
+        if is_secret_char(ch) {
+            current.push(ch);
+        } else {
+            if current.chars().count() >= MIN_LEN {
+                let entropy = shannon_entropy(&current);
+                if entropy >= MIN_ENTROPY {
+                    count += 1;
+                }
+            }
+            current.clear();
+        }
+    }
+    count
 }
 
 fn count_generic_secret(text: &str) -> usize {
@@ -254,10 +422,14 @@ pub fn check_secrets(diff_patch: &str) -> Vec<ReviewFinding> {
         .collect::<Vec<_>>()
         .join("\n");
 
-    let patterns: [(&str, SecretPattern); 4] = [
+    let patterns: [(&str, SecretPattern); 8] = [
         ("aws-access-key-id", SecretPattern::AwsKey),
         ("github-token", SecretPattern::GithubToken),
         ("private-key-block", SecretPattern::PrivateKey),
+        ("slack-token", SecretPattern::SlackToken),
+        ("google-api-key", SecretPattern::GoogleApiKey),
+        ("openai-api-key", SecretPattern::OpenAiKey),
+        ("jwt", SecretPattern::Jwt),
         ("generic-secret-assignment", SecretPattern::GenericSecret),
     ];
 
@@ -273,6 +445,21 @@ pub fn check_secrets(diff_patch: &str) -> Vec<ReviewFinding> {
                 file: None,
             });
         }
+    }
+
+    // Entropy heuristic: long, high-entropy runs the literal patterns miss
+    // (generated tokens, random API credentials without a known prefix).
+    // Warn severity keeps false positives advisory rather than blocking.
+    let entropy_hits = count_high_entropy_tokens(&added_content);
+    if entropy_hits > 0 {
+        findings.push(ReviewFinding {
+            rule: "secret-detection:high-entropy-token".to_string(),
+            severity: ReviewFindingSeverity::Warn,
+            message: format!(
+                "Possible secret detected in diff (high-entropy token): {entropy_hits} occurrence(s)."
+            ),
+            file: None,
+        });
     }
 
     findings
