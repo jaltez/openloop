@@ -7,6 +7,67 @@ use super::types::LinkedProject;
 
 static TEMPLATES_PROJECT: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/templates/project");
 
+/// Version of the embedded control-plane templates. Bump when templates
+/// change; `openloop project upgrade` brings linked repos up to it.
+pub const TEMPLATE_VERSION: u32 = 1;
+
+/// Unique-per-call temp dir for template extraction: concurrent invocations
+/// (parallel test runs in one process) must not share a directory, so a
+/// process-wide counter disambiguates within the same millisecond.
+fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
+    static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    std::env::temp_dir().join(format!("{prefix}-{}-{id}", std::process::id()))
+}
+
+/// The marker file stamped into `.openloop/` at init/upgrade time.
+fn template_version_path(project_path: &std::path::Path) -> std::path::PathBuf {
+    project_path.join(".openloop").join("template-version")
+}
+
+/// The project's template version, or None when it predates versioning.
+pub fn template_version_of(project_path: &std::path::Path) -> Option<u32> {
+    std::fs::read_to_string(template_version_path(project_path))
+        .ok()
+        .and_then(|raw| raw.trim().parse().ok())
+}
+
+fn stamp_template_version(project_path: &std::path::Path) -> Result<(), String> {
+    let path = template_version_path(project_path);
+    if let Some(parent) = path.parent() {
+        let _ = ensure_dir(parent);
+    }
+    std::fs::write(&path, format!("{TEMPLATE_VERSION}\n")).map_err(|e| e.to_string())
+}
+
+/// Copy the current control-plane files into a timestamped backup directory.
+/// Returns the backup path (shared by --force init and upgrade).
+fn backup_control_plane(project_path: &std::path::Path) -> Option<std::path::PathBuf> {
+    let openloop_dir = project_path.join(".openloop");
+    if !file_exists(&openloop_dir) {
+        return None;
+    }
+    let backup_dir = openloop_dir
+        .join("backup")
+        .join(now_iso().replace([':', '.'], "-"));
+    ensure_dir(&backup_dir).ok()?;
+    if let Ok(entries) = std::fs::read_dir(&openloop_dir) {
+        for entry in entries.flatten() {
+            if entry.file_name() == "backup" {
+                continue;
+            }
+            let src = entry.path();
+            let dest = backup_dir.join(entry.file_name());
+            if src.is_dir() {
+                let _ = super::fsutil::copy_tree(&src, &dest, true);
+            } else {
+                let _ = std::fs::copy(&src, &dest);
+            }
+        }
+    }
+    Some(backup_dir)
+}
+
 pub fn extract_templates_to(temp_dir: &std::path::Path) -> Result<(), String> {
     fn extract(dir: &Dir, target: &std::path::Path) -> Result<(), String> {
         for entry in dir.entries() {
@@ -34,32 +95,14 @@ pub fn initialize_project_from_templates(
     force: bool,
 ) -> Result<(), String> {
     let project_path = std::path::Path::new(&project.path);
-    let openloop_dir = project_path.join(".openloop");
 
     // W8: Back up existing control-plane files before re-materializing with --force.
-    if force && file_exists(&openloop_dir) {
-        let backup_dir = openloop_dir
-            .join("backup")
-            .join(now_iso().replace([':', '.'], "-"));
-        ensure_dir(&backup_dir).map_err(|e| e.to_string())?;
-        if let Ok(entries) = std::fs::read_dir(&openloop_dir) {
-            for entry in entries.flatten() {
-                if entry.file_name() == "backup" {
-                    continue;
-                }
-                let src = entry.path();
-                let dest = backup_dir.join(entry.file_name());
-                if src.is_dir() {
-                    let _ = super::fsutil::copy_tree(&src, &dest, true);
-                } else {
-                    let _ = std::fs::copy(&src, &dest);
-                }
-            }
-        }
+    if force {
+        backup_control_plane(project_path);
     }
 
     // Materialize the embedded templates/project into the target repo.
-    let temp_dir = std::env::temp_dir().join(format!("openloop-templates-{}", std::process::id()));
+    let temp_dir = unique_temp_dir("openloop-templates");
     let _ = std::fs::remove_dir_all(&temp_dir);
     extract_templates_to(&temp_dir)?;
     let result = copy_tree(&temp_dir, project_path, force);
@@ -103,7 +146,92 @@ pub fn initialize_project_from_templates(
             write_json_file(&tasks_path, &ledger)?;
         }
     }
+
+    stamp_template_version(project_path)?;
     Ok(())
+}
+
+/// Result of `openloop project upgrade`.
+#[derive(Debug, Clone)]
+pub struct UpgradeReport {
+    pub alias: String,
+    /// Version before the upgrade (None when the project predates versioning).
+    pub from: Option<u32>,
+    pub to: u32,
+    pub already_current: bool,
+    /// Backup directory written before touching anything, when applicable.
+    pub backup_dir: Option<String>,
+}
+
+/// Bring a linked project's control-plane templates up to the embedded
+/// version, preserving user-owned state:
+/// - `.openloop/policy.yaml` and `.openloop/project.json` are never
+///   overwritten (project.json is only MERGED — existing values win, new
+///   template keys land);
+/// - the task ledger, runs, promotions, specs, and every other runtime
+///   artifact are untouched;
+/// - template-owned files (skill docs, prompts, README) are refreshed from
+///   the embedded copies after a timestamped backup;
+/// - the AGENTS.md openloop section is re-materialized in place.
+pub fn upgrade_project_from_templates(project: &LinkedProject) -> Result<UpgradeReport, String> {
+    let project_path = std::path::Path::new(&project.path);
+    if !file_exists(&project_path.join(".openloop")) {
+        return Err(format!(
+            "Project {} is not initialized; run 'openloop project init {}' first.",
+            project.alias, project.alias
+        ));
+    }
+    let from = template_version_of(project_path);
+    if from == Some(TEMPLATE_VERSION) {
+        return Ok(UpgradeReport {
+            alias: project.alias.clone(),
+            from,
+            to: TEMPLATE_VERSION,
+            already_current: true,
+            backup_dir: None,
+        });
+    }
+
+    let backup_dir = backup_control_plane(project_path);
+
+    // Extract, strip the user-owned files, then refresh template-owned ones.
+    // tasks.json ships in the templates as the initial empty ledger — at
+    // upgrade time the project's live ledger is user state and is never
+    // touched. (tasks.schema.json is a reference doc and refreshes freely.)
+    let temp_dir = unique_temp_dir("openloop-upgrade");
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    extract_templates_to(&temp_dir)?;
+    for user_owned in ["policy.yaml", "project.json", "tasks.json"] {
+        let _ = std::fs::remove_file(temp_dir.join(".openloop").join(user_owned));
+    }
+    let copy = copy_tree(&temp_dir, project_path, true);
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    copy?;
+
+    // Merge new template keys UNDER the existing project.json (existing
+    // values win; validation commands, custom gates, agent, and retention
+    // settings are the user's to own).
+    let embedded_template_config: serde_json::Value = read_embedded_project_config();
+    let existing_project_config: serde_json::Value = read_json_file(
+        &project_path.join(".openloop").join("project.json"),
+        serde_json::Value::Null,
+    )?;
+    let merged = merge_json_objects(&embedded_template_config, &existing_project_config);
+    write_json_file(
+        &project_path.join(".openloop").join("project.json"),
+        &merged,
+    )?;
+
+    materialize_agents_md(project_path)?;
+    stamp_template_version(project_path)?;
+
+    Ok(UpgradeReport {
+        alias: project.alias.clone(),
+        from,
+        to: TEMPLATE_VERSION,
+        already_current: false,
+        backup_dir: backup_dir.map(|dir| dir.to_string_lossy().to_string()),
+    })
 }
 
 fn read_embedded_project_config() -> serde_json::Value {

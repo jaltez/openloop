@@ -385,6 +385,40 @@ pub fn run_doctor_checks(app_home_override: Option<&str>) -> Result<Vec<CheckRes
                     }
                     match super::project_config::load_project_config(project_path) {
                         Ok(project_config) => {
+                            // Template drift: the embedded version vs the
+                            // stamped marker in .openloop/.
+                            match super::templates::template_version_of(project_path) {
+                                Some(v) if v == super::templates::TEMPLATE_VERSION => {
+                                    results.push(CheckResult {
+                                        label: format!("{}: templates", project.alias),
+                                        status: "ok",
+                                        detail: format!("template version {v} (current)"),
+                                    });
+                                }
+                                Some(v) => {
+                                    results.push(CheckResult {
+                                        label: format!("{}: templates", project.alias),
+                                        status: "warn",
+                                        detail: format!(
+                                            "template version {v}, binary ships {} — run \
+                                             'openloop project upgrade {}'",
+                                            super::templates::TEMPLATE_VERSION,
+                                            project.alias
+                                        ),
+                                    });
+                                }
+                                None => {
+                                    results.push(CheckResult {
+                                        label: format!("{}: templates", project.alias),
+                                        status: "warn",
+                                        detail: format!(
+                                            "predates template versioning — run \
+                                             'openloop project upgrade {}'",
+                                            project.alias
+                                        ),
+                                    });
+                                }
+                            }
                             let project_agent = project_config
                                 .agent
                                 .as_ref()

@@ -102,7 +102,7 @@ openloop approval list --project myapp
 ## CLI surface
 
 ```
-openloop project    add|list|activate|show|init|remove     Linked projects
+openloop project    add|list|activate|show|init|upgrade|remove  Linked projects
 openloop task       add|list|show|update|remove|recover|approve
 openloop promotion  list|show|history|apply|reject|refresh
 openloop approval   list|show                             Approval packets
@@ -154,7 +154,11 @@ Design notes:
   reaps its children (SIGTERM → 5 s grace → SIGKILL → wait), and SIGTERM
   during an agent run interrupts it within ~250 ms.
 - **Embedded templates**: `templates/project/` is compiled into the binary
-  via `include_dir`, so `project init` works from a lone executable.
+  via `include_dir`, so `project init` works from a lone executable. The
+  templates carry a version stamped into `.openloop/template-version`;
+  `openloop project upgrade` brings linked repos up to it (backing up
+  `.openloop/` first) while preserving `policy.yaml`, `project.json`
+  values, and the task ledger; `doctor` reports drift.
 
 ## Development
 

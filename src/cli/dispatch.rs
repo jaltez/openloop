@@ -157,6 +157,28 @@ fn project(cmd: ProjectCommand) -> Result<(), String> {
             );
             Ok(())
         }
+        ProjectSubcommand::Upgrade { alias } => {
+            let project = c::project_registry::get_project(&alias, None)?;
+            let report = c::templates::upgrade_project_from_templates(&project)?;
+            if report.already_current {
+                println!(
+                    "{alias} is already at template version {} — nothing to do.",
+                    report.to
+                );
+                return Ok(());
+            }
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "project": report.alias,
+                    "from": report.from,
+                    "to": report.to,
+                    "backupDir": report.backup_dir,
+                }))
+                .unwrap_or_default()
+            );
+            Ok(())
+        }
         ProjectSubcommand::Remove { alias } => {
             let project = c::project_registry::get_project(&alias, None)?;
             c::project_registry::remove_project(&project.alias, None)?;

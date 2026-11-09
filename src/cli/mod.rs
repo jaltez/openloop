@@ -195,6 +195,9 @@ pub enum ProjectSubcommand {
         #[arg(long)]
         force: bool,
     },
+    /// Upgrade a linked project's control-plane templates to the embedded
+    /// version (preserves policy.yaml, project.json values, and runtime state)
+    Upgrade { alias: String },
 
     /// Unlink a project from the registry
     Remove { alias: String },
