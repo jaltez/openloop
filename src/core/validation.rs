@@ -2,25 +2,51 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use super::types::{ProjectConfig, RunTimeoutError, ValidationSummary};
+use super::types::{
+    CustomValidation, ProjectConfig, RunTimeoutError, ValidationName, ValidationSummary,
+};
+
+/// Ordered, configured validation steps for a project: the built-in
+/// lint/test/typecheck trio (when configured) followed by the project's
+/// custom gates in listed order. One source of truth for the real command
+/// path, the scheduler's mock-runner path, and auto-merge readiness.
+pub fn configured_steps(project_config: &ProjectConfig) -> Vec<(ValidationName, String)> {
+    let mut steps = Vec::new();
+    for (name, command) in [
+        (
+            ValidationName::Lint,
+            &project_config.validation.lint_command,
+        ),
+        (
+            ValidationName::Test,
+            &project_config.validation.test_command,
+        ),
+        (
+            ValidationName::Typecheck,
+            &project_config.validation.typecheck_command,
+        ),
+    ] {
+        // TS truthiness: null AND "" both mean "not configured".
+        if let Some(command) = command.as_deref().filter(|c| !c.is_empty()) {
+            steps.push((name, command.to_string()));
+        }
+    }
+    for custom in project_config.validation.custom.clone().unwrap_or_default() {
+        let CustomValidation { name, command } = custom;
+        if !command.is_empty() {
+            steps.push((ValidationName::Custom(name), command));
+        }
+    }
+    steps
+}
 
 pub fn run_configured_validations(
     project_path: &Path,
     project_config: &ProjectConfig,
     get_timeout_ms: impl Fn() -> Option<u64>,
 ) -> Result<Vec<ValidationSummary>, ValidationError> {
-    let steps: [(&str, &Option<String>); 3] = [
-        ("lint", &project_config.validation.lint_command),
-        ("test", &project_config.validation.test_command),
-        ("typecheck", &project_config.validation.typecheck_command),
-    ];
-
     let mut results = Vec::new();
-    for (name, command) in steps {
-        // TS truthiness: null AND "" both mean "not configured".
-        let Some(command) = command.as_deref().filter(|c| !c.is_empty()) else {
-            continue;
-        };
+    for (name, command) in configured_steps(project_config) {
         let timeout_ms = get_timeout_ms();
         if let Some(ms) = timeout_ms {
             if ms == 0 {
@@ -29,10 +55,10 @@ pub fn run_configured_validations(
                 )));
             }
         }
-        let exit_code = run_shell_command(project_path, command, timeout_ms)?;
+        let exit_code = run_shell_command(project_path, &command, timeout_ms)?;
         results.push(ValidationSummary {
-            name: super::types::ValidationName::parse(name).unwrap(),
-            command: command.to_string(),
+            name,
+            command,
             exit_code,
         });
         if exit_code != 0 {
@@ -42,6 +68,7 @@ pub fn run_configured_validations(
     Ok(results)
 }
 
+#[derive(Debug)]
 pub enum ValidationError {
     Timeout(RunTimeoutError),
     Other(String),

@@ -163,7 +163,26 @@ fn check_project_validation(alias: &str, config: &super::types::ProjectConfig) -
                 detail: "not configured".to_string(),
             },
         })
+        .collect::<Vec<_>>()
+        .into_iter()
+        .chain(custom_gate_checks(alias, config))
         .collect()
+}
+
+fn custom_gate_checks(alias: &str, config: &super::types::ProjectConfig) -> Vec<CheckResult> {
+    let custom = config.validation.custom.clone().unwrap_or_default();
+    if custom.is_empty() {
+        return Vec::new();
+    }
+    vec![CheckResult {
+        label: format!("{alias}: custom gates"),
+        status: "ok",
+        detail: custom
+            .iter()
+            .map(|step| step.name.clone())
+            .collect::<Vec<_>>()
+            .join(", "),
+    }]
 }
 
 pub fn run_doctor_checks(app_home_override: Option<&str>) -> Result<Vec<CheckResult>, String> {

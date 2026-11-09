@@ -132,6 +132,7 @@ fn validation_config(
         lint_command: lint.map(str::to_string),
         test_command: test.map(str::to_string),
         typecheck_command: typecheck.map(str::to_string),
+        custom: None,
     })
 }
 

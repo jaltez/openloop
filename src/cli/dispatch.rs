@@ -582,6 +582,69 @@ fn config(cmd: ConfigCommand) -> Result<(), String> {
             );
             Ok(())
         }
+        ConfigSubcommand::ProjectAddValidation {
+            project,
+            name,
+            command,
+        } => {
+            let reserved = ["lint", "test", "typecheck"];
+            let valid_name = !name.is_empty()
+                && !reserved.contains(&name.as_str())
+                && name
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_');
+            if !valid_name {
+                return Err(format!(
+                    "gate name must be alphanumeric/dash/underscore and not one of: {}",
+                    reserved.join(", ")
+                ));
+            }
+            if command.trim().is_empty() {
+                return Err("--command must not be empty".to_string());
+            }
+            let project = c::project_registry::get_project(&project, None)?;
+            let path = Path::new(&project.path);
+            let mut config = c::project_config::load_project_config(path)?;
+            let mut custom = config.validation.custom.clone().unwrap_or_default();
+            if custom.iter().any(|step| step.name == name) {
+                return Err(format!("custom gate '{name}' already exists"));
+            }
+            custom.push(CustomValidation {
+                name: name.clone(),
+                command,
+            });
+            config.validation.custom = Some(custom);
+            c::project_config::save_project_config(path, &config)?;
+            println!("Added custom validation gate '{name}' to {}", project.alias);
+            Ok(())
+        }
+        ConfigSubcommand::ProjectRemoveValidation { project, name } => {
+            let project = c::project_registry::get_project(&project, None)?;
+            let path = Path::new(&project.path);
+            let mut config = c::project_config::load_project_config(path)?;
+            let before = config.validation.custom.clone().unwrap_or_default().len();
+            let remaining: Vec<CustomValidation> = config
+                .validation
+                .custom
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|step| step.name != name)
+                .collect();
+            if remaining.len() == before {
+                return Err(format!(
+                    "no custom gate named '{name}' in {}",
+                    project.alias
+                ));
+            }
+            config.validation.custom = (!remaining.is_empty()).then_some(remaining);
+            c::project_config::save_project_config(path, &config)?;
+            println!(
+                "Removed custom validation gate '{name}' from {}",
+                project.alias
+            );
+            Ok(())
+        }
         ConfigSubcommand::AddHook {
             hook_type,
             events,

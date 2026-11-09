@@ -303,6 +303,16 @@ pub enum ConfigSubcommand {
         #[arg(long)]
         max_results: Option<u32>,
     },
+    /// Add a custom validation gate to a linked project
+    ProjectAddValidation {
+        project: String,
+        /// Gate name (letters, digits, dash, underscore; not lint/test/typecheck)
+        name: String,
+        #[arg(long)]
+        command: String,
+    },
+    /// Remove a custom validation gate from a linked project
+    ProjectRemoveValidation { project: String, name: String },
     /// Add a global lifecycle hook
     AddHook {
         #[arg(long = "type", value_parser = ["command", "webhook"])]

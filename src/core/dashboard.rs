@@ -186,7 +186,7 @@ fn render_dashboard_html(snapshot: &DashboardSnapshot) -> String {
                         .iter()
                         .map(|v| {
                             let icon = if v.exit_code == 0 { "✅" } else { "❌" };
-                            format!("{icon} {}", escape_html(v.name.as_str()))
+                            format!("{icon} {}", escape_html(&v.name.as_str()))
                         })
                         .collect::<Vec<_>>()
                         .join(" "),
@@ -254,7 +254,7 @@ fn render_dashboard_html(snapshot: &DashboardSnapshot) -> String {
                             .iter()
                             .map(|v| {
                                 let icon = if v.exit_code == 0 { "✅" } else { "❌" };
-                                format!("{icon} {}", escape_html(v.name.as_str()))
+                                format!("{icon} {}", escape_html(&v.name.as_str()))
                             })
                             .collect::<Vec<_>>()
                             .join(" ")

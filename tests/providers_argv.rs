@@ -135,6 +135,7 @@ fn base_config(agent: Option<AgentConfig>) -> ProjectConfig {
             lint_command: None,
             test_command: None,
             typecheck_command: None,
+            custom: None,
         },
         risk: ProjectRisk {
             default_unknown_area_classification: "medium-risk".into(),

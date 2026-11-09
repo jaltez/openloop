@@ -206,6 +206,7 @@ fn minimal_project_config(hooks: Vec<LifecycleHookConfig>) -> ProjectConfig {
             lint_command: None,
             test_command: None,
             typecheck_command: None,
+            custom: None,
         },
         risk: ProjectRisk {
             default_unknown_area_classification: "medium-risk".to_string(),

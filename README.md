@@ -71,9 +71,11 @@ openloop approval list --project myapp
   per tick (`runtime.maxConcurrentRuns`), max attempts, no-progress
   detection, budget ceilings, review backpressure, cron schedules, and
   crash recovery on daemon restart.
-- **Verified runs**: lint/test/typecheck gates, an independent verifier role
-  judging acceptance criteria, deterministic secret/scope-drift review, and
-  an optional LLM reviewer — all before anything is promoted.
+- **Verified runs**: lint/test/typecheck gates plus project-defined custom
+  gates (`openloop config project-add-validation`, first-class in auto-merge
+  readiness), an independent verifier role judging acceptance criteria,
+  deterministic secret/scope-drift review, and an optional LLM reviewer — all
+  before anything is promoted.
 - **Promotion flow**: auto-merge (low-risk, all validations green), pull
   requests via `gh` or a custom command, or manual-only; every decision
   leaves a JSON artifact trail plus a human-approval packet with diff stat,

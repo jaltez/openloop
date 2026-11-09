@@ -1337,35 +1337,18 @@ pub fn run_project_iteration(
                 validation = match hooks.validation_runner.as_mut() {
                     Some(runner) => {
                         let mut results = Vec::new();
-                        let steps: [(ValidationName, &Option<String>); 3] = [
-                            (
-                                ValidationName::Lint,
-                                &project_config.validation.lint_command,
-                            ),
-                            (
-                                ValidationName::Test,
-                                &project_config.validation.test_command,
-                            ),
-                            (
-                                ValidationName::Typecheck,
-                                &project_config.validation.typecheck_command,
-                            ),
-                        ];
-                        for (name, command) in steps {
-                            // TS truthiness: "" is not configured either.
-                            let Some(command) = command.as_deref().filter(|c| !c.is_empty()) else {
-                                continue;
-                            };
+                        for (name, command) in super::validation::configured_steps(&project_config)
+                        {
                             let timeout = get_remaining_timeout_ms();
                             if let Some(ms) = timeout {
                                 if ms == 0 {
                                     return Err("__iteration_timeout__:Run exceeded timeout before validation completed.".to_string());
                                 }
                             }
-                            let exit = runner(&execution_path, command, timeout)?;
+                            let exit = runner(&execution_path, &command, timeout)?;
                             results.push(ValidationSummary {
                                 name,
-                                command: command.to_string(),
+                                command,
                                 exit_code: exit,
                             });
                             if exit != 0 {
@@ -1396,7 +1379,7 @@ pub fn run_project_iteration(
                             .iter()
                             .find(|item| item.exit_code != 0)
                             .map(|item| item.name.as_str())
-                            .unwrap_or("unknown")
+                            .unwrap_or_else(|| "unknown".to_string())
                     ));
                     push_note(
                         &mut task,

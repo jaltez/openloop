@@ -263,6 +263,19 @@ pub struct ProjectValidation {
     pub test_command: Option<String>,
     #[serde(default)]
     pub typecheck_command: Option<String>,
+    /// Project-defined gates that run after the built-in trio, in listed
+    /// order. They are first-class: auto-merge readiness requires every
+    /// configured gate to pass.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom: Option<Vec<CustomValidation>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomValidation {
+    /// Gate name (must not be lint/test/typecheck).
+    pub name: String,
+    pub command: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -802,22 +815,23 @@ pub struct ReviewResult {
 // Scheduler results / validation
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidationName {
-    #[serde(rename = "lint")]
     Lint,
-    #[serde(rename = "test")]
     Test,
-    #[serde(rename = "typecheck")]
     Typecheck,
+    /// A project-defined validation gate (`validation.custom` in
+    /// project.json). The name is the configured step name.
+    Custom(String),
 }
 
 impl ValidationName {
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(&self) -> String {
         match self {
-            ValidationName::Lint => "lint",
-            ValidationName::Test => "test",
-            ValidationName::Typecheck => "typecheck",
+            ValidationName::Lint => "lint".to_string(),
+            ValidationName::Test => "test".to_string(),
+            ValidationName::Typecheck => "typecheck".to_string(),
+            ValidationName::Custom(name) => name.clone(),
         }
     }
 
@@ -828,6 +842,21 @@ impl ValidationName {
             "typecheck" => ValidationName::Typecheck,
             _ => return None,
         })
+    }
+}
+
+// Wire format stays a plain string for the built-in names and extends
+// naturally to custom gate names ("clippy"), in both directions.
+impl Serialize for ValidationName {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for ValidationName {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(deserializer)?;
+        Ok(ValidationName::parse(&raw).unwrap_or(ValidationName::Custom(raw)))
     }
 }
 

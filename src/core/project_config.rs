@@ -31,6 +31,7 @@ pub fn default_project_config() -> ProjectConfig {
             worktree_setup_command: None,
         },
         validation: ProjectValidation {
+            custom: None,
             lint_command: None,
             test_command: None,
             typecheck_command: None,
