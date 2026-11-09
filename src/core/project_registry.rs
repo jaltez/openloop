@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use super::fsutil::{read_json_file, write_json_file};
 use super::now_iso;
 use super::paths::projects_registry_path;
@@ -111,5 +109,3 @@ pub fn remove_project(alias: &str, app_home_override: Option<&str>) -> Result<()
     registry.projects.remove(index);
     save_projects_registry(&registry, app_home_override)
 }
-
-pub fn _unused(_p: &Path) {}

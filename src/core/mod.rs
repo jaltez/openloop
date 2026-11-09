@@ -11,6 +11,7 @@ pub mod fsutil;
 pub mod git;
 pub mod global_config;
 pub mod hooks;
+pub mod idle_reasons;
 pub mod issue_sync;
 pub mod mcp_server;
 pub mod model_resolution;

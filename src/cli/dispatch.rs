@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use super::dispatch2::*;
+use super::dispatch_ops::*;
+use super::dispatch_task::*;
 use super::*;
 use crate::core as c;
 use c::types::*;

@@ -83,6 +83,9 @@ pub struct App {
     pub projects: Vec<LinkedProject>,
     pub projects_refreshed: Instant,
     pub active_alias: Option<String>,
+    /// Compact "why is the fleet idle" summary for the status bar.
+    pub idle_reasons: Option<String>,
+    pub idle_reasons_refreshed: Instant,
     pub ledger: TaskLedger,
     pub ledger_refreshed: Instant,
     pub events: Vec<OpenLoopEvent>,
@@ -166,6 +169,8 @@ impl App {
             daemon_refreshed: Instant::now() - std::time::Duration::from_secs(10),
             projects: Vec::new(),
             projects_refreshed: Instant::now() - std::time::Duration::from_secs(10),
+            idle_reasons: None,
+            idle_reasons_refreshed: Instant::now() - std::time::Duration::from_secs(10),
             run_prompt_value: String::new(),
             active_alias: None,
             ledger: TaskLedger {
@@ -261,6 +266,24 @@ impl App {
                     .and_then(|cfg| cfg.active_project_alias);
             }
             self.projects_refreshed = Instant::now();
+        }
+        // Fleet-idle summary (per-project gate reasons) for the status bar.
+        // analyze() touches each project's ledger/artifacts, so poll slowly.
+        if self.idle_reasons_refreshed.elapsed() >= std::time::Duration::from_secs(5) {
+            self.idle_reasons = c::idle_reasons::analyze().ok().and_then(|idle| {
+                let mut parts: Vec<String> = Vec::new();
+                if let Some(daemon) = &idle.daemon {
+                    parts.push(daemon.kind.clone());
+                }
+                parts.extend(
+                    idle.projects
+                        .iter()
+                        .filter(|p| p.kind != "ready")
+                        .map(|p| format!("{}: {}", p.alias, p.kind)),
+                );
+                (!parts.is_empty()).then(|| parts.join(" · "))
+            });
+            self.idle_reasons_refreshed = Instant::now();
         }
         // Global config feeds the dashboard/service cards (budget limit,
         // tick interval); it changes rarely.
@@ -698,6 +721,20 @@ impl App {
                 Style::default().fg(self.theme.text),
             ),
         ];
+        // When nothing is running, name why — the same gate reasons the
+        // daemon applies, refreshed every few seconds.
+        if self.daemon.current_run.is_none() && self.daemon.current_runs.is_none() {
+            if let Some(reasons) = &self.idle_reasons {
+                line_spans.push(Span::styled(
+                    " │ ",
+                    Style::default().fg(self.theme.text_dim),
+                ));
+                line_spans.push(Span::styled(
+                    format!("idle: {reasons}"),
+                    Style::default().fg(self.theme.yellow),
+                ));
+            }
+        }
         let right = format!("openloop v{} │ ? help │ q quit", self.version);
         // Right-align against the rendered area (TS justifyContent=space-between).
         let left_width: usize = line_spans.iter().map(|s| s.to_string().len()).sum();

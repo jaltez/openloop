@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -616,5 +616,3 @@ pub fn resolve_provider(
         custom_command: None,
     }
 }
-
-pub fn _unused(_p: PathBuf) {}

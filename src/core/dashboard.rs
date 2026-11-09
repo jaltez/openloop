@@ -179,35 +179,50 @@ fn render_dashboard_html(snapshot: &DashboardSnapshot) -> String {
         .projects
         .iter()
         .flat_map(|p| {
-            p.tasks.iter().take(20).map(move |t| {
-                let validation_html = match &t.last_run {
-                    Some(lr) => lr
-                        .validation
-                        .iter()
-                        .map(|v| {
-                            let icon = if v.exit_code == 0 { "✅" } else { "❌" };
-                            format!("{icon} {}", escape_html(&v.name.as_str()))
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" "),
-                    None => "--".to_string(),
-                };
-                format!(
-                    "<tr>\n      <td>{}</td>\n      <td>{}</td>\n      <td><span class=\"badge badge-{}\">{}</span></td>\n      <td><span class=\"risk-{}\">{}</span></td>\n      <td>{}</td>\n      <td>{}</td>\n      <td>{}</td>\n      <td>{}</td>\n      <td>{}</td>\n      <td>{}</td>\n    </tr>",
+            let mut rows: Vec<String> = p
+                .tasks
+                .iter()
+                .take(20)
+                .map(|t| {
+                    let validation_html = match &t.last_run {
+                        Some(lr) => lr
+                            .validation
+                            .iter()
+                            .map(|v| {
+                                let icon = if v.exit_code == 0 { "✅" } else { "❌" };
+                                format!("{icon} {}", escape_html(&v.name.as_str()))
+                            })
+                            .collect::<Vec<_>>()
+                            .join(" "),
+                        None => "--".to_string(),
+                    };
+                    format!(
+                        "<tr>\n      <td>{}</td>\n      <td>{}</td>\n      <td><span class=\"badge badge-{}\">{}</span></td>\n      <td><span class=\"risk-{}\">{}</span></td>\n      <td>{}</td>\n      <td>{}</td>\n      <td>{}</td>\n      <td>{}</td>\n      <td>{}</td>\n      <td>{}</td>\n    </tr>",
+                        escape_html(&p.alias),
+                        escape_html(&t.id),
+                        t.status,
+                        escape_html(&t.status),
+                        t.risk,
+                        escape_html(&t.risk),
+                        escape_html(&t.kind),
+                        escape_html(&t.title.chars().take(60).collect::<String>()),
+                        t.estimated_cost_usd.map(|c| format!("${c:.4}")).unwrap_or_else(|| "--".into()),
+                        t.attempts,
+                        validation_html,
+                        escape_html(&t.updated_at.chars().take(19).collect::<String>().replacen('T', " ", 1)),
+                    )
+                })
+                .collect();
+            let hidden = p.tasks.len().saturating_sub(20);
+            if hidden > 0 {
+                rows.push(format!(
+                    "<tr><td>{}</td><td colspan=\"10\">… and {hidden} more task(s) — \
+                     'openloop task list -p {alias}'</td></tr>",
                     escape_html(&p.alias),
-                    escape_html(&t.id),
-                    t.status,
-                    escape_html(&t.status),
-                    t.risk,
-                    escape_html(&t.risk),
-                    escape_html(&t.kind),
-                    escape_html(&t.title.chars().take(60).collect::<String>()),
-                    t.estimated_cost_usd.map(|c| format!("${c:.4}")).unwrap_or_else(|| "--".into()),
-                    t.attempts,
-                    validation_html,
-                    escape_html(&t.updated_at.chars().take(19).collect::<String>().replacen('T', " ", 1)),
-                )
-            })
+                    alias = escape_html(&p.alias),
+                ));
+            }
+            rows
         })
         .collect::<Vec<_>>()
         .join("\n");

@@ -1,5 +1,4 @@
 use std::io::{Read, Write};
-use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -305,8 +304,6 @@ fn run_webhook_hook(
         .read_to_string(&mut response_body);
     Ok(parse_hook_response(response_body.as_bytes()))
 }
-
-pub fn _unused(_p: &Path) {}
 
 fn kill_pid_kill(pid: i32) -> bool {
     unsafe { libc::kill(pid, libc::SIGKILL) == 0 }

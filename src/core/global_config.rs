@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use super::fsutil::{read_json_file, write_json_file};
 use super::paths::global_config_path;
 use super::types::*;
@@ -176,5 +174,3 @@ pub fn set_nested_json_value(
         current[*last] = new_value;
     }
 }
-
-pub fn _unused(_p: &Path) {}

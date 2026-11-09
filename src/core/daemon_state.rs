@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use super::file_lock::with_file_lock;
 use super::fsutil::{read_json_file, write_json_file};
@@ -165,5 +165,3 @@ pub fn resume_daemon(app_home_override: Option<&str>) -> Result<DaemonState, Str
         app_home_override,
     )
 }
-
-pub fn _unused(_p: &Path) {}

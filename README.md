@@ -72,7 +72,10 @@ openloop approval list --project myapp
   ledger note, and notifications), opt-in concurrent runs
   per tick (`runtime.maxConcurrentRuns`), max attempts, no-progress
   detection, budget ceilings, review backpressure, cron schedules, and
-  crash recovery on daemon restart.
+  crash recovery on daemon restart. `openloop status` (and the TUI status
+  bar) names why each project is idle: paused, budget-blocked,
+  review-backpressure, dependencies, no eligible tasks, or a missing
+  provider.
 - **Verified runs**: lint/test/typecheck gates plus project-defined custom
   gates (`openloop config project-add-validation`, first-class in auto-merge
   readiness), an independent verifier role judging acceptance criteria,
