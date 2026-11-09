@@ -305,3 +305,135 @@ fn mcp_add_task_rejects_invalid_kind_and_risk_values() {
         Some(&serde_json::json!(true))
     );
 }
+
+#[test]
+fn mcp_review_tools_expose_promotion_detail_and_approval_packet() {
+    let _env = env_lock();
+    let s = sandbox("review");
+    seed_project(&s, "demo");
+
+    // PromotionDetail reads git working-tree state: the target must be a repo.
+    for args in [
+        vec!["init", "-q"],
+        vec!["config", "user.email", "t@t"],
+        vec!["config", "user.name", "t"],
+    ] {
+        std::process::Command::new("git")
+            .args(&args)
+            .current_dir(&s.target)
+            .output()
+            .unwrap();
+    }
+    fs::write(s.target.join("README.md"), "x\n").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "-A"])
+        .current_dir(&s.target)
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["commit", "-qm", "init"])
+        .current_dir(&s.target)
+        .output()
+        .unwrap();
+
+    // A pending promotion artifact and an approval packet for review.
+    let task_id = "fix-login";
+    let artifact = openloop::core::types::PromotionArtifact {
+        version: 1,
+        created_at: "2026-01-02T00:00:00.000Z".into(),
+        project_alias: "demo".into(),
+        task_id: task_id.into(),
+        base_branch: Some("main".into()),
+        decision: openloop::core::types::PromotionDecision::ManualReview,
+        action: openloop::core::types::PromotionAction::QueueReview,
+        effective_promotion_mode: openloop::core::types::TaskPromotion::PullRequest,
+        validation: vec![openloop::core::types::ValidationSummary {
+            name: openloop::core::types::ValidationName::Lint,
+            command: "true".into(),
+            exit_code: 0,
+        }],
+        pi_exit_code: Some(0),
+        outcome: openloop::core::types::RunOutcome::Completed,
+        approval_packet_path: None,
+        status: openloop::core::types::PromotionArtifactStatus::Pending,
+        processed_at: None,
+        note: None,
+    };
+    openloop::core::promotion_artifacts::write_promotion_artifact(&s.target, &artifact).unwrap();
+    let packet = openloop::core::approval_packets::ApprovalPacketData {
+        diff_stat: None,
+        validation: vec![],
+        review_findings: vec![],
+        cost_usd: 0.12,
+        cost_source: openloop::core::types::CostSource::Measured,
+        run_summary_path: None,
+        spec_path: None,
+    };
+    let task = openloop::core::types::ProjectTask {
+        id: task_id.into(),
+        title: "Fix login".into(),
+        kind: openloop::core::types::TaskKind::Bugfix,
+        status: openloop::core::types::TaskStatus::Done,
+        risk: openloop::core::types::TaskRisk::MediumRisk,
+        scope: None,
+        source: openloop::core::types::TaskSource {
+            source_type: "human".into(),
+            r#ref: "test".into(),
+        },
+        spec_id: None,
+        branch: Some("openloop/fix-login".into()),
+        owner: None,
+        acceptance_criteria: vec![],
+        attempts: 1,
+        last_failure_signature: None,
+        promotion: openloop::core::types::TaskPromotion::PullRequest,
+        promoted_at: None,
+        depends_on: None,
+        estimated_cost_usd: None,
+        notes: None,
+        last_run: None,
+        created_at: "2026-01-01T00:00:00.000Z".into(),
+        updated_at: "2026-01-01T00:00:00.000Z".into(),
+    };
+    openloop::core::approval_packets::write_approval_packet(&s.target, &task, &packet).unwrap();
+    fs::write(
+        s.target.join(".openloop").join("tasks.json"),
+        serde_json::to_string_pretty(&TaskLedger {
+            version: 1,
+            updated_at: "2026-01-01T00:00:00.000Z".into(),
+            tasks: vec![task],
+        })
+        .unwrap(),
+    )
+    .unwrap();
+
+    let responses = mcp_round_trip(
+        &[
+            r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"openloop_promotion_show","arguments":{"project":"demo","taskId":"fix-login"}}}"#,
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"openloop_approval_packet","arguments":{"project":"demo","taskId":"fix-login"}}}"#,
+            r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"openloop_promotion_show","arguments":{"project":"demo","taskId":"ghost"}}}"#,
+        ],
+        3,
+    );
+
+    let detail = result_json(&responses[0]);
+    assert_eq!(detail["artifact"]["taskId"], "fix-login");
+    assert_eq!(detail["artifact"]["action"], "queue-review");
+    assert_eq!(detail["artifact"]["status"], "pending");
+    assert_eq!(detail["taskBranch"], "openloop/fix-login");
+
+    let packet = result_json(&responses[1]);
+    assert_eq!(packet["taskId"], "fix-login");
+    assert_eq!(packet["costUsd"], 0.12);
+    assert_eq!(packet["costSource"], "measured");
+
+    // Unknown task: isError result, not a protocol error.
+    assert!(
+        responses[2]
+            .pointer("/result/isError")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+        "unknown task must be an isError result: {}",
+        responses[2]
+    );
+}

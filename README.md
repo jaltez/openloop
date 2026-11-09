@@ -93,7 +93,9 @@ openloop approval list --project myapp
 - **Integrations**: lifecycle hooks (command/webhook), notification channels
   (webhook, Slack, Discord, Telegram, desktop) with a delivery ledger and
   bounded retry surfaced in `doctor`, GitHub/GitLab issue sync with status
-  comments, a localhost web dashboard, and an MCP server over stdio.
+  comments, a localhost web dashboard, and an MCP server over stdio (11
+  tools, including read-only promotion detail and approval-packet access so
+  a reviewer agent can pre-digest promotions for the human).
 - **Retention**: each project prunes its control plane — the newest
   `retention.maxRunArtifactsPerTask` run summaries/transcripts (default 20)
   and `retention.maxPromotionResultsPerTask` promotion results (default 10)

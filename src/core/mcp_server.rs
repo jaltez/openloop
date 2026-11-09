@@ -221,6 +221,60 @@ fn build_tools() -> Vec<McpTool> {
             }),
         },
         McpTool {
+            name: "openloop_promotion_show",
+            description: "Show one promotion in full detail: artifact, validation \
+                          results, PR state, branches, and the git working-tree \
+                          state. Read-only — for reviewing a promotion before a \
+                          human applies it.",
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "project": { "type": "string", "description": "Project alias" },
+                    "taskId": { "type": "string", "description": "Task id" }
+                },
+                "required": ["project", "taskId"]
+            }),
+            handler: Box::new(|args| {
+                let alias = required_string(args, "project", "openloop_promotion_show")?;
+                let task_id = required_string(args, "taskId", "openloop_promotion_show")?;
+                let project_path = resolve_project_path(&alias)?;
+                let detail = super::promotion_queue::get_promotion_detail(
+                    std::path::Path::new(&project_path),
+                    &task_id,
+                )?;
+                serde_json::to_value(detail).map_err(|e| e.to_string())
+            }),
+        },
+        McpTool {
+            name: "openloop_approval_packet",
+            description: "Show the human-approval packet for a task: diff stat, \
+                          cost, review findings, and provenance. Read-only — \
+                          apply/reject decisions stay with the human CLI.",
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "project": { "type": "string", "description": "Project alias" },
+                    "taskId": { "type": "string", "description": "Task id" }
+                },
+                "required": ["project", "taskId"]
+            }),
+            handler: Box::new(|args| {
+                let alias = required_string(args, "project", "openloop_approval_packet")?;
+                let task_id = required_string(args, "taskId", "openloop_approval_packet")?;
+                let project_path = resolve_project_path(&alias)?;
+                match super::approval_packets::read_approval_packet(
+                    std::path::Path::new(&project_path),
+                    &task_id,
+                )? {
+                    Some(packet) => serde_json::to_value(packet).map_err(|e| e.to_string()),
+                    None => Ok(serde_json::json!({
+                        "packet": serde_json::Value::Null,
+                        "note": format!("No approval packet exists for task {task_id}.")
+                    })),
+                }
+            }),
+        },
+        McpTool {
             name: "openloop_digest",
             description: "Fleet confidence digest: activity, spend split, review queue.",
             input_schema: serde_json::json!({
