@@ -45,6 +45,7 @@ pub fn default_project_config() -> ProjectConfig {
         schedule_state: None,
         review: Some(ProjectReview { enabled: false }),
         verification: Some(ProjectVerification { enabled: true }),
+        retention: None,
     }
 }
 

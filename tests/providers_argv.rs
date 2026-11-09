@@ -146,6 +146,7 @@ fn base_config(agent: Option<AgentConfig>) -> ProjectConfig {
         schedule_state: None,
         review: None,
         verification: None,
+        retention: None,
     }
 }
 

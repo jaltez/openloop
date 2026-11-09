@@ -13,6 +13,26 @@ pub struct CheckResult {
     pub detail: String,
 }
 
+/// Recursive byte size of a directory tree (best-effort; unreadable entries
+/// count as zero).
+fn dir_size_bytes(dir: &Path) -> u64 {
+    let mut total = 0;
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    for entry in entries.flatten() {
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        if metadata.is_dir() {
+            total += dir_size_bytes(&entry.path());
+        } else {
+            total += metadata.len();
+        }
+    }
+    total
+}
+
 fn check_binary(name: &str) -> CheckResult {
     let found = std::process::Command::new("which")
         .arg(name)
@@ -267,6 +287,48 @@ pub fn run_doctor_checks(app_home_override: Option<&str>) -> Result<Vec<CheckRes
         });
     }
 
+    // 5b. Notification delivery health: last outcome per channel plus the
+    // pending retry queue.
+    if let Ok(state) = super::daemon_state::load_daemon_state(app_home_override) {
+        let failing: Vec<String> = state
+            .notification_status
+            .unwrap_or_default()
+            .iter()
+            .filter(|s| !s.ok)
+            .map(|s| {
+                format!(
+                    "{} ({})",
+                    s.channel_key,
+                    s.error.as_deref().unwrap_or("unknown error")
+                )
+            })
+            .collect();
+        let queued = state.notification_queue.unwrap_or_default().len();
+        if failing.is_empty() && queued == 0 {
+            results.push(CheckResult {
+                label: "Notifications".to_string(),
+                status: "ok",
+                detail: "all configured channels delivered".to_string(),
+            });
+        } else {
+            let mut detail = String::new();
+            if !failing.is_empty() {
+                detail.push_str(&format!("failing: {}", failing.join("; ")));
+            }
+            if queued > 0 {
+                if !detail.is_empty() {
+                    detail.push_str("; ");
+                }
+                detail.push_str(&format!("{queued} delivery(ies) awaiting retry"));
+            }
+            results.push(CheckResult {
+                label: "Notifications".to_string(),
+                status: "warn",
+                detail,
+            });
+        }
+    }
+
     // 6. Check each linked project
     match super::project_registry::list_projects(app_home_override) {
         Ok(projects) => {
@@ -327,6 +389,27 @@ pub fn run_doctor_checks(app_home_override: Option<&str>) -> Result<Vec<CheckRes
                             }
                             results
                                 .extend(check_project_validation(&project.alias, &project_config));
+                            // Control-plane disk usage (runs/, promotions/,
+                            // promotion-results/, ...).
+                            let control_plane = project_path.join(".openloop");
+                            if control_plane.is_dir() {
+                                let bytes = dir_size_bytes(&control_plane);
+                                let mib = bytes as f64 / (1024.0 * 1024.0);
+                                let status = if bytes > 512 * 1024 * 1024 {
+                                    "warn"
+                                } else {
+                                    "ok"
+                                };
+                                results.push(CheckResult {
+                                    label: format!("{}: control-plane size", project.alias),
+                                    status,
+                                    detail: format!(
+                                        "{mib:.1} MiB in {} (retention prunes runs/ and \
+                                         promotion-results/ per policy)",
+                                        control_plane.display()
+                                    ),
+                                });
+                            }
                         }
                         Err(err) => {
                             results.push(CheckResult {

@@ -293,6 +293,16 @@ pub enum ConfigSubcommand {
         #[arg(long)]
         command: Option<String>,
     },
+    /// Set control-plane retention for a linked project
+    ProjectSetRetention {
+        project: String,
+        /// Keep the newest N run artifacts per task
+        #[arg(long)]
+        max_runs: Option<u32>,
+        /// Keep the newest N promotion results per task
+        #[arg(long)]
+        max_results: Option<u32>,
+    },
     /// Add a global lifecycle hook
     AddHook {
         #[arg(long = "type", value_parser = ["command", "webhook"])]
@@ -328,12 +338,19 @@ pub enum ConfigSubcommand {
     ProjectRemoveHook { project: String, index: usize },
     /// List configured project-local lifecycle hooks
     ProjectListHooks { project: String },
-    /// Add a notification channel (webhook or desktop)
+    /// Add a notification channel (webhook, slack, discord, telegram, desktop)
     AddChannel {
-        #[arg(long = "type", value_parser = ["webhook", "desktop"])]
+        #[arg(
+            long = "type",
+            value_parser = ["webhook", "slack", "discord", "telegram", "desktop"]
+        )]
         channel_type: String,
         #[arg(long)]
         url: Option<String>,
+        #[arg(long)]
+        bot_token: Option<String>,
+        #[arg(long)]
+        chat_id: Option<String>,
         #[arg(long, default_value = "*")]
         events: String,
     },

@@ -25,6 +25,8 @@ pub fn create_default_daemon_state() -> DaemonState {
         projects: Vec::new(),
         last_digest_date: None,
         last_pr_refresh_at: None,
+        notification_queue: None,
+        notification_status: None,
     }
 }
 
@@ -92,6 +94,12 @@ pub fn load_daemon_state(app_home_override: Option<&str>) -> Result<DaemonState,
         .get("lastPrRefreshAt")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
+    if let Some(v) = partial.get("notificationQueue") {
+        state.notification_queue = serde_json::from_value(v.clone()).ok();
+    }
+    if let Some(v) = partial.get("notificationStatus") {
+        state.notification_status = serde_json::from_value(v.clone()).ok();
+    }
     Ok(state)
 }
 
@@ -99,7 +107,11 @@ pub fn save_daemon_state(
     state: &DaemonState,
     app_home_override: Option<&str>,
 ) -> Result<(), String> {
-    write_json_file(&daemon_state_path(app_home_override), state)
+    let path = daemon_state_path(app_home_override);
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    write_json_file(&path, state)
 }
 
 fn state_lock_path(app_home_override: Option<&str>) -> PathBuf {

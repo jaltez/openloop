@@ -7,7 +7,7 @@ use super::event_log::{append_event, now_event};
 use super::now_iso;
 use super::types::{GlobalConfig, LifecycleHookConfig, ProjectConfig, ValidationSummary};
 
-#[derive(Debug, Clone, Default, serde::Serialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LifecycleHookPayload {
     pub event: String,
@@ -16,31 +16,35 @@ pub struct LifecycleHookPayload {
     pub task_id: String,
     pub message: String,
     pub timestamp: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_status: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stopped_by: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub promotion_decision: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub promotion_action: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub budget_snapshot_usd: Option<f64>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub validation: Vec<ValidationSummary>,
-    #[serde(rename = "approvalPacketPath", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "approvalPacketPath",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub approval_packet_path: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub digest: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_promotions: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failed_checks: Option<Vec<String>>,
     #[serde(flatten)]
     pub extra: std::collections::BTreeMap<String, serde_json::Value>,

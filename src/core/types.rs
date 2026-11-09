@@ -77,6 +77,16 @@ pub struct DashboardConfig {
 pub enum NotificationChannelConfig {
     #[serde(rename = "webhook")]
     Webhook { url: String, events: Vec<String> },
+    #[serde(rename = "slack")]
+    Slack { url: String, events: Vec<String> },
+    #[serde(rename = "discord")]
+    Discord { url: String, events: Vec<String> },
+    #[serde(rename = "telegram")]
+    Telegram {
+        bot_token: String,
+        chat_id: String,
+        events: Vec<String>,
+    },
     #[serde(rename = "desktop")]
     Desktop { events: Vec<String> },
 }
@@ -199,6 +209,8 @@ pub struct ProjectConfig {
     pub review: Option<ProjectReview>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verification: Option<ProjectVerification>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retention: Option<ProjectRetention>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -268,6 +280,37 @@ pub struct ProjectReview {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectVerification {
     pub enabled: bool,
+}
+
+/// Control-plane artifact retention for a linked project. Applied by the
+/// daemon during idle work; the event log is never touched (append-only
+/// audit contract).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectRetention {
+    /// Keep the newest N run summaries/transcripts per task (default 20).
+    #[serde(default = "default_max_run_artifacts_per_task")]
+    pub max_run_artifacts_per_task: u32,
+    /// Keep the newest N promotion-result artifacts per task (default 10).
+    #[serde(default = "default_max_promotion_results_per_task")]
+    pub max_promotion_results_per_task: u32,
+}
+
+pub fn default_max_run_artifacts_per_task() -> u32 {
+    20
+}
+
+pub fn default_max_promotion_results_per_task() -> u32 {
+    10
+}
+
+impl Default for ProjectRetention {
+    fn default() -> Self {
+        ProjectRetention {
+            max_run_artifacts_per_task: default_max_run_artifacts_per_task(),
+            max_promotion_results_per_task: default_max_promotion_results_per_task(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -363,6 +406,46 @@ pub struct DaemonState {
         skip_serializing_if = "Option::is_none"
     )]
     pub last_pr_refresh_at: Option<String>,
+    /// Failed deliveries awaiting retry (bounded, oldest dropped).
+    #[serde(
+        default,
+        rename = "notificationQueue",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub notification_queue: Option<Vec<QueuedNotification>>,
+    /// Last delivery outcome per notification channel.
+    #[serde(
+        default,
+        rename = "notificationStatus",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub notification_status: Option<Vec<NotificationDeliveryStatus>>,
+}
+
+/// One failed notification delivery pending retry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueuedNotification {
+    /// Identifies the channel in global config (see notifications::channel_key).
+    pub channel_key: String,
+    /// Serialized LifecycleHookPayload.
+    pub payload_json: String,
+    pub attempts: u32,
+    /// ISO timestamp; the retry loop fires at or after it.
+    pub next_attempt_at: String,
+    pub last_error: Option<String>,
+}
+
+/// Last delivery outcome for one notification channel.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationDeliveryStatus {
+    pub channel_key: String,
+    pub ok: bool,
+    /// ISO timestamp of the last delivery attempt.
+    pub at: String,
+    pub event: Option<String>,
+    pub error: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

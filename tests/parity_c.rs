@@ -217,6 +217,7 @@ fn minimal_project_config(hooks: Vec<LifecycleHookConfig>) -> ProjectConfig {
         schedule_state: None,
         review: None,
         verification: None,
+        retention: None,
     }
 }
 

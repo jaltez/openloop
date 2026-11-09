@@ -24,6 +24,7 @@ pub mod project_selection;
 pub mod promotion_artifacts;
 pub mod promotion_queue;
 pub mod providers;
+pub mod retention;
 pub mod review;
 pub mod run_report;
 pub mod run_summaries;

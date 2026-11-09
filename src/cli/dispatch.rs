@@ -551,6 +551,37 @@ fn config(cmd: ConfigCommand) -> Result<(), String> {
             println!("Project {} agent set to {provider}", project.alias);
             Ok(())
         }
+        ConfigSubcommand::ProjectSetRetention {
+            project,
+            max_runs,
+            max_results,
+        } => {
+            if max_runs.is_none() && max_results.is_none() {
+                eprintln!("Error: provide --max-runs and/or --max-results");
+                std::process::exit(1);
+            }
+            let project = c::project_registry::get_project(&project, None)?;
+            let mut config = c::project_config::load_project_config(Path::new(&project.path))?;
+            let mut retention = config.retention.clone().unwrap_or_default();
+            if let Some(runs) = max_runs {
+                retention.max_run_artifacts_per_task = runs;
+            }
+            if let Some(results) = max_results {
+                retention.max_promotion_results_per_task = results;
+            }
+            config.retention = Some(retention.clone());
+            c::project_config::save_project_config(Path::new(&project.path), &config)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "project": project.alias,
+                    "maxRunArtifactsPerTask": retention.max_run_artifacts_per_task,
+                    "maxPromotionResultsPerTask": retention.max_promotion_results_per_task,
+                }))
+                .unwrap_or_default()
+            );
+            Ok(())
+        }
         ConfigSubcommand::AddHook {
             hook_type,
             events,
@@ -666,46 +697,70 @@ fn config(cmd: ConfigCommand) -> Result<(), String> {
         ConfigSubcommand::AddChannel {
             channel_type,
             url,
+            bot_token,
+            chat_id,
             events,
         } => {
             let events = parse_events(&events);
-            if channel_type == "webhook" {
-                let Some(url) = url else {
-                    eprintln!("Error: --url is required for webhook channels");
-                    std::process::exit(1);
-                };
-                if !url::is_valid(&url) {
-                    eprintln!("Error: --url must be a valid URL");
+            let channel = match channel_type.as_str() {
+                "webhook" | "slack" | "discord" => {
+                    let Some(url) = url else {
+                        eprintln!("Error: --url is required for {channel_type} channels");
+                        std::process::exit(1);
+                    };
+                    if !url::is_valid(&url) {
+                        eprintln!("Error: --url must be a valid URL");
+                        std::process::exit(1);
+                    }
+                    match channel_type.as_str() {
+                        "webhook" => NotificationChannelConfig::Webhook {
+                            url,
+                            events: events.clone(),
+                        },
+                        "slack" => NotificationChannelConfig::Slack {
+                            url,
+                            events: events.clone(),
+                        },
+                        _ => NotificationChannelConfig::Discord {
+                            url,
+                            events: events.clone(),
+                        },
+                    }
+                }
+                "telegram" => {
+                    let Some(bot_token) = bot_token else {
+                        eprintln!("Error: --bot-token is required for telegram channels");
+                        std::process::exit(1);
+                    };
+                    let Some(chat_id) = chat_id else {
+                        eprintln!("Error: --chat-id is required for telegram channels");
+                        std::process::exit(1);
+                    };
+                    NotificationChannelConfig::Telegram {
+                        bot_token,
+                        chat_id,
+                        events: events.clone(),
+                    }
+                }
+                "desktop" => NotificationChannelConfig::Desktop {
+                    events: events.clone(),
+                },
+                _ => {
+                    eprintln!(
+                        "Error: --type must be webhook, slack, discord, telegram, or desktop"
+                    );
                     std::process::exit(1);
                 }
-                let mut config = c::global_config::load_global_config(None)?;
-                let mut channels = config.notification_channels.clone().unwrap_or_default();
-                channels.push(NotificationChannelConfig::Webhook {
-                    url: url.clone(),
-                    events: events.clone(),
-                });
-                config.notification_channels = Some(channels);
-                c::global_config::save_global_config(&config, None)?;
-                println!(
-                    "Added webhook notification channel (events: {})",
-                    events.join(", ")
-                );
-            } else if channel_type == "desktop" {
-                let mut config = c::global_config::load_global_config(None)?;
-                let mut channels = config.notification_channels.clone().unwrap_or_default();
-                channels.push(NotificationChannelConfig::Desktop {
-                    events: events.clone(),
-                });
-                config.notification_channels = Some(channels);
-                c::global_config::save_global_config(&config, None)?;
-                println!(
-                    "Added desktop notification channel (events: {})",
-                    events.join(", ")
-                );
-            } else {
-                eprintln!("Error: --type must be 'webhook' or 'desktop'");
-                std::process::exit(1);
-            }
+            };
+            let mut config = c::global_config::load_global_config(None)?;
+            let mut channels = config.notification_channels.clone().unwrap_or_default();
+            channels.push(channel);
+            config.notification_channels = Some(channels);
+            c::global_config::save_global_config(&config, None)?;
+            println!(
+                "Added {channel_type} notification channel (events: {})",
+                events.join(", ")
+            );
             Ok(())
         }
         ConfigSubcommand::RemoveChannel { index } => {
@@ -742,8 +797,16 @@ fn config(cmd: ConfigCommand) -> Result<(), String> {
                     channel.events().join(", ")
                 };
                 match channel {
-                    NotificationChannelConfig::Webhook { url, .. } => {
-                        println!("[{i}] webhook → {url} (events: {events})");
+                    NotificationChannelConfig::Webhook { url, .. }
+                    | NotificationChannelConfig::Slack { url, .. }
+                    | NotificationChannelConfig::Discord { url, .. } => {
+                        println!(
+                            "[{i}] {} → {url} (events: {events})",
+                            channel.channel_type()
+                        );
+                    }
+                    NotificationChannelConfig::Telegram { chat_id, .. } => {
+                        println!("[{i}] telegram → chat {chat_id} (events: {events})");
                     }
                     NotificationChannelConfig::Desktop { .. } => {
                         println!("[{i}] desktop (events: {events})");

@@ -119,6 +119,7 @@ fn make_config(validation: ProjectValidation) -> ProjectConfig {
         schedule_state: None,
         review: None,
         verification: None,
+        retention: None,
     }
 }
 

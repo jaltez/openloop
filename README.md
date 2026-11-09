@@ -85,8 +85,15 @@ openloop approval list --project myapp
   estimated fallback otherwise; daily budgets anchored to the daemon's start
   date; fleet digest with spend split and a confidence-ranked review queue.
 - **Integrations**: lifecycle hooks (command/webhook), notification channels
-  (webhook/desktop), GitHub/GitLab issue sync with status comments, a
-  localhost web dashboard, and an MCP server over stdio.
+  (webhook, Slack, Discord, Telegram, desktop) with a delivery ledger and
+  bounded retry surfaced in `doctor`, GitHub/GitLab issue sync with status
+  comments, a localhost web dashboard, and an MCP server over stdio.
+- **Retention**: each project prunes its control plane — the newest
+  `retention.maxRunArtifactsPerTask` run summaries/transcripts (default 20)
+  and `retention.maxPromotionResultsPerTask` promotion results (default 10)
+  per task are kept, enforced on every daemon tick; the append-only event
+  log and the pending-promotion queue are never touched. `doctor` reports
+  per-project control-plane size.
 
 ## CLI surface
 

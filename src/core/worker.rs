@@ -212,6 +212,10 @@ pub fn run_worker_tick(started_at: &str) -> Result<DaemonState, String> {
         return persist_tick_state(None, Some(&now_iso()), Some("paused"), &|_| {});
     }
 
+    // Retry due notification deliveries (bounded backoff; failures beyond
+    // MAX_ATTEMPTS are recorded in notificationStatus and dropped).
+    let _ = super::notifications::drain_notification_queue(&config);
+
     // Daily digest: fire once per local calendar day on the first tick. The
     // date is persisted BEFORE the hooks run (at-most-once).
     let today = local_date_stamp();
@@ -288,6 +292,27 @@ pub fn run_worker_tick(started_at: &str) -> Result<DaemonState, String> {
                 "schedule evaluation failed in {}: {}",
                 project.alias, error
             ));
+        }
+        // Control-plane retention: prune old run artifacts per the project's
+        // policy (defaults when unset). Cheap (two dir listings) and idempotent.
+        match super::project_config::load_project_config(Path::new(&project.path))
+            .map_err(|e| e.to_string())
+            .and_then(|config| {
+                super::retention::enforce_retention(Path::new(&project.path), &config)
+            }) {
+            Ok((runs, results)) if runs + results > 0 => {
+                append_log_fmt(&format!(
+                    "retention pruned {runs} run artifact(s) and {results} promotion result(s) in {}",
+                    project.alias
+                ));
+            }
+            Ok(_) => {}
+            Err(error) => {
+                append_log_fmt(&format!(
+                    "retention enforcement failed in {}: {}",
+                    project.alias, error
+                ));
+            }
         }
     }
 
