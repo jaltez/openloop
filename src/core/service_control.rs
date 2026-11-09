@@ -38,11 +38,10 @@ fn is_process_alive(pid: i32) -> bool {
         if result == 0 {
             return true;
         }
-        let errno = *libc::__errno_location();
-        if errno == libc::EPERM {
-            return true;
-        }
-        false
+        // Portable errno read (macOS and Linux name the thread-local errno
+        // symbol differently); EPERM means the process exists but is owned
+        // by someone else.
+        std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
     }
 }
 
