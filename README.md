@@ -5,7 +5,7 @@ project repositories. Pi is the default agent; the runtime also supports
 Claude Code, Aider, Codex, OpenCode, ka, Oh My Pi, and arbitrary shell
 commands through a provider abstraction.
 
-OpenLoop is written in **Rust** — a single ~4.7 MB self-contained binary
+OpenLoop is written in **Rust** — a single ~5 MB self-contained binary
 (system libc linked, no runtime dependency). It starts in ~1 ms, idles at
 ~5 MB RSS, and ships one artifact everywhere.
 
@@ -56,6 +56,57 @@ openloop            # interactive TUI (9 views, mouse support)
 # Review pending promotions
 openloop promotion list --project myapp
 openloop approval list --project myapp
+```
+
+## The TUI
+
+![TUI dashboard view](docs/screenshot/tui-dashboard.svg)
+
+The dashboard: daemon health, the day's budget burn, the active run, the
+whole project fleet, and the tail of the audit log.
+
+![TUI tasks view](docs/screenshot/tui-tasks.svg)
+
+Tasks per project: status, risk, dependencies, acceptance criteria, and the
+promotion policy for the selected task. Both images are real renders of the
+TUI driven by a fabricated control plane — see `docs/screenshot/` to
+regenerate them.
+
+## The loop
+
+```mermaid
+flowchart TB
+    subgraph CLI["openloop CLI / TUI (you)"]
+        add["project add · task add"]
+        watch["status · watch · TUI · promotion approve"]
+    end
+
+    subgraph DAEMON["daemon — single-threaded tick loop"]
+        tick["tick (default 5 s)"]
+        gates{"select project + task<br/>gates: budget · dependencies · review backpressure"}
+        agent["agent subprocess on an isolated branch<br/>(opt-in worktree) · timeout · attempt budget"]
+        report["run report · ledger update<br/>validation + secrets/scope review"]
+        policy{"promotion policy"}
+        merge["auto-merge (fast-forward, gates green)"]
+        pr["pull request + review queue"]
+        tick --> gates
+        gates -->|eligible task| agent
+        gates -->|idle| tick
+        agent --> report
+        report --> policy
+        policy -->|auto-merge| merge
+        policy -->|pull-request / manual-only| pr
+        pr -->|merged / closed| tick
+        merge --> tick
+    end
+
+    ledger[("per-project task ledgers")]
+    events[("event log · notifications · digest")]
+
+    add --> ledger
+    ledger --> gates
+    report --> events
+    watch --> events
 ```
 
 ## What it does
@@ -138,14 +189,15 @@ src/
 │   │                no-progress detection, the full run iteration
 │   ├── worker.rs    the daemon tick loop (budget, backpressure,
 │   │                schedules, recovery, hooks/notifications)
-│   ├── providers.rs subprocess engine: 8 agents, detached process groups,
+│   ├── providers.rs subprocess engine: 7 built-in agents + custom
+│   │                commands, detached process groups,
 │   │                timeout kills with SIGKILL escalation + reaping,
 │   │                usage/cost parsing, 4 MiB rolling capture
 │   ├── promotion_queue.rs / promotion_artifacts.rs / approval_packets.rs
 │   ├── review.rs    deterministic secrets + scope drift (+ optional LLM)
 │   ├── policy/glob/cron/event-log/digest/report/issue-sync/hooks/...
 │   ├── dashboard.rs localhost HTTP server (GET-only, snapshot-cached)
-│   └── mcp_server.rs  stdio JSON-RPC 2.0 (9 tools)
+│   └── mcp_server.rs  stdio JSON-RPC 2.0 (11 tools)
 ├── cli/           clap definitions + dispatch (20 visible commands)
 └── tui/           ratatui app: 9 views, tab-gated polling, shared
                     modals (input/confirm/picker), mouse support
@@ -174,7 +226,7 @@ Design notes:
 
 ```sh
 cargo build            # debug build
-cargo test             # 247 tests across 30 suites
+cargo test             # 294 tests across 38 suites
 cargo clippy           # zero warnings enforced in CI
 cargo fmt              # formatting
 cargo run -- status    # try it against a sandbox: OPENLOOP_HOME=/tmp/x cargo run -- status
@@ -194,10 +246,8 @@ and the npm tarball manifest.
 | CLI startup | 77 ms | **1.2 ms** | ~64x |
 | Idle daemon RSS | ~71–75 MB | **5.0 MB** | ~14x |
 | CLI RSS | 79 MB | **3.4 MB** | ~23x |
-| Deployable artifact | ~377 MB (dist+deps+node) | **4.7 MB** | ~80x |
+| Deployable artifact | ~377 MB (dist+deps+node) | **5.0 MB** | ~75x |
 | Runtime dependency | Node ≥ 22 / Bun | none | — |
-
-Port mapping, compatibility contract, and methodology: [docs/PORT-NOTES.md](docs/PORT-NOTES.md).
 
 ## License
 

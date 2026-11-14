@@ -22,7 +22,7 @@ Its responsibility is to:
 - `tests/` contains Rust integration tests (unit logic is exercised through the library target)
 - `templates/project/` contains files materialized into linked repositories (embedded into the binary at build time)
 - `bin/` and `scripts/` hold the npm distribution shim (the npm package wraps the native binary; there are no runtime JavaScript dependencies)
-- `docs/` holds design and port-history notes
+- `docs/` holds design notes (TUI contract) and screenshot assets
 
 Do not treat root-level files in this repository as if they were the live control plane of a target project.
 
@@ -47,7 +47,7 @@ The app-level runtime uses `~/.openloop/` for:
 
 The app materializes project-local control-plane files into linked repositories via `templates/project/`.
 
-Those templates define `.openloop/`, `.agents/skills/openloop/SKILL.md`, and `.pi/` for the target repository.
+Those templates define `.openloop/`, `.agents/skills/openloop/SKILL.md`, `.ka/`, and `.pi/` for the target repository.
 
 ## Git Rules
 
