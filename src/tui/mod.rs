@@ -88,6 +88,20 @@ fn handle_global_keys(app: &mut app::App, key: &KeyEvent) -> bool {
         }
         return false;
     }
+    // Help overlay owns routing while open: view hotkeys must not act
+    // beneath it ('x' then 'y' would execute an invisible confirm).
+    if app.show_help {
+        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            app.quit_requested = true;
+        } else {
+            match key.code {
+                KeyCode::Char('?') | KeyCode::Esc => app.show_help = false,
+                KeyCode::Char('q') => app.quit_requested = true,
+                _ => {}
+            }
+        }
+        return true;
+    }
     // Number keys jump to tabs (unless an input field is capturing).
     if !app.input_capturing() {
         if let KeyCode::Char(ch) = key.code {

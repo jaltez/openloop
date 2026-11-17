@@ -1434,7 +1434,7 @@ pub fn run_project_iteration(
                                         // unwind the tick, not book a Done task
                                         // with no verdict (TS exited in the
                                         // handler leaving in_progress).
-                                        Err(e) if e.starts_with("__shutdown__") => {
+                                        Err(e) if super::worker::is_shutdown_error(&e) => {
                                             return Err(e);
                                         }
                                         Err(_) => 1,
@@ -1475,6 +1475,12 @@ pub fn run_project_iteration(
                             .unwrap_or(false)
                     {
                         let reviews_dir_abs = control_plane_path.join(".openloop").join("reviews");
+                        // A reviewer that fails to write must not leave the
+                        // previous attempt's findings to be re-imported
+                        // (mirrors the verifier verdict cleanup above).
+                        let _ = std::fs::remove_file(
+                            reviews_dir_abs.join(format!("{}.json", task.id)),
+                        );
                         // TS parity: when the diff is unavailable (git
                         // failure) the LLM reviewer is skipped and only
                         // deterministic checks apply.
@@ -1507,7 +1513,7 @@ pub fn run_project_iteration(
                                         default_provider.as_deref(),
                                     ) {
                                         Ok(r) => r.exit_code,
-                                        Err(e) if e.starts_with("__shutdown__") => {
+                                        Err(e) if super::worker::is_shutdown_error(&e) => {
                                             return Err(e);
                                         }
                                         Err(_) => 1,
@@ -1719,7 +1725,7 @@ pub fn run_project_iteration(
 
     match worktree_result {
         Ok(result) => Ok(result),
-        Err(error) if error.starts_with("__shutdown__") => {
+        Err(error) if super::worker::is_shutdown_error(&error) => {
             // Daemon shutdown mid-run: TS exited before the tick could unwind,
             // leaving the task in_progress (recovered to ready with attempts
             // unchanged on the next start). Book nothing — no failed attempt,

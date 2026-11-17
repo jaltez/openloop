@@ -17,6 +17,13 @@ const MAX_CONSECUTIVE_ERRORS: u32 = 5;
 
 pub static SHUTDOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// True for the sentinel error raised when a subprocess observes daemon
+/// shutdown mid-run; single classifier for every former
+/// `starts_with("__shutdown__")` site.
+pub fn is_shutdown_error(error: &str) -> bool {
+    error.starts_with("__shutdown__")
+}
+
 extern "C" fn handle_signal(_sig: i32) {
     SHUTDOWN.store(true, std::sync::atomic::Ordering::SeqCst);
 }
@@ -279,6 +286,10 @@ pub fn run_worker_tick(started_at: &str) -> Result<DaemonState, String> {
             });
         }
         return blocked_state;
+    } else if normalized_state.budget_blocked {
+        // Budget raised or spend adjusted: clear the stale flag so
+        // status/idleReasons stop reporting budget-blocked.
+        let _ = with_daemon_state(|state| state.budget_blocked = false, None);
     }
 
     // Daemon-native schedules: evaluate every initialized project's schedules
@@ -805,7 +816,7 @@ fn process_iteration_outcome(
             }
         }
         Err(error) => {
-            if error.starts_with("__shutdown__") {
+            if is_shutdown_error(&error) {
                 // Daemon shutdown: do not surface the sentinel as the
                 // project's lastResult (TS exited before persisting a
                 // failure here; the task stays in_progress and recovers
@@ -1225,17 +1236,18 @@ fn evaluate_single_schedule(
     }
 
     super::task_ledger::with_task_ledger(project_path, |ledger| {
+        let scheduled_task_id = format!("{}-{}", schedule.id, ts / 60_000);
         let already_queued = ledger.tasks.iter().any(|task| {
             task.source.source_type == "schedule"
                 && task.source.r#ref == schedule.id
-                && task.created_at.as_str() > last_fired.as_str()
+                && task.id == scheduled_task_id
         });
         if already_queued {
             return Ok(());
         }
         let now_iso = now_iso();
         ledger.tasks.push(ProjectTask {
-            id: format!("{}-{}", schedule.id, now / 60000),
+            id: format!("{}-{}", schedule.id, ts / 60_000),
             title: schedule.title.clone(),
             kind: TaskKind::Feature,
             status: TaskStatus::Proposed,
@@ -1269,7 +1281,7 @@ fn evaluate_single_schedule(
         });
         Ok(())
     })?;
-    schedule_state.insert(schedule.id.clone(), now_minute.to_string());
+    schedule_state.insert(schedule.id.clone(), to_minute_iso(ts));
     let mut event = now_event("schedule_fired");
     event.project = Some(project.alias.clone());
     event.task_id = Some(schedule.id.clone());

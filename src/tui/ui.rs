@@ -177,7 +177,9 @@ pub fn picker_modal(
     let height = (options.len() as u16 + 4).min(area.height);
     let modal = centered(area, 44, height);
     frame.render_widget(Clear, modal);
-    let inner = modal_block(theme, title, false).inner(modal);
+    let block = modal_block(theme, title, false);
+    let inner = block.inner(modal);
+    frame.render_widget(block, modal);
     let lines: Vec<Line> = options
         .iter()
         .enumerate()

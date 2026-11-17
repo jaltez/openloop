@@ -1055,7 +1055,6 @@ pub fn config(app: &mut App, frame: &mut Frame, area: Rect) {
 // ---------------------------------------------------------------------------
 
 pub fn run(app: &mut App, frame: &mut Frame, area: Rect) {
-    app.poll_run_result();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(1)])

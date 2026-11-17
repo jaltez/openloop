@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use chrono::TimeZone;
+use chrono::Timelike;
 use openloop::core::types::*;
 use openloop::core::worker::run_worker_tick;
 
@@ -229,16 +230,22 @@ fn cron_schedule_fires_once_and_dedupes() {
     let s = sandbox("schedule");
     write_global_config(|_| {});
 
-    // Project config with an every-minute schedule and persisted last-fire.
+    // Project config with a schedule pinned to the PREVIOUS minute-of-hour
+    // and a last-fire 61 minutes old. The catch-up window then contains
+    // exactly one occurrence of the cron minute — never the current minute —
+    // so a second tick that straddles a minute boundary cannot legitimately
+    // refire, and the id-exact dedupe holds.
+    let utc_now = chrono::Utc::now();
+    let cron_minute = (utc_now.minute() + 59) % 60;
     let mut config = openloop::core::project_config::default_project_config();
     config.schedule = Some(vec![ProjectSchedule {
         id: "tick".into(),
-        cron: "* * * * *".into(),
+        cron: format!("{cron_minute} * * * *"),
         title: "Scheduled pass".into(),
         prompt: None,
     }]);
     let last_fired = chrono::Utc
-        .timestamp_millis_opt(chrono::Utc::now().timestamp_millis() - 10 * 60_000)
+        .timestamp_millis_opt(utc_now.timestamp_millis() - 61 * 60_000)
         .single()
         .unwrap()
         .format("%Y-%m-%dT%H:%M:%S%.3fZ")
@@ -271,9 +278,11 @@ fn cron_schedule_fires_once_and_dedupes() {
     // plan succeeds -> awaiting human approval (TS gating).
     assert_eq!(task.status, TaskStatus::AwaitingApproval);
 
-    // Second tick within the same minute: no duplicate schedule fire. (The
-    // idle pass may synthesize a continuous-improvement task since no
-    // validations are configured — count only schedule-sourced tasks.)
+    // Second tick shortly after (possibly in the next wall-clock minute):
+    // no duplicate schedule fire. lastFired is the matched minute and the
+    // dedupe is id-exact, so each minute fires exactly once. (The idle pass
+    // may synthesize a continuous-improvement task since no validations are
+    // configured — count only schedule-sourced tasks.)
     run_worker_tick("2026-01-01T00:00:05.000Z").unwrap();
     let ledger = openloop::core::task_ledger::load_task_ledger(&s.target).unwrap();
     let scheduled: Vec<_> = ledger
@@ -282,6 +291,48 @@ fn cron_schedule_fires_once_and_dedupes() {
         .filter(|t| t.source.source_type == "schedule")
         .collect();
     assert_eq!(scheduled.len(), 1, "dedupe against the same fire window");
+}
+
+#[test]
+fn budget_blocked_flag_clears_when_budget_raised() {
+    let _env = env_lock();
+    let s = sandbox("budget-clear");
+    write_global_config(|c| {
+        c.budgets.daily_cost_usd = 2.0;
+    });
+    // Stub agent: once the flag clears, the tick may pick up the Ready task;
+    // the run must complete instantly instead of invoking a real provider.
+    let mut config = openloop::core::project_config::default_project_config();
+    config.agent = Some(AgentConfig {
+        agent_type: Some("custom".into()),
+        command: Some("true".into()),
+        extra_args: None,
+    });
+    fs::create_dir_all(s.target.join(".openloop")).unwrap();
+    fs::write(
+        s.target.join(".openloop").join("project.json"),
+        serde_json::to_string(&config).unwrap(),
+    )
+    .unwrap();
+    write_ledger(&s.target, vec![make_task("t", TaskStatus::Ready, 0)]);
+
+    // Spend under the raised ceiling, but leave the stale blocked flag set
+    // (budget was raised since it was latched; today is not a rollover).
+    openloop::core::daemon_state::with_daemon_state(
+        |state: &mut DaemonState| {
+            state.budget_spent_usd = 1.5;
+            state.budget_blocked = true;
+            state.budget_date = openloop::core::local_date_stamp();
+        },
+        None,
+    )
+    .unwrap();
+
+    let state = run_worker_tick(&openloop::core::now_iso()).unwrap();
+    assert!(
+        !state.budget_blocked,
+        "stale budget_blocked must clear once spend is under the limit"
+    );
 }
 
 #[test]

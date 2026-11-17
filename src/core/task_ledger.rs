@@ -44,7 +44,23 @@ pub fn with_task_ledger<T>(
 ) -> Result<T, String> {
     super::file_lock::with_file_lock(&tasks_lock_path(project_path), "Task ledger", || {
         let mut ledger = load_task_ledger(project_path)?;
+        let before: BTreeMap<String, TaskStatus> =
+            ledger.tasks.iter().map(|t| (t.id.clone(), t.status)).collect();
         let result = mutator(&mut ledger)?;
+        for task in &ledger.tasks {
+            if let Some(prev) = before.get(&task.id) {
+                if *prev != task.status
+                    && !TaskStatus::is_daemon_transition(*prev, task.status)
+                {
+                    let mut event = super::event_log::now_event("task_status_overridden");
+                    event.task_id = Some(task.id.clone());
+                    event.task_status = Some(task.status.as_str().to_string());
+                    event.detail =
+                        Some(format!("{} -> {}", prev.as_str(), task.status.as_str()));
+                    super::event_log::append_event_lossy(&event);
+                }
+            }
+        }
         save_task_ledger(project_path, &mut ledger)?;
         Ok(result)
     })

@@ -193,6 +193,16 @@ fn enqueue_retry(channel_key: &str, payload: &super::hooks::LifecycleHookPayload
     let _ = super::daemon_state::with_daemon_state(
         |state| {
             let queue = state.notification_queue.get_or_insert_with(Vec::new);
+            // Queue identity is (channel, payload): a re-fire while the same
+            // delivery is still queued must neither add a duplicate entry nor
+            // reset the accumulated backoff; only the latest error refreshes.
+            if let Some(queued) = queue
+                .iter_mut()
+                .find(|q| q.channel_key == entry.channel_key && q.payload_json == entry.payload_json)
+            {
+                queued.last_error = Some(error.to_string());
+                return;
+            }
             queue.push(entry.clone());
             if queue.len() > MAX_QUEUE {
                 let dropped = queue.len() - MAX_QUEUE;
@@ -234,7 +244,7 @@ pub fn drain_notification_queue(config: &GlobalConfig) -> usize {
                 Ok(p) => p,
                 Err(_) => {
                     // Unparseable queued payload: drop it (corrupt beyond retry).
-                    remove_queued(&entry.channel_key);
+                    remove_queued(&entry.channel_key, &entry.payload_json);
                     continue;
                 }
             };
@@ -243,7 +253,7 @@ pub fn drain_notification_queue(config: &GlobalConfig) -> usize {
             .find(|c| channel_key(c) == entry.channel_key)
         else {
             // Channel removed from config: drop the queued delivery.
-            remove_queued(&entry.channel_key);
+            remove_queued(&entry.channel_key, &entry.payload_json);
             record_delivery_status(
                 &entry.channel_key,
                 false,
@@ -255,7 +265,7 @@ pub fn drain_notification_queue(config: &GlobalConfig) -> usize {
         match deliver(channel, &payload) {
             Ok(()) => {
                 record_delivery_status(&entry.channel_key, true, None, Some(&payload.event));
-                remove_queued(&entry.channel_key);
+                remove_queued(&entry.channel_key, &entry.payload_json);
             }
             Err(error) => {
                 let attempts = entry.attempts + 1;
@@ -266,7 +276,7 @@ pub fn drain_notification_queue(config: &GlobalConfig) -> usize {
                         Some(&format!("giving up after {attempts} attempts: {error}")),
                         Some(&payload.event),
                     );
-                    remove_queued(&entry.channel_key);
+                    remove_queued(&entry.channel_key, &entry.payload_json);
                 } else {
                     let backoff = RETRY_BACKOFF_SECONDS
                         .get((attempts - 1) as usize)
@@ -276,7 +286,9 @@ pub fn drain_notification_queue(config: &GlobalConfig) -> usize {
                         |state| {
                             if let Some(queue) = state.notification_queue.as_mut() {
                                 for queued in queue.iter_mut() {
-                                    if queued.channel_key == entry.channel_key {
+                                    if queued.channel_key == entry.channel_key
+                                        && queued.payload_json == entry.payload_json
+                                    {
                                         queued.attempts = attempts;
                                         queued.next_attempt_at = iso_after_seconds(backoff);
                                         queued.last_error = Some(error.clone());
@@ -293,11 +305,13 @@ pub fn drain_notification_queue(config: &GlobalConfig) -> usize {
     processed
 }
 
-fn remove_queued(channel_key: &str) {
+fn remove_queued(channel_key: &str, payload_json: &str) {
     let _ = super::daemon_state::with_daemon_state(
         |state| {
             if let Some(queue) = state.notification_queue.as_mut() {
-                queue.retain(|entry| entry.channel_key != channel_key);
+                queue.retain(|entry| {
+                    entry.channel_key != channel_key || entry.payload_json != payload_json
+                });
                 if queue.is_empty() {
                     state.notification_queue = None;
                 }

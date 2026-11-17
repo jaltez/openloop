@@ -33,8 +33,22 @@ pub fn unregister_active_run(id: usize) {
 
 /// Kill every registered run. Best effort — failures never block shutdown.
 pub fn kill_active_runs() {
-    for run in ACTIVE_RUNS.lock().drain(..) {
+    let runs: Vec<ActiveRun> = ACTIVE_RUNS.lock().drain(..).collect();
+    for run in &runs {
         super::providers::kill_process_group(run.pgid, libc::SIGTERM);
+    }
+    // AGENTS.md contract: SIGTERM → wait → SIGKILL. Children that honor
+    // SIGTERM (the common case) add no delay; best effort, never fails.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    for run in &runs {
+        while std::time::Instant::now() < deadline
+            && unsafe { libc::kill(-run.pgid, 0) } == 0
+        {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        if unsafe { libc::kill(-run.pgid, 0) } == 0 {
+            super::providers::kill_process_group(run.pgid, libc::SIGKILL);
+        }
     }
 }
 

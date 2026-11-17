@@ -243,6 +243,10 @@ impl App {
 
     /// Sync the shared TableState with `selected` before rendering.
     fn sync_table_state(&mut self) {
+        let len = self.selection_len();
+        if self.selected >= len {
+            self.selected = len.saturating_sub(1);
+        }
         self.table_state.select(Some(self.selected));
     }
 
@@ -307,6 +311,9 @@ impl App {
                 }
             }
         }
+        // Finish background runs even when the Service tab is not visible:
+        // RUN_RESULT left undrained wedges the run indicator off-tab.
+        self.poll_run_result();
         // Repo state for the Projects view: one git invocation pair per
         // project, so it is polled only while that tab is visible.
         if self.active_tab == 1
@@ -577,11 +584,15 @@ impl App {
                 .iter()
                 .map(|s| s.as_str().to_string())
                 .collect();
+            let title = match &picker.action {
+                PickerAction::SetTaskStatus { .. } => "Set task status",
+                PickerAction::SetEventsProject => "Filter events by project",
+            };
             super::ui::picker_modal(
                 frame,
                 frame.area(),
                 &self.theme,
-                "Set task status",
+                title,
                 &options,
                 picker.selected,
             );
@@ -1184,7 +1195,7 @@ impl App {
         }
     }
 
-    pub fn poll_run_result(&mut self) {
+    fn poll_run_result(&mut self) {
         if !self.run_running {
             return;
         }
@@ -1226,6 +1237,15 @@ impl App {
                     match activated {
                         Ok(()) => {
                             self.active_alias = Some(alias.clone());
+                            // Force one refresh of every per-project cache so
+                            // Tasks/Promotions/Logs show the new project's
+                            // data on the next frame, not the old alias's.
+                            self.ledger_refreshed =
+                                Instant::now() - std::time::Duration::from_secs(10);
+                            self.promotions_refreshed =
+                                Instant::now() - std::time::Duration::from_secs(10);
+                            self.log_refreshed =
+                                Instant::now() - std::time::Duration::from_secs(10);
                             self.global_config_refreshed =
                                 Instant::now() - std::time::Duration::from_secs(20);
                             self.status_msg = format!("Active project: {alias}");
@@ -1760,6 +1780,7 @@ impl App {
         match key.code {
             KeyCode::Esc => {
                 self.browser = None;
+                self.input_pending_alias.clear();
                 self.input_mode = InputMode::None;
                 self.status_msg = "Cancelled".to_string();
             }
@@ -1793,6 +1814,7 @@ impl App {
                 let cwd = browser.cwd.clone();
                 let alias = self.input_pending_alias.trim().to_string();
                 self.browser = None;
+                self.input_pending_alias.clear();
                 self.input_mode = InputMode::None;
                 self.input_value.clear();
                 let resolved = std::path::absolute(&cwd)
@@ -1906,6 +1928,10 @@ impl App {
     /// Mouse support: wheel scrolls the focused list, clicks on the tab bar
     /// switch views.
     pub fn handle_mouse(&mut self, mouse: &MouseEvent) {
+        // Help overlay owns the screen: clicks/scroll must not act beneath it.
+        if self.show_help {
+            return;
+        }
         match mouse.kind {
             MouseEventKind::ScrollUp => {
                 if self.picker.is_some() {

@@ -373,6 +373,9 @@ pub struct DaemonCurrentRunState {
     pub started_at: String,
     pub deadline_at: String,
     pub attempt_number: u32,
+    /// Advisory display state: set when a pause arrives mid-run. Pause drains
+    /// live runs (they are never killed); this only marks the run as draining
+    /// for status surfaces. Not consumed by the run loop.
     #[serde(default)]
     pub pause_requested_at: Option<String>,
 }
@@ -648,6 +651,31 @@ impl TaskStatus {
             "promoted" => TaskStatus::Promoted,
             _ => return None,
         })
+    }
+
+    /// Daemon-owned edges of the task lifecycle. Everything else (CLI
+    /// `task update`, TUI status picker) is a human override: allowed, but
+    /// audited as `task_status_overridden` by the ledger writer.
+    pub fn is_daemon_transition(from: TaskStatus, to: TaskStatus) -> bool {
+        use TaskStatus::*;
+        matches!(
+            (from, to),
+            (Proposed, InProgress)
+                | (Planned, InProgress)
+                | (Ready, InProgress)
+                | (Proposed, Blocked)
+                | (Planned, Blocked)
+                | (Ready, Blocked)
+                | (InProgress, Proposed)
+                | (InProgress, Planned)
+                | (InProgress, Ready)
+                | (InProgress, AwaitingApproval)
+                | (InProgress, Done)
+                | (InProgress, Failed)
+                | (InProgress, Blocked)
+                | (AwaitingApproval, Ready)
+                | (Done, Promoted)
+        )
     }
 }
 

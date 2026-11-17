@@ -92,6 +92,10 @@ fn acquire(
                         if still_mtime == mtime && holder_token.is_some() {
                             let _ = fs::remove_file(lock_path);
                         }
+                        // Stale break is not an acquisition attempt: back off
+                        // like a normal contended retry instead of spinning
+                        // through the remaining retry budget.
+                        std::thread::sleep(Duration::from_millis(retry_delay_ms));
                         continue;
                     }
                 }

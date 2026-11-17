@@ -282,3 +282,37 @@ fn queue_is_bounded_and_drops_oldest() {
     }
     assert_eq!(queue_len(), 20);
 }
+
+#[test]
+fn duplicate_failure_for_same_payload_is_deduplicated() {
+    let _env = env_lock();
+    let _s = sandbox("dedupe");
+    let (url, _rx) = stateful_listener(usize::MAX); // always 500
+    let config = slack_config(&url);
+    // One payload struct reused: serde JSON of it is byte-stable, so both
+    // failures carry the identical (channel, payload) identity.
+    let event_payload = payload("task-complete");
+
+    notifications::fire_notifications(&config, &event_payload).unwrap();
+    notifications::fire_notifications(&config, &event_payload).unwrap();
+    assert_eq!(
+        queue_len(),
+        1,
+        "a re-fire while queued must not add a duplicate entry"
+    );
+
+    // The drain reschedules only the processed entry.
+    force_queue_due();
+    notifications::drain_notification_queue(&config); // attempt 2 fails
+    assert_eq!(queue_len(), 1, "retry must keep exactly one entry");
+
+    let entry = daemon_state::load_daemon_state(None)
+        .unwrap()
+        .notification_queue
+        .unwrap()[0]
+        .clone();
+    assert_eq!(
+        entry.attempts, 2,
+        "dedupe must not reset the accumulated attempt count"
+    );
+}
