@@ -209,6 +209,46 @@ fn promotion_refresh_marks_merged_prs_promoted() {
 }
 
 #[test]
+fn merged_pr_promotes_without_an_override_audit() {
+    let _env = env_lock();
+    let sandbox = seed("merged-human");
+    // A human moved the task back to Ready after the run completed; the PR
+    // for the earlier attempt merges afterwards. The merge supersedes the
+    // human status (the code landed) but the transition stays a daemon-owned
+    // edge, so it must not surface as a human override in the audit log.
+    let ledger_path = sandbox.project_root.join(".openloop").join("tasks.json");
+    let mut ledger: TaskLedger =
+        serde_json::from_str(&fs::read_to_string(&ledger_path).unwrap()).unwrap();
+    ledger.tasks[0].status = TaskStatus::Ready;
+    fs::write(&ledger_path, serde_json::to_string_pretty(&ledger).unwrap()).unwrap();
+
+    seed_pr_result(&sandbox.project_root, "https://github.com/org/repo/pull/8");
+    install_gh_stub(&sandbox.bin, r#"{"state":"MERGED","statusCheckRollup":[]}"#);
+
+    run_refresh().expect("refresh should succeed");
+
+    let task = read_task(&sandbox.project_root);
+    assert_eq!(
+        task.status,
+        TaskStatus::Promoted,
+        "a landed merge supersedes the prior status"
+    );
+    assert!(task.promoted_at.is_some(), "promotedAt must be set");
+    let notes = task.notes.unwrap_or_default();
+    assert!(
+        notes.iter().any(|n| n.contains("PR merged")),
+        "notes: {notes:?}"
+    );
+
+    // `* -> Promoted` is a daemon edge: no override audit line.
+    let home = std::env::var("OPENLOOP_HOME").unwrap();
+    let events =
+        fs::read_to_string(std::path::Path::new(&home).join("run").join("events.jsonl"))
+            .unwrap_or_default();
+    assert!(!events.contains("task_status_overridden"), "events: {events}");
+}
+
+#[test]
 fn promotion_refresh_records_failed_ci_checks() {
     let _env = env_lock();
     let sandbox = seed("failed-ci");

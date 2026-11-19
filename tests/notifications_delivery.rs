@@ -294,11 +294,28 @@ fn duplicate_failure_for_same_payload_is_deduplicated() {
     let event_payload = payload("task-complete");
 
     notifications::fire_notifications(&config, &event_payload).unwrap();
+    let first = daemon_state::load_daemon_state(None)
+        .unwrap()
+        .notification_queue
+        .unwrap()[0]
+        .clone();
+    assert_eq!(first.attempts, 1);
+
     notifications::fire_notifications(&config, &event_payload).unwrap();
     assert_eq!(
         queue_len(),
         1,
         "a re-fire while queued must not add a duplicate entry"
+    );
+    let refired = daemon_state::load_daemon_state(None)
+        .unwrap()
+        .notification_queue
+        .unwrap()[0]
+        .clone();
+    assert_eq!(refired.attempts, 1, "re-fire must not reset attempts");
+    assert_eq!(
+        refired.next_attempt_at, first.next_attempt_at,
+        "re-fire must not reset the backoff schedule"
     );
 
     // The drain reschedules only the processed entry.

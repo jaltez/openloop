@@ -656,11 +656,16 @@ impl TaskStatus {
     /// Daemon-owned edges of the task lifecycle. Everything else (CLI
     /// `task update`, TUI status picker) is a human override: allowed, but
     /// audited as `task_status_overridden` by the ledger writer.
+    ///
+    /// `* -> Promoted` is daemon-owned: a PR merge supersedes whatever status
+    /// the task held (a pending PR can merge while the task is mid-run, or
+    /// after a human re-readied the previous attempt).
     pub fn is_daemon_transition(from: TaskStatus, to: TaskStatus) -> bool {
         use TaskStatus::*;
         matches!(
             (from, to),
-            (Proposed, InProgress)
+            (_, Promoted)
+                | (Proposed, InProgress)
                 | (Planned, InProgress)
                 | (Ready, InProgress)
                 | (Proposed, Blocked)
@@ -674,7 +679,6 @@ impl TaskStatus {
                 | (InProgress, Failed)
                 | (InProgress, Blocked)
                 | (AwaitingApproval, Ready)
-                | (Done, Promoted)
         )
     }
 }

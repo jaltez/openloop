@@ -46,6 +46,22 @@ fn sandbox(name: &str) -> Sandbox {
 
     let saved_home = std::env::var("OPENLOOP_HOME").ok();
     std::env::set_var("OPENLOOP_HOME", &home);
+    fs::write(
+        home.join("projects.json"),
+        serde_json::to_string(&ProjectsRegistry {
+            version: 1,
+            projects: vec![LinkedProject {
+                alias: "p1".into(),
+                path: target.to_string_lossy().to_string(),
+                default_branch: None,
+                initialized: true,
+                created_at: "2026-01-01T00:00:00.000Z".into(),
+                updated_at: "2026-01-01T00:00:00.000Z".into(),
+            }],
+        })
+        .unwrap(),
+    )
+    .unwrap();
 
     Sandbox {
         home,
@@ -127,7 +143,12 @@ fn daemon_transition_table_is_exhaustive_for_writers() {
         (TaskStatus::InProgress, TaskStatus::Failed),
         (TaskStatus::InProgress, TaskStatus::Blocked),
         (TaskStatus::AwaitingApproval, TaskStatus::Ready),
+        // A landed merge supersedes any prior status (mid-run PR, or a task
+        // a human re-readied after the previous attempt).
         (TaskStatus::Done, TaskStatus::Promoted),
+        (TaskStatus::InProgress, TaskStatus::Promoted),
+        (TaskStatus::Ready, TaskStatus::Promoted),
+        (TaskStatus::AwaitingApproval, TaskStatus::Promoted),
     ];
     for (from, to) in daemon_edges {
         assert!(
@@ -206,5 +227,49 @@ fn off_machine_status_write_is_audited() {
         override_events(&s.home).len(),
         1,
         "legal edge must not be audited as an override",
+    );
+}
+
+#[test]
+fn daemon_iteration_emits_no_override_audit() {
+    let _env = env_lock();
+    let s = sandbox("daemon-clean");
+    // Stub agent so the implement iteration completes instantly instead of
+    // invoking a real provider.
+    let mut config = openloop::core::project_config::default_project_config();
+    config.agent = Some(AgentConfig {
+        agent_type: Some("custom".into()),
+        command: Some("true".into()),
+        extra_args: None,
+    });
+    fs::create_dir_all(s.target.join(".openloop")).unwrap();
+    fs::write(
+        s.target.join(".openloop").join("project.json"),
+        serde_json::to_string(&config).unwrap(),
+    )
+    .unwrap();
+    write_ledger(&s.target, vec![make_task("t-run", TaskStatus::Ready, 0)]);
+
+    openloop::core::worker::run_worker_tick(&openloop::core::now_iso()).unwrap();
+
+    // The iteration must have completed (proving transitions ran)...
+    let ledger = openloop::core::task_ledger::load_task_ledger(&s.target).unwrap();
+    let task = ledger
+        .tasks
+        .iter()
+        .find(|task| task.id == "t-run")
+        .expect("task still present");
+    assert_eq!(
+        task.status,
+        TaskStatus::Done,
+        "implement iteration must complete",
+    );
+
+    // ...and every daemon transition must be a table edge: none of them may
+    // surface as a human override in the audit log.
+    assert_eq!(
+        override_events(&s.home).len(),
+        0,
+        "daemon-only transitions must not emit task_status_overridden",
     );
 }

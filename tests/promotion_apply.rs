@@ -246,6 +246,36 @@ fn auto_merge_fast_forwards_base_branch() {
 }
 
 #[test]
+fn auto_merge_apply_promotes_a_moved_task() {
+    let dir = sandbox("ff-merge-human");
+    init_repo(&dir);
+    write_project_config(&dir, true);
+
+    let task_id = "fix-ff-human";
+    git(&dir, &["checkout", "-q", "-b", "openloop/fix-ff-human"]);
+    fs::write(dir.join("change-human.txt"), "change\n").unwrap();
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-qm", "task work"]);
+    git(&dir, &["checkout", "-q", "main"]);
+
+    let artifact_path = stage_pending_artifact(&dir, task_id, PromotionAction::QueueAutoMerge);
+    let mut task = make_task_with_artifact(task_id, TaskRisk::LowRisk, &artifact_path);
+    task.branch = Some("openloop/fix-ff-human".into());
+    // A human moved the task back to Ready after the completed run; the
+    // merge still supersedes it (`* -> Promoted` is a daemon-owned edge).
+    task.status = TaskStatus::Ready;
+    write_ledger(&dir, vec![task]);
+
+    let item = promotion_queue::apply_promotion_artifact(&dir, task_id, None).unwrap();
+    assert_eq!(item.artifact.status, PromotionArtifactStatus::Applied);
+
+    let ledger = openloop::core::task_ledger::load_task_ledger(&dir).unwrap();
+    let task = ledger.tasks.iter().find(|t| t.id == task_id).unwrap();
+    assert_eq!(task.status, TaskStatus::Promoted);
+    assert!(task.promoted_at.is_some(), "promotedAt must be set");
+}
+
+#[test]
 fn auto_merge_refuses_dirty_tree() {
     let dir = sandbox("dirty");
     init_repo(&dir);

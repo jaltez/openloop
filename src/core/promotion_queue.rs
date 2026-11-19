@@ -569,6 +569,9 @@ fn sync_task_promotion_state(
         if status == PromotionArtifactStatus::Applied
             && lr.promotion_action == PromotionAction::QueueAutoMerge
         {
+            // `* -> Promoted` is a daemon-owned edge (a landed merge
+            // supersedes the prior status), so this write never surfaces as
+            // a human override in the audit log.
             task.status = TaskStatus::Promoted;
             task.promoted_at = Some(now_iso());
         }

@@ -216,6 +216,10 @@ fn refresh_pr(
                 .iter_mut()
                 .find(|candidate| candidate.id == task_id)
             {
+                // A merge supersedes the prior status (it may have been
+                // mid-run, or a human may have re-readied the task): the
+                // `* -> Promoted` edge is daemon-owned, never audited as a
+                // human override.
                 task.status = TaskStatus::Promoted;
                 task.promoted_at = Some(now_iso());
                 let mut notes = task.notes.clone().unwrap_or_default();
