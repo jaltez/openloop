@@ -481,7 +481,72 @@ fn handle_api_request(
     if pathname == "/api/budget" {
         return Some((200, "application/json", json_of(&snapshot.budget)));
     }
+    if pathname == "/metrics" {
+        return Some((
+            200,
+            "text/plain; version=0.0.4; charset=utf-8",
+            prometheus_metrics(snapshot),
+        ));
+    }
     None
+}
+
+/// Prometheus text exposition derived only from the request snapshot (no
+/// extra I/O): one sample per line, with HELP/TYPE metadata per metric.
+fn prometheus_metrics(snapshot: &DashboardSnapshot) -> String {
+    let mut out = String::new();
+
+    out.push_str("# HELP openloop_daemon_paused Whether the daemon is paused.\n");
+    out.push_str("# TYPE openloop_daemon_paused gauge\n");
+    out.push_str(&format!(
+        "openloop_daemon_paused {}\n",
+        u8::from(snapshot.daemon.paused)
+    ));
+
+    out.push_str("# HELP openloop_budget_spent_usd Budget spent today in USD.\n");
+    out.push_str("# TYPE openloop_budget_spent_usd gauge\n");
+    out.push_str(&format!(
+        "openloop_budget_spent_usd {}\n",
+        snapshot.budget.spent
+    ));
+    out.push_str("# HELP openloop_budget_limit_usd Daily budget limit in USD.\n");
+    out.push_str("# TYPE openloop_budget_limit_usd gauge\n");
+    out.push_str(&format!(
+        "openloop_budget_limit_usd {}\n",
+        snapshot.budget.limit
+    ));
+    out.push_str("# HELP openloop_budget_blocked Whether the budget gate is blocking work.\n");
+    out.push_str("# TYPE openloop_budget_blocked gauge\n");
+    out.push_str(&format!(
+        "openloop_budget_blocked {}\n",
+        u8::from(snapshot.budget.blocked)
+    ));
+
+    out.push_str("# HELP openloop_projects_total Number of registered projects.\n");
+    out.push_str("# TYPE openloop_projects_total gauge\n");
+    out.push_str(&format!("openloop_projects_total {}\n", snapshot.projects.len()));
+
+    out.push_str("# HELP openloop_tasks Number of tasks per status.\n");
+    out.push_str("# TYPE openloop_tasks gauge\n");
+    let mut by_status: std::collections::BTreeMap<String, usize> =
+        std::collections::BTreeMap::new();
+    for project in &snapshot.projects {
+        for (status, count) in &project.task_summary.by_status {
+            *by_status.entry(status.clone()).or_insert(0) += count;
+        }
+    }
+    for (status, count) in &by_status {
+        out.push_str(&format!("openloop_tasks{{status=\"{status}\"}} {count}\n"));
+    }
+
+    out.push_str("# HELP openloop_recent_events_total Recent events included in this snapshot.\n");
+    out.push_str("# TYPE openloop_recent_events_total gauge\n");
+    out.push_str(&format!(
+        "openloop_recent_events_total {}\n",
+        snapshot.recent_events.len()
+    ));
+
+    out
 }
 
 fn handle_connection(mut stream: TcpStream) {

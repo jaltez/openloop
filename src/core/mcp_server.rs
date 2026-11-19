@@ -2,6 +2,7 @@ use std::io::{BufRead, Write};
 type ToolHandler = Box<dyn Fn(&serde_json::Value) -> Result<serde_json::Value, String>>;
 
 use super::now_iso;
+use super::task_ledger::TaskPatch;
 use super::types::*;
 
 struct McpTool {
@@ -196,6 +197,117 @@ fn build_tools() -> Vec<McpTool> {
             }),
         },
         McpTool {
+            name: "openloop_task_update",
+            description: "Update a task in the project ledger (mutates \
+                          .openloop/tasks.json): status, title, risk, kind, or \
+                          scope. Status changes are audited by the ledger \
+                          writer — an off-daemon transition is recorded as \
+                          task_status_overridden.",
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "project": { "type": "string", "description": "Project alias" },
+                    "taskId": { "type": "string", "description": "Task id" },
+                    "status": { "type": "string", "description": "New status" },
+                    "title": { "type": "string", "description": "New title" },
+                    "risk": { "type": "string", "description": "low-risk | medium-risk | high-risk" },
+                    "kind": { "type": "string", "description": "New task kind" },
+                    "scope": {
+                        "type": "object",
+                        "description": "Task scope (omitted leaves scope unchanged)",
+                        "properties": {
+                            "paths": { "type": "array", "items": { "type": "string" } }
+                        },
+                        "required": ["paths"]
+                    }
+                },
+                "required": ["project", "taskId"]
+            }),
+            handler: Box::new(|args| {
+                let alias = required_string(args, "project", "openloop_task_update")?;
+                let task_id = required_string(args, "taskId", "openloop_task_update")?;
+                let project_path = resolve_project_path(&alias)?;
+                let mut patch = TaskPatch::default();
+                if let Some(s) = args.get("status").and_then(|v| v.as_str()) {
+                    patch.status = Some(
+                        TaskStatus::parse(s).ok_or_else(|| format!("Unknown status: {s}"))?,
+                    );
+                }
+                if let Some(t) = args.get("title").and_then(|v| v.as_str()) {
+                    patch.title = Some(t.to_string());
+                }
+                if let Some(r) = args.get("risk").and_then(|v| v.as_str()) {
+                    if !VALID_RISKS.contains(&r) {
+                        return Err(format!("Invalid risk: {r}"));
+                    }
+                    patch.risk =
+                        Some(TaskRisk::parse(r).ok_or_else(|| format!("Invalid risk: {r}"))?);
+                }
+                if let Some(k) = args.get("kind").and_then(|v| v.as_str()) {
+                    if !VALID_KINDS.contains(&k) {
+                        return Err(format!("Invalid kind: {k}"));
+                    }
+                    patch.kind =
+                        Some(TaskKind::parse(k).ok_or_else(|| format!("Invalid kind: {k}"))?);
+                }
+                if let Some(scope) = args.get("scope").filter(|v| !v.is_null()) {
+                    patch.scope = Some(Some(
+                        serde_json::from_value::<TaskScope>(scope.clone())
+                            .map_err(|e| format!("Invalid scope: {e}"))?,
+                    ));
+                }
+                let task = super::task_ledger::update_task(
+                    std::path::Path::new(&project_path),
+                    &task_id,
+                    &patch,
+                )?;
+                serde_json::to_value(task).map_err(|e| e.to_string())
+            }),
+        },
+        McpTool {
+            name: "openloop_task_approve",
+            description: "Approve a task awaiting human approval: moves it to \
+                          ready in the project ledger and appends an approval \
+                          note. Fails unless the task is awaiting-approval.",
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "project": { "type": "string", "description": "Project alias" },
+                    "taskId": { "type": "string", "description": "Task id" }
+                },
+                "required": ["project", "taskId"]
+            }),
+            handler: Box::new(|args| {
+                let alias = required_string(args, "project", "openloop_task_approve")?;
+                let task_id = required_string(args, "taskId", "openloop_task_approve")?;
+                let project_path = resolve_project_path(&alias)?;
+                let updated = super::task_ledger::with_task_ledger(
+                    std::path::Path::new(&project_path),
+                    |ledger| {
+                        let found = ledger
+                            .tasks
+                            .iter_mut()
+                            .find(|t| t.id == task_id)
+                            .ok_or_else(|| format!("Task {task_id} not found"))?;
+                        if found.status != TaskStatus::AwaitingApproval {
+                            return Err(format!(
+                                "Task {} is not awaiting approval (status: {})",
+                                found.id,
+                                found.status.as_str()
+                            ));
+                        }
+                        found.status = TaskStatus::Ready;
+                        let mut notes = found.notes.clone().unwrap_or_default();
+                        notes.push("Approved via MCP.".to_string());
+                        found.notes = Some(notes);
+                        found.updated_at = now_iso();
+                        Ok(found.clone())
+                    },
+                )?;
+                serde_json::to_value(updated).map_err(|e| e.to_string())
+            }),
+        },
+        McpTool {
             name: "openloop_promotion_queue",
             description: "List pending promotion artifacts for a linked project.",
             input_schema: serde_json::json!({
@@ -243,6 +355,64 @@ fn build_tools() -> Vec<McpTool> {
                     &task_id,
                 )?;
                 serde_json::to_value(detail).map_err(|e| e.to_string())
+            }),
+        },
+        McpTool {
+            name: "openloop_promotion_apply",
+            description: "Apply a pending promotion artifact for a task. This \
+                          performs a REAL merge or review-branch/PR preparation \
+                          in the project — it is not a dry run.",
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "project": { "type": "string", "description": "Project alias" },
+                    "taskId": { "type": "string", "description": "Task id" },
+                    "note": { "type": "string", "description": "Optional note recorded on the artifact" }
+                },
+                "required": ["project", "taskId"]
+            }),
+            handler: Box::new(|args| {
+                let alias = required_string(args, "project", "openloop_promotion_apply")?;
+                let task_id = required_string(args, "taskId", "openloop_promotion_apply")?;
+                let note = args.get("note").and_then(|v| v.as_str());
+                let project_path = resolve_project_path(&alias)?;
+                let item = super::promotion_queue::apply_promotion_artifact(
+                    std::path::Path::new(&project_path),
+                    &task_id,
+                    note,
+                )?;
+                Ok(
+                    serde_json::json!({ "artifactPath": item.artifact_path, "artifact": item.artifact }),
+                )
+            }),
+        },
+        McpTool {
+            name: "openloop_promotion_reject",
+            description: "Reject a pending promotion artifact for a task, \
+                          recording the optional note and syncing task state.",
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "project": { "type": "string", "description": "Project alias" },
+                    "taskId": { "type": "string", "description": "Task id" },
+                    "note": { "type": "string", "description": "Optional rejection note" }
+                },
+                "required": ["project", "taskId"]
+            }),
+            handler: Box::new(|args| {
+                let alias = required_string(args, "project", "openloop_promotion_reject")?;
+                let task_id = required_string(args, "taskId", "openloop_promotion_reject")?;
+                let note = args.get("note").and_then(|v| v.as_str());
+                let project_path = resolve_project_path(&alias)?;
+                let item = super::promotion_queue::update_promotion_artifact(
+                    std::path::Path::new(&project_path),
+                    &task_id,
+                    PromotionArtifactStatus::Rejected,
+                    note,
+                )?;
+                Ok(
+                    serde_json::json!({ "artifactPath": item.artifact_path, "artifact": item.artifact }),
+                )
             }),
         },
         McpTool {

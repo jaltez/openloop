@@ -32,6 +32,15 @@ pub struct ProjectReportSection {
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct StatusOverrideEntry {
+    pub at: String,
+    pub task_id: String,
+    #[serde(default)]
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RunReport {
     pub generated_at: String,
     pub period_label: String,
@@ -42,6 +51,7 @@ pub struct RunReport {
     pub total_blocked: usize,
     pub total_idle: usize,
     pub projects: Vec<ProjectReportSection>,
+    pub status_overrides: Vec<StatusOverrideEntry>,
 }
 
 fn build_task_entry(task: &ProjectTask, project_path: &Path) -> TaskReportEntry {
@@ -166,6 +176,25 @@ pub fn generate_run_report(
         format!("last {}h", (since_ms as f64 / 3_600_000.0).round() as i64)
     };
 
+    // Human status overrides are audited by the ledger writer; surface the
+    // ones inside the report window so the summary explains mid-period
+    // status changes.
+    let status_overrides: Vec<StatusOverrideEntry> =
+        super::event_log::read_recent_events(&super::event_log::ReadEventsOptions {
+            override_home: app_home_override,
+            since_ms: Some(since_ms),
+            project: None,
+            limit: None,
+        })
+        .into_iter()
+        .filter(|event| event.event == "task_status_overridden")
+        .map(|event| StatusOverrideEntry {
+            at: event.ts,
+            task_id: event.task_id.unwrap_or_default(),
+            detail: event.detail,
+        })
+        .collect();
+
     Ok(RunReport {
         generated_at: now_iso(),
         period_label,
@@ -177,6 +206,7 @@ pub fn generate_run_report(
         total_blocked,
         total_idle,
         projects: project_sections,
+        status_overrides,
     })
 }
 
@@ -261,6 +291,19 @@ pub fn format_run_report(report: &RunReport) -> String {
             lines.push(format!(
                 "  🔄 {} — {} ({}, {})",
                 task.task_id, task.title, task.risk, task.status
+            ));
+        }
+    }
+
+    if !report.status_overrides.is_empty() {
+        lines.push(String::new());
+        lines.push("Status overrides:".to_string());
+        for entry in &report.status_overrides {
+            lines.push(format!(
+                "  {} {} {}",
+                entry.at,
+                entry.task_id,
+                entry.detail.as_deref().unwrap_or("")
             ));
         }
     }

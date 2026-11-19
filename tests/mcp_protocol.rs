@@ -12,7 +12,9 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use openloop::core::project_registry::{add_project, mark_project_initialized};
-use openloop::core::types::TaskLedger;
+use openloop::core::types::{
+    ProjectTask, TaskKind, TaskLedger, TaskPromotion, TaskRisk, TaskSource, TaskStatus,
+};
 
 // Tests mutate OPENLOOP_HOME (the spawned child inherits it); env mutation
 // must be serialized across tests in this process.
@@ -138,6 +140,182 @@ fn content_text(response: &serde_json::Value) -> String {
 
 fn result_json(response: &serde_json::Value) -> serde_json::Value {
     serde_json::from_str(&content_text(response)).expect("content text is JSON")
+}
+
+/// Minimal ledger task fixture (same shape as tests/worker_tick.rs make_task).
+fn mcp_task(id: &str, status: TaskStatus) -> ProjectTask {
+    let now = "2026-01-01T00:00:00.000Z".to_string();
+    ProjectTask {
+        id: id.into(),
+        title: format!("Task {id}"),
+        kind: TaskKind::Feature,
+        status,
+        risk: TaskRisk::LowRisk,
+        scope: None,
+        source: TaskSource {
+            source_type: "human".into(),
+            r#ref: "test".into(),
+        },
+        spec_id: None,
+        branch: None,
+        owner: None,
+        acceptance_criteria: vec![],
+        attempts: 0,
+        last_failure_signature: None,
+        promotion: TaskPromotion::ManualOnly,
+        promoted_at: None,
+        depends_on: None,
+        estimated_cost_usd: None,
+        notes: None,
+        last_run: None,
+        created_at: now.clone(),
+        updated_at: now,
+    }
+}
+
+/// MCP write tools mutate the real ledger/promotion state and route status
+/// changes through the audited ledger choke point.
+#[test]
+fn mcp_write_tools_mutate_and_are_audited() {
+    let _env = env_lock();
+    let s = sandbox("write-tools");
+    seed_project(&s, "demo");
+    fs::write(
+        s.target.join(".openloop").join("tasks.json"),
+        serde_json::to_string_pretty(&TaskLedger {
+            version: 1,
+            updated_at: "2026-01-01T00:00:00.000Z".into(),
+            tasks: vec![
+                mcp_task("update-me", TaskStatus::Proposed),
+                mcp_task("approve-me", TaskStatus::AwaitingApproval),
+            ],
+        })
+        .unwrap(),
+    )
+    .unwrap();
+
+    let responses = mcp_round_trip(
+        &[
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+            r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#,
+            r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"openloop_task_update","arguments":{"project":"demo","taskId":"update-me","status":"done"}}}"#,
+            r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"openloop_task_update","arguments":{"project":"demo","taskId":"update-me","status":"bogus"}}}"#,
+            r#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"openloop_task_approve","arguments":{"project":"demo","taskId":"approve-me"}}}"#,
+            r#"{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"openloop_promotion_reject","arguments":{"project":"demo","taskId":"ghost"}}}"#,
+        ],
+        6, // notifications/initialized is a notification — no response
+    );
+
+    // tools/list advertises all four write tools.
+    let names: Vec<&str> = responses[1]
+        .pointer("/result/tools")
+        .and_then(serde_json::Value::as_array)
+        .expect("tools/list result has a tools array")
+        .iter()
+        .filter_map(|tool| tool.get("name").and_then(serde_json::Value::as_str))
+        .collect();
+    for expected in [
+        "openloop_task_update",
+        "openloop_task_approve",
+        "openloop_promotion_apply",
+        "openloop_promotion_reject",
+    ] {
+        assert!(
+            names.contains(&expected),
+            "tools/list missing {expected}: {names:?}"
+        );
+    }
+
+    // task_update: Proposed -> Done succeeds and is an off-machine edge.
+    assert_ne!(
+        responses[2].pointer("/result/isError"),
+        Some(&serde_json::json!(true)),
+        "task_update must succeed: {}",
+        content_text(&responses[2])
+    );
+    assert_eq!(result_json(&responses[2])["status"], "done");
+
+    let events = fs::read_to_string(s.home.join("run").join("events.jsonl"))
+        .expect("audit events.jsonl exists after an override");
+    let overrides: Vec<&str> = events
+        .lines()
+        .filter(|line| line.contains("task_status_overridden"))
+        .collect();
+    assert_eq!(
+        overrides.len(),
+        1,
+        "expected exactly one audit event: {events}"
+    );
+    assert!(
+        overrides[0].contains(r#""detail":"proposed -> done""#),
+        "audit detail mismatch: {}",
+        overrides[0]
+    );
+    assert!(
+        overrides[0].contains(r#""taskId":"update-me""#),
+        "audit event missing taskId: {}",
+        overrides[0]
+    );
+
+    // Unknown status is validated before any ledger write.
+    assert_eq!(
+        responses[3].pointer("/result/isError"),
+        Some(&serde_json::json!(true))
+    );
+    assert!(
+        content_text(&responses[3]).contains("Unknown status: bogus"),
+        "unexpected status error: {}",
+        content_text(&responses[3])
+    );
+
+    // task_approve mirrors the TUI: awaiting-approval -> ready + note.
+    assert_ne!(
+        responses[4].pointer("/result/isError"),
+        Some(&serde_json::json!(true)),
+        "task_approve must succeed: {}",
+        content_text(&responses[4])
+    );
+    assert_eq!(result_json(&responses[4])["status"], "ready");
+    let ledger: TaskLedger = serde_json::from_str(
+        &fs::read_to_string(s.target.join(".openloop").join("tasks.json")).unwrap(),
+    )
+    .unwrap();
+    let approved = ledger
+        .tasks
+        .iter()
+        .find(|task| task.id == "approve-me")
+        .expect("approved task still in ledger");
+    assert_eq!(approved.status, TaskStatus::Ready);
+    assert!(
+        approved
+            .notes
+            .as_ref()
+            .is_some_and(|notes| notes.iter().any(|n| n == "Approved via MCP.")),
+        "approval note missing: {:?}",
+        approved.notes
+    );
+    // AwaitingApproval -> Ready is a daemon edge: no extra audit line.
+    let events_after = fs::read_to_string(s.home.join("run").join("events.jsonl")).unwrap();
+    assert_eq!(
+        events_after
+            .lines()
+            .filter(|line| line.contains("task_status_overridden"))
+            .count(),
+        1,
+        "legal daemon edge must not be audited: {events_after}"
+    );
+
+    // No pending artifact -> isError with the queue's error text.
+    assert_eq!(
+        responses[5].pointer("/result/isError"),
+        Some(&serde_json::json!(true))
+    );
+    assert!(
+        content_text(&responses[5]).contains("No pending promotion artifact found"),
+        "unexpected promotion error: {}",
+        content_text(&responses[5])
+    );
 }
 
 #[test]

@@ -375,6 +375,36 @@ fn rejects_non_get_requests_with_405() {
 }
 
 #[test]
+fn metrics_endpoint_serves_prometheus_text() {
+    let _guard = env_lock();
+    let sandbox = sandbox("metrics");
+    seed_state(&sandbox);
+    let server = start_server();
+
+    let res = http_get(server.port(), "/metrics");
+    assert_eq!(res.status, 200);
+    assert!(
+        res.headers
+            .get("content-type")
+            .is_some_and(|v| v.contains("text/plain")),
+        "content-type: {:?}",
+        res.headers.get("content-type")
+    );
+    assert!(
+        res.body.contains("openloop_budget_spent_usd "),
+        "missing budget metric: {}",
+        res.body
+    );
+    assert!(
+        res.body.contains("openloop_tasks{status=\""),
+        "missing task status metric: {}",
+        res.body
+    );
+
+    server.stop();
+}
+
+#[test]
 fn dashboard_config_persists_in_global_config() {
     let _guard = env_lock();
     let sandbox = sandbox("config-persist");

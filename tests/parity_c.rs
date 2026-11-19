@@ -883,6 +883,29 @@ fn generate_run_report_buckets_totals_and_tracks_budget() {
 }
 
 #[test]
+fn run_report_includes_status_override_trail() {
+    let home = report_home("report-overrides");
+    let run_dir = Path::new(home.as_str()).join("run");
+    fs::create_dir_all(&run_dir).unwrap();
+    let event = serde_json::json!({
+        "ts": now_iso(),
+        "event": "task_status_overridden",
+        "taskId": "t1",
+        "detail": "ready -> done",
+    });
+    fs::write(run_dir.join("events.jsonl"), format!("{event}\n")).unwrap();
+
+    let report = generate_run_report(None, Some(home.as_str())).unwrap();
+    assert_eq!(report.status_overrides.len(), 1);
+    assert_eq!(report.status_overrides[0].task_id, "t1");
+    assert_eq!(report.status_overrides[0].detail.as_deref(), Some("ready -> done"));
+
+    let output = format_run_report(&report);
+    assert!(output.contains("Status overrides:"), "output: {output}");
+    assert!(output.contains("ready -> done"), "output: {output}");
+}
+
+#[test]
 fn format_run_report_contains_header_and_spend_line() {
     let home = report_home("report-format");
     let report = generate_run_report(None, Some(home.as_str())).unwrap();
