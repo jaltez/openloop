@@ -196,10 +196,9 @@ fn enqueue_retry(channel_key: &str, payload: &super::hooks::LifecycleHookPayload
             // Queue identity is (channel, payload): a re-fire while the same
             // delivery is still queued must neither add a duplicate entry nor
             // reset the accumulated backoff; only the latest error refreshes.
-            if let Some(queued) = queue
-                .iter_mut()
-                .find(|q| q.channel_key == entry.channel_key && q.payload_json == entry.payload_json)
-            {
+            if let Some(queued) = queue.iter_mut().find(|q| {
+                q.channel_key == entry.channel_key && q.payload_json == entry.payload_json
+            }) {
                 queued.last_error = Some(error.to_string());
                 return;
             }

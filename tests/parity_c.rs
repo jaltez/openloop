@@ -898,7 +898,10 @@ fn run_report_includes_status_override_trail() {
     let report = generate_run_report(None, Some(home.as_str())).unwrap();
     assert_eq!(report.status_overrides.len(), 1);
     assert_eq!(report.status_overrides[0].task_id, "t1");
-    assert_eq!(report.status_overrides[0].detail.as_deref(), Some("ready -> done"));
+    assert_eq!(
+        report.status_overrides[0].detail.as_deref(),
+        Some("ready -> done")
+    );
 
     let output = format_run_report(&report);
     assert!(output.contains("Status overrides:"), "output: {output}");

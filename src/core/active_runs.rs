@@ -41,9 +41,7 @@ pub fn kill_active_runs() {
     // SIGTERM (the common case) add no delay; best effort, never fails.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     for run in &runs {
-        while std::time::Instant::now() < deadline
-            && unsafe { libc::kill(-run.pgid, 0) } == 0
-        {
+        while std::time::Instant::now() < deadline && unsafe { libc::kill(-run.pgid, 0) } == 0 {
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
         if unsafe { libc::kill(-run.pgid, 0) } == 0 {

@@ -242,10 +242,12 @@ fn merged_pr_promotes_without_an_override_audit() {
 
     // `* -> Promoted` is a daemon edge: no override audit line.
     let home = std::env::var("OPENLOOP_HOME").unwrap();
-    let events =
-        fs::read_to_string(std::path::Path::new(&home).join("run").join("events.jsonl"))
-            .unwrap_or_default();
-    assert!(!events.contains("task_status_overridden"), "events: {events}");
+    let events = fs::read_to_string(std::path::Path::new(&home).join("run").join("events.jsonl"))
+        .unwrap_or_default();
+    assert!(
+        !events.contains("task_status_overridden"),
+        "events: {events}"
+    );
 }
 
 #[test]

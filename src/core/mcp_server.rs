@@ -229,9 +229,8 @@ fn build_tools() -> Vec<McpTool> {
                 let project_path = resolve_project_path(&alias)?;
                 let mut patch = TaskPatch::default();
                 if let Some(s) = args.get("status").and_then(|v| v.as_str()) {
-                    patch.status = Some(
-                        TaskStatus::parse(s).ok_or_else(|| format!("Unknown status: {s}"))?,
-                    );
+                    patch.status =
+                        Some(TaskStatus::parse(s).ok_or_else(|| format!("Unknown status: {s}"))?);
                 }
                 if let Some(t) = args.get("title").and_then(|v| v.as_str()) {
                     patch.title = Some(t.to_string());

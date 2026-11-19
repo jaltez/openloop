@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use openloop::core::task_ledger::{TaskPatch, update_task};
+use openloop::core::task_ledger::{update_task, TaskPatch};
 use openloop::core::types::*;
 
 // Ledger writes resolve the app home from OPENLOOP_HOME (the override audit

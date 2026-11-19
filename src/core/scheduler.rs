@@ -1478,9 +1478,8 @@ pub fn run_project_iteration(
                         // A reviewer that fails to write must not leave the
                         // previous attempt's findings to be re-imported
                         // (mirrors the verifier verdict cleanup above).
-                        let _ = std::fs::remove_file(
-                            reviews_dir_abs.join(format!("{}.json", task.id)),
-                        );
+                        let _ =
+                            std::fs::remove_file(reviews_dir_abs.join(format!("{}.json", task.id)));
                         // TS parity: when the diff is unavailable (git
                         // failure) the LLM reviewer is skipped and only
                         // deterministic checks apply.

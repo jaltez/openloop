@@ -524,7 +524,10 @@ fn prometheus_metrics(snapshot: &DashboardSnapshot) -> String {
 
     out.push_str("# HELP openloop_projects_total Number of registered projects.\n");
     out.push_str("# TYPE openloop_projects_total gauge\n");
-    out.push_str(&format!("openloop_projects_total {}\n", snapshot.projects.len()));
+    out.push_str(&format!(
+        "openloop_projects_total {}\n",
+        snapshot.projects.len()
+    ));
 
     out.push_str("# HELP openloop_tasks Number of tasks per status.\n");
     out.push_str("# TYPE openloop_tasks gauge\n");
