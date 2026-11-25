@@ -8,7 +8,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKi
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, TableState};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph, TableState};
 use ratatui::Frame;
 
 pub const TABS: [(&str, &str); 9] = [
@@ -498,6 +498,11 @@ impl App {
     }
 
     pub fn render(&mut self, frame: &mut Frame) {
+        // Paint the void canvas background (--color-void) across the full frame.
+        frame.render_widget(
+            Block::default().style(Style::default().bg(self.theme.bg).fg(self.theme.text)),
+            frame.area(),
+        );
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -639,133 +644,203 @@ impl App {
 
     fn render_tab_bar(&mut self, frame: &mut Frame, area: Rect) {
         const ICONS: [&str; 9] = ["◆", "▤", "☑", "⚙", "⚌", "▶", "⇧", "⌁", "≡"];
+        const BRAND_FULL: &str = " ∞ openloop ";
+        const BRAND_COMPACT: &str = " ∞ ";
         let mut spans: Vec<Span> = Vec::new();
         let mut spans_tab: Vec<(u16, u16)> = Vec::new();
         let mut column: u16 = area.x;
-        // Compact mode: drop labels when the full bar would not fit.
-        // Exact width: every tab renders text + one gap space; the two group
-        // separators (" │ ") add two extra characters over that gap.
-        let full_width: usize = TABS
-            .iter()
-            .enumerate()
-            .map(|(index, (_, label))| format!(" {} {} ", ICONS[index], label).chars().count() + 1)
-            .sum::<usize>()
+        // Compact mode: drop labels when the full bar (brand + tabs + dividers) would not fit.
+        let full_width: usize = BRAND_FULL.chars().count()
+            + 1
+            + TABS
+                .iter()
+                .map(|(key, label)| format!(" {key} {label} ").chars().count() + 1)
+                .sum::<usize>()
             + 4;
         let compact = full_width > area.width as usize;
+
+        // Amber brand pill on the left (matches olp.sh `.brand`).
+        let brand = if compact { BRAND_COMPACT } else { BRAND_FULL };
+        spans.push(Span::styled(
+            brand,
+            Style::default()
+                .fg(self.theme.bg)
+                .bg(self.theme.accent)
+                .add_modifier(Modifier::BOLD),
+        ));
+        column += brand.chars().count() as u16;
+        spans.push(Span::styled(" ", Style::default().bg(self.theme.bg)));
+        column += 1;
+
         for (index, (key, label)) in TABS.iter().enumerate() {
             let selected = index == self.active_tab;
-            let text = if compact {
-                format!(" {}{} ", key, ICONS[index])
+            let tab_bg = if selected {
+                self.theme.bg_selected
             } else {
-                format!(" {} {} ", ICONS[index], label)
+                self.theme.bg
             };
+            let key_fg = if selected {
+                self.theme.accent
+            } else {
+                self.theme.text_muted
+            };
+            let label_fg = if selected {
+                self.theme.text
+            } else {
+                self.theme.text_dim
+            };
+            let label_mod = if selected {
+                Modifier::BOLD
+            } else {
+                Modifier::empty()
+            };
+
             let start = column;
-            column += text.chars().count() as u16;
+            if compact {
+                let key_part = format!(" {key}");
+                let icon_part = format!("{} ", ICONS[index]);
+                column += (key_part.chars().count() + icon_part.chars().count()) as u16;
+                spans.push(Span::styled(
+                    key_part,
+                    Style::default()
+                        .fg(key_fg)
+                        .bg(tab_bg)
+                        .add_modifier(Modifier::BOLD),
+                ));
+                spans.push(Span::styled(
+                    icon_part,
+                    Style::default()
+                        .fg(label_fg)
+                        .bg(tab_bg)
+                        .add_modifier(label_mod),
+                ));
+            } else {
+                let key_part = format!(" {key}");
+                let label_part = format!(" {label} ");
+                column += (key_part.chars().count() + label_part.chars().count()) as u16;
+                spans.push(Span::styled(
+                    key_part,
+                    Style::default()
+                        .fg(key_fg)
+                        .bg(tab_bg)
+                        .add_modifier(Modifier::BOLD),
+                ));
+                spans.push(Span::styled(
+                    label_part,
+                    Style::default()
+                        .fg(label_fg)
+                        .bg(tab_bg)
+                        .add_modifier(label_mod),
+                ));
+            }
             spans_tab.push((start, column));
-            spans.push(Span::styled(
-                text.clone(),
-                Style::default()
-                    .fg(if selected {
-                        self.theme.accent_bright
-                    } else {
-                        self.theme.text_dim
-                    })
-                    .bg(if selected {
-                        self.theme.bg_selected
-                    } else {
-                        self.theme.bg_panel
-                    })
-                    .add_modifier(if selected {
-                        Modifier::BOLD
-                    } else {
-                        Modifier::empty()
-                    }),
-            ));
             // Group separator after Dashboard (overview) and Run (operate).
             if index == 0 || index == 5 {
                 spans.push(Span::styled(
                     " │ ",
-                    Style::default()
-                        .fg(self.theme.border)
-                        .bg(self.theme.bg_panel),
+                    Style::default().fg(self.theme.border).bg(self.theme.bg),
                 ));
                 column += 3;
             } else {
-                spans.push(Span::styled(" ", Style::default().bg(self.theme.bg_panel)));
+                spans.push(Span::styled(" ", Style::default().bg(self.theme.bg)));
                 column += 1;
             }
         }
         self.tab_spans = spans_tab;
         frame.render_widget(
-            Paragraph::new(Line::from(spans)).style(Style::default().bg(self.theme.bg_panel)),
+            Paragraph::new(Line::from(spans)).style(Style::default().bg(self.theme.bg)),
             area,
         );
     }
 
     fn render_status_bar(&self, frame: &mut Frame, area: Rect) {
-        let status_text = if self.daemon.paused {
-            "⏸ PAUSED"
+        let (led_glyph, state_text, led_color) = if self.daemon.paused {
+            ("⏸", " paused", self.theme.yellow)
         } else if self.daemon.pid > 0 {
-            "● RUNNING"
+            ("●", " running", self.theme.green)
         } else {
-            "○ STOPPED"
-        };
-        let status_color = if self.daemon.paused {
-            self.theme.yellow
-        } else if self.daemon.pid > 0 {
-            self.theme.green
-        } else {
-            self.theme.text_dim
+            ("○", " stopped", self.theme.text_muted)
         };
         let mut line_spans = vec![
-            Span::styled(status_text, Style::default().fg(status_color)),
-            Span::styled(" │ ", Style::default().fg(self.theme.text_dim)),
+            Span::styled(" ", Style::default().bg(self.theme.bg)),
+            Span::styled(led_glyph, Style::default().fg(led_color)),
+            Span::styled(
+                state_text,
+                Style::default()
+                    .fg(self.theme.text)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" │ ", Style::default().fg(self.theme.border)),
             Span::styled(
                 self.active_alias
                     .clone()
                     .unwrap_or_else(|| "no project".into()),
-                Style::default().fg(self.theme.accent),
+                Style::default()
+                    .fg(self.theme.text)
+                    .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(" │ ", Style::default().fg(self.theme.text_dim)),
+            Span::styled(" │ ", Style::default().fg(self.theme.border)),
             Span::styled(
-                format!("${:.4} today", self.daemon.budget_spent_usd),
-                Style::default().fg(self.theme.text),
+                format!("${:.4}", self.daemon.budget_spent_usd),
+                Style::default()
+                    .fg(self.theme.accent)
+                    .add_modifier(Modifier::BOLD),
             ),
+            Span::styled(" today", Style::default().fg(self.theme.text_dim)),
         ];
         // When nothing is running, name why — the same gate reasons the
         // daemon applies, refreshed every few seconds.
         if self.daemon.current_run.is_none() && self.daemon.current_runs.is_none() {
             if let Some(reasons) = &self.idle_reasons {
-                line_spans.push(Span::styled(
-                    " │ ",
-                    Style::default().fg(self.theme.text_dim),
-                ));
+                line_spans.push(Span::styled(" │ ", Style::default().fg(self.theme.border)));
                 line_spans.push(Span::styled(
                     format!("idle: {reasons}"),
                     Style::default().fg(self.theme.yellow),
                 ));
             }
         }
-        let right = format!("openloop v{} │ ? help │ q quit", self.version);
-        // Right-align against the rendered area (TS justifyContent=space-between).
-        let left_width: usize = line_spans.iter().map(|s| s.to_string().len()).sum();
-        let pad = (area.width as usize).saturating_sub(left_width + right.len());
-        line_spans.push(Span::raw(format!("{}{}", " ".repeat(pad), right)));
+        let right_spans = vec![
+            Span::styled(
+                format!("openloop v{}", self.version),
+                Style::default().fg(self.theme.text_dim),
+            ),
+            Span::styled(" │ ", Style::default().fg(self.theme.border)),
+            Span::styled(
+                "?",
+                Style::default()
+                    .fg(self.theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" help", Style::default().fg(self.theme.text_dim)),
+            Span::styled(" │ ", Style::default().fg(self.theme.border)),
+            Span::styled(
+                "q",
+                Style::default()
+                    .fg(self.theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" quit ", Style::default().fg(self.theme.text_dim)),
+        ];
+        let left_width: usize = line_spans.iter().map(|s| s.content.chars().count()).sum();
+        let right_width: usize = right_spans.iter().map(|s| s.content.chars().count()).sum();
+        let pad = (area.width as usize).saturating_sub(left_width + right_width);
+        line_spans.push(Span::raw(" ".repeat(pad)));
+        line_spans.extend(right_spans);
         let paragraph = Paragraph::new(Line::from(line_spans));
-        frame.render_widget(
-            paragraph.style(Style::default().bg(self.theme.bg_panel)),
-            area,
-        );
+        frame.render_widget(paragraph.style(Style::default().bg(self.theme.bg)), area);
     }
 
     fn render_help(&self, frame: &mut Frame, area: Rect) {
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(self.theme.accent))
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(self.theme.border))
+            .style(Style::default().bg(self.theme.bg_panel).fg(self.theme.text))
             .title(Span::styled(
                 " Keyboard Shortcuts ",
                 Style::default()
                     .fg(self.theme.accent)
+                    .bg(self.theme.bg_panel)
                     .add_modifier(Modifier::BOLD),
             ));
         let inner = centered_rect(area, 64, 26);

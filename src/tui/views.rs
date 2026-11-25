@@ -49,13 +49,13 @@ fn event_line(theme: &super::theme::Theme, event: &c::types::OpenLoopEvent) -> L
         theme.text
     };
     Line::from(vec![
-        Span::styled(time, Style::default().fg(theme.text_dim)),
+        Span::styled(time, Style::default().fg(theme.accent)),
         Span::raw("  "),
         Span::styled(event.event.clone(), Style::default().fg(color)),
         Span::raw("  "),
         Span::styled(
             event.project.clone().unwrap_or_else(|| "—".into()),
-            Style::default().fg(theme.accent),
+            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
         ),
         Span::raw("  "),
         Span::styled(
@@ -81,7 +81,7 @@ fn selection_table<'a>(
             Cell::from(Span::styled(
                 (*h).to_string(),
                 Style::default()
-                    .fg(theme.accent)
+                    .fg(theme.text_dim)
                     .add_modifier(Modifier::BOLD),
             ))
         })
@@ -103,7 +103,8 @@ fn selection_table<'a>(
         .row_highlight_style(
             Style::default()
                 .bg(theme.bg_selected)
-                .fg(theme.accent_bright),
+                .fg(theme.accent_bright)
+                .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol("▌ ")
 }
@@ -903,7 +904,7 @@ pub fn service(app: &mut App, frame: &mut Frame, area: Rect) {
                     .bg(if selected {
                         app.theme.bg_selected
                     } else {
-                        ratatui::style::Color::Reset
+                        app.theme.bg_panel
                     }),
             ))
         })
@@ -969,14 +970,14 @@ pub fn config(app: &mut App, frame: &mut Frame, area: Rect) {
                 " Global ",
                 Style::default()
                     .fg(if !app.config_panel {
-                        app.theme.bg_panel
+                        app.theme.bg
                     } else {
                         app.theme.text_dim
                     })
                     .bg(if !app.config_panel {
                         app.theme.accent
                     } else {
-                        ratatui::style::Color::Reset
+                        app.theme.bg
                     })
                     .add_modifier(Modifier::BOLD),
             ),
@@ -984,14 +985,14 @@ pub fn config(app: &mut App, frame: &mut Frame, area: Rect) {
                 " Project ",
                 Style::default()
                     .fg(if app.config_panel {
-                        app.theme.bg_panel
+                        app.theme.bg
                     } else {
                         app.theme.text_dim
                     })
                     .bg(if app.config_panel {
                         app.theme.accent
                     } else {
-                        ratatui::style::Color::Reset
+                        app.theme.bg
                     })
                     .add_modifier(Modifier::BOLD),
             ),
@@ -1203,10 +1204,13 @@ pub fn events(app: &mut App, frame: &mut Frame, area: Rect) {
                 app.theme.text
             };
             Row::new(vec![
-                Cell::from(time).style(Style::default().fg(app.theme.text_dim)),
+                Cell::from(time).style(Style::default().fg(app.theme.accent)),
                 Cell::from(event.event.clone()).style(Style::default().fg(color)),
-                Cell::from(event.project.clone().unwrap_or_else(|| "—".into()))
-                    .style(Style::default().fg(app.theme.accent)),
+                Cell::from(event.project.clone().unwrap_or_else(|| "—".into())).style(
+                    Style::default()
+                        .fg(app.theme.text)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Cell::from(event.task_id.clone().unwrap_or_default())
                     .style(Style::default().fg(app.theme.text_dim)),
             ])

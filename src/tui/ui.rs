@@ -16,10 +16,12 @@ pub fn panel<'a>(theme: &Theme, title: &str) -> Block<'a> {
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(theme.border))
+        .style(Style::default().bg(theme.bg_panel).fg(theme.text))
         .title(Span::styled(
             format!(" {title} "),
             Style::default()
                 .fg(theme.accent)
+                .bg(theme.bg_panel)
                 .add_modifier(Modifier::BOLD),
         ))
         .padding(Padding::horizontal(1))
@@ -31,6 +33,7 @@ pub fn panel_untitled<'a>(theme: &Theme) -> Block<'a> {
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(theme.border))
+        .style(Style::default().bg(theme.bg_panel).fg(theme.text))
         .padding(Padding::horizontal(1))
 }
 
@@ -55,7 +58,7 @@ pub fn bar(fraction: f64, width: usize) -> String {
     )
 }
 
-/// `[key] label` chip row for per-view shortcuts.
+/// `[key] label` chip row for per-view shortcuts (matches olp.sh `.key` chips).
 pub fn key_hint_line(theme: &Theme, hints: &[(&str, &str)]) -> Line<'static> {
     let mut spans = Vec::new();
     for (key, label) in hints {
@@ -63,11 +66,19 @@ pub fn key_hint_line(theme: &Theme, hints: &[(&str, &str)]) -> Line<'static> {
             spans.push(Span::raw("  "));
         }
         spans.push(Span::styled(
-            format!("[{key}]"),
+            "[",
+            Style::default().fg(theme.border).bg(theme.bg_panel),
+        ));
+        spans.push(Span::styled(
+            (*key).to_string(),
             Style::default()
-                .fg(theme.bg_panel)
-                .bg(theme.accent)
+                .fg(theme.accent)
+                .bg(theme.bg_panel)
                 .add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::styled(
+            "]",
+            Style::default().fg(theme.border).bg(theme.bg_panel),
         ));
         spans.push(Span::styled(
             format!(" {label}"),
@@ -96,9 +107,13 @@ fn modal_block<'a>(theme: &Theme, title: &str, danger: bool) -> Block<'a> {
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(accent))
+        .style(Style::default().bg(theme.bg_panel).fg(theme.text))
         .title(Span::styled(
             format!(" {title} "),
-            Style::default().fg(accent).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(accent)
+                .bg(theme.bg_panel)
+                .add_modifier(Modifier::BOLD),
         ))
         .padding(Padding::horizontal(1))
 }
@@ -114,6 +129,9 @@ pub fn input_modal(
 ) {
     let modal = centered(area, 56, 5);
     frame.render_widget(Clear, modal);
+    let block = modal_block(theme, title, false);
+    let inner_area = block.inner(modal);
+    frame.render_widget(block, modal);
     let inner = Layout::default()
         .direction(ratatui::layout::Direction::Vertical)
         .constraints([
@@ -121,7 +139,7 @@ pub fn input_modal(
             Constraint::Length(1),
             Constraint::Length(1),
         ])
-        .split(modal_block(theme, title, false).inner(modal));
+        .split(inner_area);
     frame.render_widget(
         Paragraph::new(Span::styled(label, Style::default().fg(theme.text_dim))),
         inner[0],
@@ -146,10 +164,13 @@ pub fn input_modal(
 pub fn confirm_modal(frame: &mut Frame, area: Rect, theme: &Theme, title: &str, message: &str) {
     let modal = centered(area, 64, 6);
     frame.render_widget(Clear, modal);
+    let block = modal_block(theme, title, true);
+    let inner_area = block.inner(modal);
+    frame.render_widget(block, modal);
     let inner = Layout::default()
         .direction(ratatui::layout::Direction::Vertical)
         .constraints([Constraint::Length(2), Constraint::Length(1)])
-        .split(modal_block(theme, title, true).inner(modal));
+        .split(inner_area);
     frame.render_widget(
         Paragraph::new(Span::styled(message, Style::default().fg(theme.text)))
             .wrap(Wrap { trim: true }),
@@ -196,7 +217,7 @@ pub fn picker_modal(
                     .bg(if is_selected {
                         theme.bg_selected
                     } else {
-                        ratatui::style::Color::Reset
+                        theme.bg_panel
                     }),
             ))
         })
@@ -243,10 +264,12 @@ pub fn browser_modal(frame: &mut Frame, area: Rect, theme: &Theme, view: Browser
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(theme.accent))
+        .style(Style::default().bg(theme.bg_panel).fg(theme.text))
         .title(Span::styled(
             " Browse — pick the repository directory ",
             Style::default()
                 .fg(theme.accent)
+                .bg(theme.bg_panel)
                 .add_modifier(Modifier::BOLD),
         ))
         .padding(Padding::horizontal(1));
@@ -293,7 +316,7 @@ pub fn browser_modal(frame: &mut Frame, area: Rect, theme: &Theme, view: Browser
             .bg(if is_selected {
                 theme.bg_selected
             } else {
-                ratatui::style::Color::Reset
+                theme.bg_panel
             });
         lines.push(Line::from(Span::styled(
             format!("{icon} {name}{}", if *is_dir { "/" } else { "" }),

@@ -22,23 +22,25 @@ pub struct Theme {
 }
 
 impl Theme {
+    /// Palette adapted from https://olp.sh/ (void/panel obsidian surfaces,
+    /// warm LED text, hairline dividers, phosphor amber accent, mint ok, coral stop).
     pub fn dark() -> Theme {
         Theme {
-            bg: Color::Rgb(0x1a, 0x1a, 0x2e),
-            bg_panel: Color::Rgb(0x16, 0x21, 0x3e),
-            bg_selected: Color::Rgb(0x0f, 0x34, 0x60),
-            border: Color::Rgb(0x33, 0x41, 0x55),
-            border_focused: Color::Rgb(0x53, 0xa8, 0xb6),
-            text: Color::Rgb(0xe2, 0xe8, 0xf0),
-            text_dim: Color::Rgb(0x94, 0xa3, 0xb8),
-            text_muted: Color::Rgb(0x64, 0x74, 0x8b),
-            accent: Color::Rgb(0x53, 0xa8, 0xb6),
-            accent_bright: Color::Rgb(0x79, 0xd4, 0xe2),
-            green: Color::Rgb(0x22, 0xc5, 0x5e),
-            yellow: Color::Rgb(0xea, 0xb3, 0x08),
-            red: Color::Rgb(0xef, 0x44, 0x44),
-            cyan: Color::Rgb(0x06, 0xb6, 0xd4),
-            orange: Color::Rgb(0xf9, 0x73, 0x16),
+            bg: Color::Rgb(0x06, 0x06, 0x07),             // --color-void
+            bg_panel: Color::Rgb(0x0d, 0x0d, 0x10),       // --color-panel
+            bg_selected: Color::Rgb(0x1f, 0x1c, 0x15),    // warm amber-tinted row highlight
+            border: Color::Rgb(0x26, 0x26, 0x2b),         // --color-line
+            border_focused: Color::Rgb(0xff, 0xb0, 0x00), // --color-amber
+            text: Color::Rgb(0xf4, 0xf1, 0xea),           // --color-led
+            text_dim: Color::Rgb(0x94, 0x92, 0x9a),       // --color-dim
+            text_muted: Color::Rgb(0x66, 0x64, 0x6c),     // --color-faint
+            accent: Color::Rgb(0xff, 0xb0, 0x00),         // --color-amber
+            accent_bright: Color::Rgb(0xff, 0xd1, 0x66),  // luminous amber highlight
+            green: Color::Rgb(0x3d, 0xf0, 0x8a),          // --color-ok
+            yellow: Color::Rgb(0xff, 0xb0, 0x00),         // --color-amber
+            red: Color::Rgb(0xff, 0x5a, 0x4e),            // --color-stop
+            cyan: Color::Rgb(0xff, 0xb0, 0x00),           // --color-amber (run/active)
+            orange: Color::Rgb(0xff, 0x8a, 0x3d),         // amber-coral (high-risk)
         }
     }
 }
